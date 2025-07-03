@@ -1,0 +1,191 @@
+package commands
+
+import (
+	"fmt"
+	"gamerpal/internal/utils"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+)
+
+// handleUserStats handles the usercount slash command
+func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Acknowledge the interaction immediately
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+
+	// Get guild members
+	members, err := utils.GetAllGuildMembers(s, i.GuildID)
+	if err != nil {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
+		})
+		return
+	}
+
+	// Count user types
+	userCount := 0
+	botCount := 0
+
+	for _, member := range members {
+		if member.User.Bot {
+			botCount++
+		} else {
+			userCount++
+		}
+	}
+
+	// Count number of members that joined < 30 days ago, < 180 days ago,
+	// and < 365 days ago
+	var joined30DaysAgoCount int
+	var joined180DaysAgoCount int
+	var joined365DaysAgoCount int
+
+	// Calculate growth percentages
+	var growth30Days float64
+	var growth180Days float64
+	var growth365Days float64
+
+	for _, member := range members {
+		if member.User.Bot {
+			continue // Skip bots
+		}
+
+		joinedAt := member.JoinedAt
+		daysAgo := int(time.Since(joinedAt).Hours() / 24)
+
+		switch {
+		case daysAgo <= 30:
+			joined30DaysAgoCount++
+			fallthrough
+		case daysAgo <= 180:
+			joined180DaysAgoCount++
+			fallthrough
+		case daysAgo <= 365:
+			joined365DaysAgoCount++
+		}
+	}
+
+	// Calculate growth percentages
+	members30DaysAgo := userCount - joined30DaysAgoCount
+	members180DaysAgo := userCount - joined180DaysAgoCount
+	members365DaysAgo := userCount - joined365DaysAgoCount
+
+	if members30DaysAgo > 0 {
+		growth30Days = (float64(joined30DaysAgoCount) / float64(members30DaysAgo)) * 100
+	}
+
+	if members180DaysAgo > 0 {
+		growth180Days = (float64(joined180DaysAgoCount) / float64(members180DaysAgo)) * 100
+	}
+
+	if members365DaysAgo > 0 {
+		growth365Days = (float64(joined365DaysAgoCount) / float64(members365DaysAgo)) * 100
+	}
+
+	// Breakdown by region roles
+	regions := map[string]string{
+		"NA": "475040060786343937",
+		"EU": "475039994554351618",
+		"SA": "475040095993593866",
+		"AS": "475040122463846422",
+		"OC": "505413573586059266",
+		"ZA": "518493780308000779",
+	}
+
+	// Count members by region roles
+	regionCounts := make(map[string]int)
+	for _, member := range members {
+		if member.User.Bot {
+			continue // Skip bots
+		}
+
+		for region, roleID := range regions {
+			for _, role := range member.Roles {
+				if role == roleID {
+					regionCounts[region]++
+					break // Found the region, no need to check others
+				}
+			}
+		}
+	}
+
+	// Create embed response
+	embed := &discordgo.MessageEmbed{
+		Title: "📊 Server Statistics",
+		Color: 0x00ff00,
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "👥 Users",
+				Value:  fmt.Sprintf("%d", userCount),
+				Inline: true,
+			},
+			{
+				Name:   "🤖 Bots",
+				Value:  fmt.Sprintf("%d", botCount),
+				Inline: true,
+			},
+			{
+				Name:   "📈 Total Members",
+				Value:  fmt.Sprintf("%d", userCount+botCount),
+				Inline: true,
+			},
+			{
+				Name:   "📅 Joined in the Last 30 Days",
+				Value:  fmt.Sprintf("%d", joined30DaysAgoCount),
+				Inline: true,
+			},
+			{
+				Name:   "📅 Joined in the Last 180 Days",
+				Value:  fmt.Sprintf("%d", joined180DaysAgoCount),
+				Inline: true,
+			},
+			{
+				Name:   "📅 Joined in the Last 365 Days",
+				Value:  fmt.Sprintf("%d", joined365DaysAgoCount),
+				Inline: true,
+			},
+			{
+				Name:   "📈 Growth in the Last 30 Days",
+				Value:  fmt.Sprintf("%.2f%%", growth30Days),
+				Inline: true,
+			},
+			{
+				Name:   "📈 Growth in the Last 180 Days",
+				Value:  fmt.Sprintf("%.2f%%", growth180Days),
+				Inline: true,
+			},
+			{
+				Name:   "📈 Growth in the Last 365 Days",
+				Value:  fmt.Sprintf("%.2f%%", growth365Days),
+				Inline: true,
+			},
+			{
+				Name:   "🌍 Members by Region",
+				Value:  formatRegionCounts(regionCounts),
+				Inline: true,
+			},
+		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GamerPal Bot",
+		},
+	}
+
+	// Send the response
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+}
+
+func formatRegionCounts(regionCounts map[string]int) string {
+	if len(regionCounts) == 0 {
+		return "No members found in any region."
+	}
+
+	result := ""
+	for region, count := range regionCounts {
+		result += fmt.Sprintf("%s: %d\n", region, count)
+	}
+	return result
+}

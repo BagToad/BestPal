@@ -1,29 +1,21 @@
 package config
 
 import (
-	"os"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad(t *testing.T) {
 	// Test with missing token
-	os.Unsetenv("DISCORD_BOT_TOKEN")
+	t.Setenv("DISCORD_BOT_TOKEN", "")
 	_, err := Load()
-	if err == nil {
-		t.Error("Expected error when DISCORD_BOT_TOKEN is not set")
-	}
+	require.Error(t, err)
 
 	// Test with valid token
-	os.Setenv("DISCORD_BOT_TOKEN", "test_token")
+	t.Setenv("DISCORD_BOT_TOKEN", "test_token")
 	cfg, err := Load()
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if cfg.BotToken != "test_token" {
-		t.Errorf("Expected BotToken to be 'test_token', got '%s'", cfg.BotToken)
-	}
-
-	// Clean up
-	os.Unsetenv("DISCORD_BOT_TOKEN")
+	require.Equal(t, "test_token", cfg.BotToken)
 }

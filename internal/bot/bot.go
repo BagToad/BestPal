@@ -31,7 +31,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 
 	// Create command handler
-	handler := commands.NewHandler()
+	handler := commands.NewHandler(cfg)
 
 	bot := &Bot{
 		session: session,

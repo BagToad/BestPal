@@ -22,6 +22,11 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 				Inline: false,
 			},
 			{
+				Name:   "/game",
+				Value:  "Look up information about a video game from IGDB\n• Use `/game name:GameName` to search for a game",
+				Inline: false,
+			},
+			{
 				Name:   "/prune-inactive",
 				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users\n• **Requires Administrator permissions**",
 				Inline: false,

@@ -133,13 +133,24 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 
 	// Create the embed
 	embed := &discordgo.MessageEmbed{
-		Title: "🕰️ Time Conversion Result",
-		Description: fmt.Sprintf("%s is %s\n",
-			discordTimestamps["Long Date/Time"],
-			discordTimestamps["Relative Time"]),
+		Title: "",
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name: "",
+				Value: fmt.Sprintf("🕰️ %s is %s\n",
+					discordTimestamps["Long Date/Time"],
+					discordTimestamps["Relative Time"]),
+				Inline: false,
+			},
+			{
+				Name:   "",
+				Value:  fmt.Sprintf("_Converted from `%s`_", dateString),
+				Inline: false,
+			},
+		},
 		Color: utils.Colors.Ok(),
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("GamerPal Bot • Converted from `%s`", dateString),
+			Text: fmt.Sprintf("GamerPal Bot"),
 		},
 	}
 
@@ -151,13 +162,11 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 			formatsList.WriteString(fmt.Sprintf("• **%s**: `%s` → %s\n", format, discordTimestamps[format], discordTimestamps[format]))
 		}
 
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{
-				Name:   "📋 Available Discord Timestamp Formats",
-				Value:  formatsList.String(),
-				Inline: false,
-			},
-		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "📋 Available Discord Timestamp Formats",
+			Value:  formatsList.String(),
+			Inline: false,
+		})
 	}
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{

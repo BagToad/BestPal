@@ -58,10 +58,10 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 			igdb.SetLimit(1),
 		)
 	}
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "results are empty") {
 		return &discordgo.MessageEmbed{
 			Title:       "❌ Error",
-			Description: fmt.Sprintf("Failed to search for game: %s", err.Error()),
+			Description: fmt.Sprintf("Encountered an error while searching for game: `%s`\n```%s```", gameName, err.Error()),
 			Color:       0xff6b6b,
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",

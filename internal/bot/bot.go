@@ -80,8 +80,8 @@ func (b *Bot) Start() error {
 func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	fmt.Printf("Bot is ready! Logged in as: %s#%s\n", r.User.Username, r.User.Discriminator)
 
-	// Set bot status to something fresh every minute
-	c := time.NewTicker(time.Minute)
+	// Set bot status to something fresh every hour
+	c := time.NewTicker(time.Hour)
 	go func() {
 		for range c.C {
 			err := s.UpdateGameStatus(0, b.randomStatus())

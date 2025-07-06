@@ -172,7 +172,7 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 					return
 				}
 			}
-			
+
 			// Call the appropriate handler function
 			cmd.handlerFunc(s, i)
 			return
@@ -196,6 +196,7 @@ func (h *Handler) UnregisterCommands(s *discordgo.Session) {
 func (h *Handler) adminCheck(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
 	// When needed, we only respond to users with the correct role or just straight up admin perms.
 	isAdmin := func() bool {
+		// TODO put these in a config
 		adminRoleIDs := []string{"148527996343549952", "513804949964980235"}
 		hasAdminRole := slices.ContainsFunc(i.Member.Roles, func(role string) bool {
 			return slices.Contains(adminRoleIDs, role)

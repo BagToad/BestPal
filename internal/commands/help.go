@@ -27,6 +27,11 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 				Inline: false,
 			},
 			{
+				Name:   "/time",
+				Value:  "Time-related utilities\n• Use `/time parse datetime:2024-12-25 3:00 PM` to convert dates to Discord timestamps",
+				Inline: false,
+			},
+			{
 				Name:   "/prune-inactive",
 				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users\n• **Requires Administrator permissions**",
 				Inline: false,

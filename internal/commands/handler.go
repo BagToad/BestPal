@@ -67,6 +67,31 @@ func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 				},
 			},
 		},
+		{
+			Name:        "time",
+			Description: "Time-related utilities",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "parse",
+					Description: "Parse a date/time and convert it to Discord timestamp format",
+					Options: []*discordgo.ApplicationCommandOption{
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "datetime",
+							Description: "The date/time to parse (e.g., 'January 1, 2025 MDT', '1:45PM MDT')",
+							Required:    true,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionBoolean,
+							Name:        "full",
+							Description: "If true, print out all discord timestamp formats",
+							Required:    false,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	// Register commands globally
@@ -111,6 +136,10 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 		"game": {
 			requireAdmin: false,
 			handlerFunc:  h.handleGame,
+		},
+		"time": {
+			requireAdmin: false,
+			handlerFunc:  h.handleTime,
 		},
 	}
 

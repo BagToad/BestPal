@@ -62,7 +62,7 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		return &discordgo.MessageEmbed{
 			Title:       "❌ Error",
 			Description: fmt.Sprintf("Encountered an error while searching for game: `%s`\n```%s```", gameName, err.Error()),
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -73,7 +73,7 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		return &discordgo.MessageEmbed{
 			Title:       "🔍 No Results",
 			Description: fmt.Sprintf("No games found matching: **%s**", gameName),
-			Color:       0xffa500,
+			Color:       utils.Colors.Info(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -85,7 +85,7 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	// Create the embed
 	embed := &discordgo.MessageEmbed{
 		Title: fmt.Sprintf("🎮 %s", game.Name),
-		Color: 0x00ff00,
+		Color: utils.Colors.Fancy(),
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "GamerPal Bot • Data from IGDB",
 		},

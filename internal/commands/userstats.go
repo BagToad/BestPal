@@ -114,7 +114,7 @@ func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.Interaction
 	// Create embed response
 	embed := &discordgo.MessageEmbed{
 		Title: "📊 Server Statistics",
-		Color: 0x00ff00,
+		Color: utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "👥 Users",

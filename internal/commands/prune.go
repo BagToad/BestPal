@@ -67,7 +67,7 @@ func (h *Handler) handlePruneInactive(s *discordgo.Session, i *discordgo.Interac
 	if execute {
 		// Actually remove users
 		title = "🔨 Prune Inactive Users - Execution"
-		color = 0xff6b6b // Red color for execution
+		color = utils.Colors.Warning()
 
 		for _, member := range usersWithoutRoles {
 			err := s.GuildMemberDeleteWithReason(i.GuildID, member.User.ID, "Pruned: User is inactive")
@@ -87,7 +87,7 @@ func (h *Handler) handlePruneInactive(s *discordgo.Session, i *discordgo.Interac
 	} else {
 		// Dry run
 		title = "🔍 Prune Inactive Users - Dry Run"
-		color = 0x4ecdc4 // Teal color for dry run
+		color = utils.Colors.Info()
 		description = "This is a **dry run**. No users will be removed.\n\n"
 	}
 

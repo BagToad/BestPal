@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"gamerpal/internal/utils"
 	"strings"
 
 	"github.com/markusmobius/go-dateparser"
@@ -22,7 +23,7 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Error",
 			Description: "Please specify a subcommand. Use `/time parse` to parse a date.",
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -41,7 +42,7 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Unknown Command",
 			Description: "Unknown subcommand. Use `/time parse` to parse a date.",
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -58,7 +59,7 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Missing Parameter",
 			Description: "Please provide a date/time to parse.",
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -74,7 +75,7 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Invalid Parameter",
 			Description: "Please provide a valid date/time to parse.",
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Footer: &discordgo.MessageEmbedFooter{
 				Text: "GamerPal Bot",
 			},
@@ -95,7 +96,7 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Parse Error",
 			Description: fmt.Sprintf("Failed to parse date/time: `%s`", dateString),
-			Color:       0xff6b6b,
+			Color:       utils.Colors.Error(),
 			Fields: []*discordgo.MessageEmbedField{
 				{
 					Name: "📋 Supported Formats",
@@ -133,13 +134,12 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 	// Create the embed
 	embed := &discordgo.MessageEmbed{
 		Title: "🕰️ Time Conversion Result",
-		Description: fmt.Sprintf("%s is %s\n\nConverted from: `%s`",
+		Description: fmt.Sprintf("%s is %s\n",
 			discordTimestamps["Long Date/Time"],
-			discordTimestamps["Relative Time"],
-			dateString),
-		Color: 0x00ff00,
+			discordTimestamps["Relative Time"]),
+		Color: utils.Colors.Ok(),
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GamerPal Bot",
+			Text: fmt.Sprintf("GamerPal Bot • Converted from `%s`", dateString),
 		},
 	}
 

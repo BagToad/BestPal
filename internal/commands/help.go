@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"gamerpal/internal/utils"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -9,7 +11,7 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎮 GamerPal Bot - Help",
 		Description: "Here are the available slash commands:",
-		Color:       0x0099ff,
+		Color:       utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "/userstats",

@@ -2,10 +2,8 @@ package commands
 
 import (
 	"fmt"
-	"gamerpal/internal/utils"
 	"strings"
 
-	"github.com/MakeNowJust/heredoc"
 	"github.com/markusmobius/go-dateparser"
 
 	"github.com/bwmarrin/discordgo"
@@ -21,8 +19,16 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 	// Get the subcommand
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Error",
+			Description: "Please specify a subcommand. Use `/time parse` to parse a date.",
+			Color:       0xff6b6b,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "GamerPal Bot",
+			},
+		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Please specify a subcommand. Use `/time parse` to parse a date."),
+			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
 	}
@@ -32,8 +38,16 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 	case "parse":
 		h.handleTimeParse(s, i, subcommand.Options)
 	default:
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Unknown Command",
+			Description: "Unknown subcommand. Use `/time parse` to parse a date.",
+			Color:       0xff6b6b,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "GamerPal Bot",
+			},
+		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Unknown subcommand. Use `/time parse` to parse a date."),
+			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 	}
 }
@@ -41,16 +55,32 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 // handleTimeParse handles the time parse subcommand
 func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Missing Parameter",
+			Description: "Please provide a date/time to parse.",
+			Color:       0xff6b6b,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "GamerPal Bot",
+			},
+		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Please provide a date/time to parse."),
+			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
 	}
 
 	dateString := options[0].StringValue()
 	if dateString == "" {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Invalid Parameter",
+			Description: "Please provide a valid date/time to parse.",
+			Color:       0xff6b6b,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "GamerPal Bot",
+			},
+		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Please provide a valid date/time to parse."),
+			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
 	}
@@ -62,18 +92,28 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 
 	parsedUnixTime, err := parseUnixTimestamp(dateString)
 	if err != nil {
+		embed := &discordgo.MessageEmbed{
+			Title:       "❌ Parse Error",
+			Description: fmt.Sprintf("Failed to parse date/time: `%s`", dateString),
+			Color:       0xff6b6b,
+			Fields: []*discordgo.MessageEmbedField{
+				{
+					Name: "📋 Supported Formats",
+					Value: "• `15:04 MDT` (time only, assumes today)\n" +
+						"• `3:04 PM PDT` (time only, assumes today)\n" +
+						"• `2006-01-02 15:04:05 EST`\n" +
+						"• `2006-01-02 3:04 PM EST`\n" +
+						"• `January 2, 2006 3:04 PM PDT`\n" +
+						"• `Jan 2, 2006 3:04 PM MDT`",
+					Inline: false,
+				},
+			},
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "GamerPal Bot",
+			},
+		}
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(heredoc.Docf(`
-				❌ Failed to parse date/time: %[2]s%[1]s%[2]s
-
-				**Supported formats:**
-				• %[2]s15:04 MDT%[2]s (time only, assumes today)
-				• %[2]s3:04 PM PDT%[2]s (time only, assumes today)
-				• %[2]s2006-01-02 15:04:05 EST%[2]s
-				• %[2]s2006-01-02 3:04 PM EST%[2]s
-				• %[2]sJanuary 2, 2006 3:04 PM PDT%[2]s
-				• %[2]sJan 2, 2006 3:04 PM MDT%[2]s
-				`, dateString, "`")),
+			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
 	}
@@ -90,25 +130,38 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 		"Relative Time":   fmt.Sprintf("<t:%d:R>", parsedUnixTime),
 	}
 
-	var responseBuilder strings.Builder
-	responseBuilder.WriteString(
-		heredoc.Docf(`
-		🕰️ %s is %s
-		
-		Converted from: %[4]s%[3]s%[4]s
-		`, discordTimestamps["Long Date/Time"], discordTimestamps["Relative Time"], dateString, "`"),
-	)
+	// Create the embed
+	embed := &discordgo.MessageEmbed{
+		Title: "🕰️ Time Conversion Result",
+		Description: fmt.Sprintf("%s is %s\n\nConverted from: `%s`",
+			discordTimestamps["Long Date/Time"],
+			discordTimestamps["Relative Time"],
+			dateString),
+		Color: 0x00ff00,
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GamerPal Bot",
+		},
+	}
 
+	// Add full output field if requested
 	if fullOutput {
-		responseBuilder.WriteString("**Available Discord timestamp formats:**\n")
 		formatOrder := []string{"Default", "Short Time", "Long Time", "Short Date", "Long Date", "Short Date/Time", "Long Date/Time", "Relative Time"}
+		var formatsList strings.Builder
 		for _, format := range formatOrder {
-			responseBuilder.WriteString(fmt.Sprintf("• **%s**: `%s` → %s\n", format, discordTimestamps[format], discordTimestamps[format]))
+			formatsList.WriteString(fmt.Sprintf("• **%s**: `%s` → %s\n", format, discordTimestamps[format], discordTimestamps[format]))
+		}
+
+		embed.Fields = []*discordgo.MessageEmbedField{
+			{
+				Name:   "📋 Available Discord Timestamp Formats",
+				Value:  formatsList.String(),
+				Inline: false,
+			},
 		}
 	}
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(responseBuilder.String()),
+		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
 

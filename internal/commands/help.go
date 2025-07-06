@@ -10,12 +10,11 @@ import (
 func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎮 GamerPal Bot - Help",
-		Description: "Here are the available slash commands:",
+		Description: "A bot for r/GamerPals. Check out the code on [GitHub](https://github.com/bagtoad/bestpal)",
 		Color:       utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{
-				Name:   "/userstats",
-				Value:  "Shows the number of users in the server (excluding bots)",
+				Name:   "🤖 Available Commands:",
 				Inline: false,
 			},
 			{
@@ -34,18 +33,24 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 				Inline: false,
 			},
 			{
-				Name:   "/prune-inactive",
-				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users\n• **Requires Administrator permissions**",
-				Inline: false,
-			},
-			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,
 			},
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "GamerPal Bot",
+			{
+				Name:   "🚀 Commands for Admins:",
+				Inline: false,
+			},
+			{
+				Name:   "/prune-inactive",
+				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users\n",
+				Inline: false,
+			},
+			{
+				Name:   "/userstats",
+				Value:  "Shows the number of users in the server (excluding bots)",
+				Inline: false,
+			},
 		},
 	}
 

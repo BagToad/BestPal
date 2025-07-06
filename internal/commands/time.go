@@ -132,27 +132,21 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	// Create the embed
-	embed := &discordgo.MessageEmbed{
-		Title: "",
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name: "",
-				Value: fmt.Sprintf("🕰️ %s is %s\n",
-					discordTimestamps["Long Date/Time"],
-					discordTimestamps["Relative Time"]),
-				Inline: false,
-			},
-			{
-				Name:   "",
-				Value:  fmt.Sprintf("_Converted from `%s`_", dateString),
-				Inline: false,
-			},
+	embed := *utils.NewEmbed()
+	embed.Fields = append(embed.Fields, []*discordgo.MessageEmbedField{
+		{
+			Name: "",
+			Value: fmt.Sprintf("🕰️ %s is %s\n",
+				discordTimestamps["Long Date/Time"],
+				discordTimestamps["Relative Time"]),
+			Inline: false,
 		},
-		Color: utils.Colors.Ok(),
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("GamerPal Bot"),
+		{
+			Name:   "",
+			Value:  fmt.Sprintf("_Converted from `%s`_", dateString),
+			Inline: false,
 		},
-	}
+	}...)
 
 	// Add full output field if requested
 	if fullOutput {
@@ -170,7 +164,7 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
+		Embeds: &[]*discordgo.MessageEmbed{&embed},
 	})
 }
 

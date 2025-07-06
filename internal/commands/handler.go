@@ -114,30 +114,37 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 	}
 
 	cmds := map[string]struct {
+		requireGuild bool
 		requireAdmin bool
 		handlerFunc  func(s *discordgo.Session, i *discordgo.InteractionCreate)
 	}{
 		"userstats": {
+			requireGuild: true,
 			requireAdmin: true,
 			handlerFunc:  h.handleUserStats,
 		},
 		"prune-inactive": {
+			requireGuild: true,
 			requireAdmin: true,
 			handlerFunc:  h.handlePruneInactive,
 		},
 		"ping": {
+			requireGuild: false,
 			requireAdmin: false,
 			handlerFunc:  h.handlePing,
 		},
 		"help": {
+			requireGuild: false,
 			requireAdmin: false,
 			handlerFunc:  h.handleHelp,
 		},
 		"game": {
+			requireGuild: false,
 			requireAdmin: false,
 			handlerFunc:  h.handleGame,
 		},
 		"time": {
+			requireGuild: false,
 			requireAdmin: false,
 			handlerFunc:  h.handleTime,
 		},
@@ -145,12 +152,27 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 
 	for name, cmd := range cmds {
 		if i.ApplicationCommandData().Name == name {
+			// Check if the command requires a guild context
+			if cmd.requireGuild {
+				if i.GuildID == "" || i.Member == nil {
+					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+						Type: discordgo.InteractionResponseChannelMessageWithSource,
+						Data: &discordgo.InteractionResponseData{
+							Content: "❌ This command can only be used in a server.",
+							Flags:   discordgo.MessageFlagsEphemeral,
+						},
+					})
+					return
+				}
+			}
+
 			// Check if admin permissions are required
 			if cmd.requireAdmin {
 				if !h.adminCheck(s, i) {
 					return
 				}
 			}
+			
 			// Call the appropriate handler function
 			cmd.handlerFunc(s, i)
 			return

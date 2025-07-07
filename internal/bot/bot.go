@@ -3,13 +3,13 @@ package bot
 import (
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
-	"golang.org/x/exp/rand"
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/config"
@@ -104,7 +104,7 @@ func (b *Bot) randomStatus() string {
 		"Making friends...",
 	}
 
-	return randomStuff[rand.Intn(len(randomStuff))]
+	return randomStuff[rand.IntN(len(randomStuff))]
 }
 
 // onInteractionCreate handles slash command interactions

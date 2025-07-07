@@ -10,7 +10,6 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/markusmobius/go-dateparser v1.2.4
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/exp v0.0.0-20250620022241-b7579e27df2b
 )
 
 require (

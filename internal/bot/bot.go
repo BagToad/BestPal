@@ -39,12 +39,13 @@ func New(cfg *config.Config) (*Bot, error) {
 		handler: handler,
 	}
 
-	// Set intents - we need guild and member intents for prune functionality
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers
+	// Set intents - we need guild, member, message, and message content intents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)
 	session.AddHandler(bot.onInteractionCreate)
+	session.AddHandler(bot.onMessageCreate)
 
 	return bot, nil
 }
@@ -111,5 +112,24 @@ func (b *Bot) randomStatus() string {
 func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ApplicationCommandData().Name != "" {
 		b.handler.HandleInteraction(s, i)
+	}
+}
+
+// onMessageCreate handles message events
+func (b *Bot) onMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// Ignore messages from bots (including ourselves)
+	if m.Author.Bot {
+		return
+	}
+
+	// Check if the bot is mentioned in the message & react
+	for _, mention := range m.Mentions {
+		if mention.ID == s.State.User.ID {
+			err := s.MessageReactionAdd(m.ChannelID, m.ID, "❤️")
+			if err != nil {
+				log.Printf("Error adding heart reaction: %v", err)
+			}
+			return
+		}
 	}
 }

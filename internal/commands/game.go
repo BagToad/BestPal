@@ -49,7 +49,7 @@ type gameEmbedOptions struct {
 	FirstReleaseDate int
 	Cover            int
 	Websites         map[string]string
-	MultiplayerModes []int
+	MultiplayerModes []igdb.MultiplayerMode
 	Genres           []int
 	IGDBClient       *igdb.Client
 }
@@ -102,33 +102,29 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 
 	// Add multiplayer information if available
 	if len(options.MultiplayerModes) > 0 {
-		// Get detailed multiplayer mode information
-		multiplayerModes, err := options.IGDBClient.MultiplayerModes.List(options.MultiplayerModes, igdb.SetFields("*"))
-		if err == nil && len(multiplayerModes) > 0 {
-			var onlinemax int
-			var onlinecoopmax int
+		var onlineMax int
+		var onlineCoopMax int
 
-			for _, mode := range multiplayerModes {
-				if mode.Onlinemax > onlinemax {
-					onlinemax = mode.Onlinemax
-				}
-				if mode.Onlinecoopmax > onlinecoopmax {
-					onlinecoopmax = mode.Onlinecoopmax
-				}
+		for _, mode := range options.MultiplayerModes {
+			if mode.Onlinemax > onlineMax {
+				onlineMax = mode.Onlinemax
 			}
-			var multiplayerText string
-
-			isMultiplayer := onlinemax > 0 || onlinecoopmax > 0
-			if isMultiplayer {
-				if onlinemax > 0 {
-					multiplayerText = fmt.Sprintf("Max %d players", onlinemax)
-				} else if onlinecoopmax > 0 {
-					multiplayerText = fmt.Sprintf("Co-op up to %d players", onlinecoopmax)
-				}
-			} else {
-				multiplayerText = "No data"
+			if mode.Onlinecoopmax > onlineCoopMax {
+				onlineCoopMax = mode.Onlinecoopmax
 			}
+		}
+		var multiplayerText string
 
+		isMultiplayer := onlineMax > 0 || onlineCoopMax > 0
+		if isMultiplayer {
+			if onlineMax > 0 {
+				multiplayerText = fmt.Sprintf("Max %d players", onlineMax)
+			} else if onlineCoopMax > 0 {
+				multiplayerText = fmt.Sprintf("Co-op up to %d players", onlineCoopMax)
+			}
+		}
+		
+		if multiplayerText != "" {
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 				Name:   "🌐 Online Multiplayer",
 				Value:  multiplayerText,
@@ -204,7 +200,6 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		Summary:          game.Summary,
 		FirstReleaseDate: game.FirstReleaseDate,
 		Cover:            game.Cover,
-		MultiplayerModes: game.MultiplayerModes,
 		Genres:           game.Genres,
 		IGDBClient:       h.igdbClient,
 	}
@@ -223,6 +218,16 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 			case 17: // GOG.com
 				options.Websites["GOG"] = website.URL
 				continue
+			}
+		}
+	}
+
+	// Get detailed multiplayer modes
+	if len(game.MultiplayerModes) > 0 {
+		modes, err := h.igdbClient.MultiplayerModes.List(game.MultiplayerModes, igdb.SetFields("*"))
+		if err == nil && len(modes) > 0 {
+			for _, mode := range modes {
+				options.MultiplayerModes = append(options.MultiplayerModes, *mode)
 			}
 		}
 	}

@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"fmt"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
+	"strings"
 	"testing"
 
+	"github.com/Henry-Sarabia/igdb/v2"
+	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -129,6 +133,88 @@ func TestNewGameEmbed_BasicStructure(t *testing.T) {
 	})
 }
 
+func TestNewGameEmbedMultiplayerModes(t *testing.T) {
+	t.Run("online coop game", func(t *testing.T) {
+		options := gameEmbedOptions{
+			Name: "Test Game",
+			MultiplayerModes: []igdb.MultiplayerMode{
+				{
+					Platform:      1,
+					Campaigncoop:  true,
+					Onlinecoop:    true,
+					Onlinecoopmax: 4,
+				},
+			},
+		}
+
+		embed := newGameEmbed(options)
+
+		assertEmbedFieldsContains(t, embed, "Co-op up to 4 players")
+	})
+
+	t.Run("online multiplayer game", func(t *testing.T) {
+		options := gameEmbedOptions{
+			Name: "Test Game",
+			MultiplayerModes: []igdb.MultiplayerMode{
+				{
+					Platform:  1,
+					Onlinemax: 8,
+				},
+			},
+		}
+
+		embed := newGameEmbed(options)
+
+		assertEmbedFieldsContains(t, embed, "Max 8 players")
+	})
+
+	t.Run("offline game shows no multiplayer info", func(t *testing.T) {
+		options := gameEmbedOptions{
+			Name: "Test Game",
+			MultiplayerModes: []igdb.MultiplayerMode{
+				{
+					Platform:    1,
+					Onlinemax:   0,
+					Offlinecoop: true,
+				},
+			},
+		}
+
+		embed := newGameEmbed(options)
+
+		assertEmbedFieldsNotContains(t, embed, "🌐 Online Multiplayer")
+	})
+}
+
+// assertEmbedFieldsContains checks if the embed contains a field with the specified string
+func assertEmbedFieldsContains(t *testing.T, embed *discordgo.MessageEmbed, s string) {
+	t.Helper()
+
+	var found bool
+	for _, field := range embed.Fields {
+		if strings.Contains(field.Value, s) {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		assert.Fail(t, fmt.Sprintf("Expected field '%s' not found", s))
+	}
+}
+
+// assertEmbedFieldsNotContains checks if the embed does not contain a field with the specified string
+func assertEmbedFieldsNotContains(t *testing.T, embed *discordgo.MessageEmbed, s string) {
+	t.Helper()
+
+	for _, field := range embed.Fields {
+		if strings.Contains(field.Value, s) {
+			assert.Fail(t, fmt.Sprintf("Field '%s' should not be present", s))
+			return
+		}
+	}
+}
+
 func TestNewGameEmbed_EdgeCases(t *testing.T) {
 	handler := createTestHandler()
 
@@ -205,9 +291,28 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 				"Steam":    "https://store.steampowered.com/app/123456/Complete_Game/",
 				"GOG":      "https://www.gog.com/game/complete_game",
 			},
-			MultiplayerModes: []int{1},
-			Genres:           []int{12, 31},
-			IGDBClient:       handler.igdbClient,
+			MultiplayerModes: []igdb.MultiplayerMode{
+				{
+					Platform:     1,
+					Campaigncoop: false,
+					Offlinecoop:  true,
+				},
+				{
+					Platform:     2,
+					Campaigncoop: true,
+					Onlinecoop:   true,
+				},
+				{
+					Platform:       3,
+					Campaigncoop:   false,
+					Offlinecoop:    true,
+					Onlinecoop:     false,
+					Onlinemax:      4,
+					Offlinecoopmax: 2,
+				},
+			},
+			Genres:     []int{12, 31},
+			IGDBClient: handler.igdbClient,
 		}
 
 		// Test that the struct can be created with all fields
@@ -257,7 +362,7 @@ func TestGameEmbedIntegration(t *testing.T) {
 			Websites: map[string]string{
 				"Official": "https://thewitcher.com/en/witcher3",
 			},
-			MultiplayerModes: []int{1},
+			MultiplayerModes: []igdb.MultiplayerMode{},
 			Genres:           []int{12, 31}, // RPG, Adventure
 			IGDBClient:       handler.igdbClient,
 		}

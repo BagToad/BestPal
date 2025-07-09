@@ -311,7 +311,7 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 					Offlinecoopmax: 2,
 				},
 			},
-			Genres:     []int{12, 31},
+			Genres:     []string{"Action", "Adventure"},
 			IGDBClient: handler.igdbClient,
 		}
 
@@ -363,7 +363,7 @@ func TestGameEmbedIntegration(t *testing.T) {
 				"Official": "https://thewitcher.com/en/witcher3",
 			},
 			MultiplayerModes: []igdb.MultiplayerMode{},
-			Genres:           []int{12, 31}, // RPG, Adventure
+			Genres:           []string{"RPG", "Adventure"},
 			IGDBClient:       handler.igdbClient,
 		}
 

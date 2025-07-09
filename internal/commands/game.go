@@ -50,7 +50,7 @@ type gameEmbedOptions struct {
 	Cover            int
 	Websites         map[string]string
 	MultiplayerModes []igdb.MultiplayerMode
-	Genres           []int
+	Genres           []string
 	IGDBClient       *igdb.Client
 }
 
@@ -123,7 +123,7 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 				multiplayerText = fmt.Sprintf("Co-op up to %d players", onlineCoopMax)
 			}
 		}
-		
+
 		if multiplayerText != "" {
 			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 				Name:   "🌐 Online Multiplayer",
@@ -135,19 +135,11 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 
 	// Add the genres if available
 	if len(options.Genres) > 0 {
-		// Get detailed genre information
-		genres, err := options.IGDBClient.Genres.List(options.Genres, igdb.SetFields("name"))
-		if err == nil && len(genres) > 0 {
-			var genreNames []string
-			for _, genre := range genres {
-				genreNames = append(genreNames, genre.Name)
-			}
-			embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-				Name:   "🎮 Genres",
-				Value:  strings.Join(genreNames, ", "),
-				Inline: true,
-			})
-		}
+		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+			Name:   "🎮 Genres",
+			Value:  strings.Join(options.Genres, ", "),
+			Inline: true,
+		})
 	}
 
 	// Add cover image if available
@@ -200,7 +192,6 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		Summary:          game.Summary,
 		FirstReleaseDate: game.FirstReleaseDate,
 		Cover:            game.Cover,
-		Genres:           game.Genres,
 		IGDBClient:       h.igdbClient,
 	}
 
@@ -228,6 +219,16 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		if err == nil && len(modes) > 0 {
 			for _, mode := range modes {
 				options.MultiplayerModes = append(options.MultiplayerModes, *mode)
+			}
+		}
+	}
+
+	// Get detailed genre information
+	if len(game.Genres) > 0 {
+		genres, err := options.IGDBClient.Genres.List(game.Genres, igdb.SetFields("name"))
+		if err == nil && len(genres) > 0 {
+			for _, genre := range genres {
+				options.Genres = append(options.Genres, genre.Name)
 			}
 		}
 	}

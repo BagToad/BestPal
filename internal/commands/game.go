@@ -42,49 +42,23 @@ func (h *Handler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreat
 	})
 }
 
-// searchGame searches for a game using IGDB API and returns an embed
-func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
-	// Search for games using the IGDB API with OR condition for name and slug
-	games, err := h.igdbClient.Games.Index(
-		igdb.SetFilter("name", igdb.OpEquals, gameName),
-		igdb.SetFields("name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes"),
-	)
+// gameEmbedOptions contains all the data needed to create a game embed
+type gameEmbedOptions struct {
+	Name             string
+	Summary          string
+	FirstReleaseDate int
+	Cover            int
+	Websites         []int
+	MultiplayerModes []int
+	Genres           []int
+	IGDBClient       *igdb.Client
+}
 
-	// If no results, try a search
-	if err != nil || len(games) == 0 {
-		games, err = h.igdbClient.Games.Search(
-			gameName,
-			igdb.SetFields("name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"),
-			igdb.SetLimit(1),
-		)
-	}
-	if err != nil && !strings.Contains(err.Error(), "results are empty") {
-		return &discordgo.MessageEmbed{
-			Title:       "❌ Error",
-			Description: fmt.Sprintf("Encountered an error while searching for game: `%s`\n```%s```", gameName, err.Error()),
-			Color:       utils.Colors.Error(),
-			Footer: &discordgo.MessageEmbedFooter{
-				Text: "GamerPal Bot",
-			},
-		}
-	}
-
-	if len(games) == 0 {
-		return &discordgo.MessageEmbed{
-			Title:       "🔍 No Results",
-			Description: fmt.Sprintf("No games found matching: **%s**", gameName),
-			Color:       utils.Colors.Info(),
-			Footer: &discordgo.MessageEmbedFooter{
-				Text: "GamerPal Bot",
-			},
-		}
-	}
-
-	game := games[0]
-
+// newGameEmbed creates a Discord embed for a game using the provided options
+func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 	// Create the embed
 	embed := &discordgo.MessageEmbed{
-		Title: fmt.Sprintf("🎮 %s", game.Name),
+		Title: fmt.Sprintf("🎮 %s", options.Name),
 		Color: utils.Colors.Fancy(),
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "GamerPal Bot • Data from IGDB",
@@ -92,9 +66,9 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	}
 
 	// Add summary if available
-	if game.Summary != "" {
+	if options.Summary != "" {
 		// Truncate summary if it's too long
-		summary := game.Summary
+		summary := options.Summary
 		if len(summary) > 1024 {
 			summary = summary[:1021] + "..."
 		}
@@ -102,37 +76,48 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	}
 
 	// Add release date if available
-	if game.FirstReleaseDate != 0 {
+	if options.FirstReleaseDate != 0 {
 		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
 			Name:   "📅 Release Date",
-			Value:  formatReleaseDate(game.FirstReleaseDate),
+			Value:  formatReleaseDate(options.FirstReleaseDate),
 			Inline: true,
 		})
 	}
 
 	// Add Steam URL if available
-	if len(game.Websites) > 0 {
+	if len(options.Websites) > 0 {
 		// Get detailed website information
-		websites, err := h.igdbClient.Websites.List(game.Websites, igdb.SetFields("url", "category"))
+		websites, err := options.IGDBClient.Websites.List(options.Websites, igdb.SetFields("url", "category"))
 		if err == nil {
-			// Look for Steam website (category 1 is Steam)
+			websitesEmbedField := &discordgo.MessageEmbedField{
+				Name:   "🛒 Sites",
+				Value:  "",
+				Inline: true,
+			}
 			for _, website := range websites {
-				if website.Category == 13 { // Steam category
-					embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-						Name:   "🛒 Steam",
-						Value:  website.URL,
-						Inline: true,
-					})
-					break
+				switch website.Category {
+				case igdb.WebsiteSteam:
+					websitesEmbedField.Value += fmt.Sprintf("[Steam](%s)\n", website.URL)
+					continue
+				case igdb.WebsiteOfficial:
+					websitesEmbedField.Value += fmt.Sprintf("[Official Site](%s)\n", website.URL)
+					continue
+				case 17: // GOG.com
+					websitesEmbedField.Value += fmt.Sprintf("[GOG](%s)\n", website.URL)
+					continue
 				}
+			}
+
+			if websitesEmbedField.Value != "" {
+				embed.Fields = append(embed.Fields, websitesEmbedField)
 			}
 		}
 	}
 
 	// Add multiplayer information if available
-	if len(game.MultiplayerModes) > 0 {
+	if len(options.MultiplayerModes) > 0 {
 		// Get detailed multiplayer mode information
-		multiplayerModes, err := h.igdbClient.MultiplayerModes.List(game.MultiplayerModes, igdb.SetFields("*"))
+		multiplayerModes, err := options.IGDBClient.MultiplayerModes.List(options.MultiplayerModes, igdb.SetFields("*"))
 		if err == nil && len(multiplayerModes) > 0 {
 			var onlinemax int
 			var onlinecoopmax int
@@ -167,9 +152,9 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	}
 
 	// Add the genres if available
-	if len(game.Genres) > 0 {
+	if len(options.Genres) > 0 {
 		// Get detailed genre information
-		genres, err := h.igdbClient.Genres.List(game.Genres, igdb.SetFields("name"))
+		genres, err := options.IGDBClient.Genres.List(options.Genres, igdb.SetFields("name"))
 		if err == nil && len(genres) > 0 {
 			var genreNames []string
 			for _, genre := range genres {
@@ -184,9 +169,9 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	}
 
 	// Add cover image if available
-	if game.Cover != 0 {
+	if options.Cover != 0 {
 		// Get cover information
-		cover, err := h.igdbClient.Covers.Get(game.Cover, igdb.SetFields("image_id"))
+		cover, err := options.IGDBClient.Covers.Get(options.Cover, igdb.SetFields("image_id"))
 		if err == nil {
 			// Generate cover image URL using IGDB's image service
 			imageURL, err := cover.SizedURL(igdb.SizeCoverSmall, 1)
@@ -201,18 +186,46 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	return embed
 }
 
-// convertSlugName converts a game name to a slug format (lowercase, spaces to hyphens)
-func convertSlugName(name string) string {
-	// Convert to lowercase and replace spaces/special characters with hyphens
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "'", "")
-	slug = strings.ReplaceAll(slug, ":", "")
-	slug = strings.ReplaceAll(slug, ".", "")
-	slug = strings.ReplaceAll(slug, ",", "")
-	slug = strings.ReplaceAll(slug, "!", "")
-	slug = strings.ReplaceAll(slug, "?", "")
-	return slug
+// searchGame searches for a game using IGDB API and returns an embed
+func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
+	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
+
+	// Get an exact match first
+	games, err := h.igdbClient.Games.Index(
+		igdb.SetFilter("name", igdb.OpEquals, gameName),
+		igdb.SetFields(gameFields...),
+	)
+
+	// If no results, try a search
+	if err != nil || len(games) == 0 {
+		games, err = h.igdbClient.Games.Search(
+			gameName,
+			igdb.SetFields(gameFields...),
+			igdb.SetLimit(1),
+		)
+	}
+	if err != nil && !strings.Contains(err.Error(), "results are empty") {
+		return utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameName), err)
+	}
+
+	if len(games) == 0 {
+		return utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameName))
+	}
+
+	game := games[0]
+
+	options := gameEmbedOptions{
+		Name:             game.Name,
+		Summary:          game.Summary,
+		FirstReleaseDate: game.FirstReleaseDate,
+		Cover:            game.Cover,
+		Websites:         game.Websites,
+		MultiplayerModes: game.MultiplayerModes,
+		Genres:           game.Genres,
+		IGDBClient:       h.igdbClient,
+	}
+
+	return newGameEmbed(options)
 }
 
 // formatReleaseDate converts Unix timestamp to human readable date

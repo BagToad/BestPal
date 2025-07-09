@@ -48,7 +48,7 @@ type gameEmbedOptions struct {
 	Summary          string
 	FirstReleaseDate int
 	Cover            int
-	Websites         []int
+	Websites         map[string]string
 	MultiplayerModes []int
 	Genres           []int
 	IGDBClient       *igdb.Client
@@ -84,33 +84,19 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 		})
 	}
 
-	// Add Steam URL if available
+	// Add websites if available
 	if len(options.Websites) > 0 {
-		// Get detailed website information
-		websites, err := options.IGDBClient.Websites.List(options.Websites, igdb.SetFields("url", "category"))
-		if err == nil {
-			websitesEmbedField := &discordgo.MessageEmbedField{
-				Name:   "🛒 Sites",
-				Value:  "",
-				Inline: true,
-			}
-			for _, website := range websites {
-				switch website.Category {
-				case igdb.WebsiteSteam:
-					websitesEmbedField.Value += fmt.Sprintf("[Steam](%s)\n", website.URL)
-					continue
-				case igdb.WebsiteOfficial:
-					websitesEmbedField.Value += fmt.Sprintf("[Official Site](%s)\n", website.URL)
-					continue
-				case 17: // GOG.com
-					websitesEmbedField.Value += fmt.Sprintf("[GOG](%s)\n", website.URL)
-					continue
-				}
-			}
+		websitesEmbedField := &discordgo.MessageEmbedField{
+			Name:   "🛒 Sites",
+			Value:  "",
+			Inline: true,
+		}
+		for siteName, URL := range options.Websites {
+			websitesEmbedField.Value += fmt.Sprintf("[%s](%s)\n", siteName, URL)
+		}
 
-			if websitesEmbedField.Value != "" {
-				embed.Fields = append(embed.Fields, websitesEmbedField)
-			}
+		if websitesEmbedField.Value != "" {
+			embed.Fields = append(embed.Fields, websitesEmbedField)
 		}
 	}
 
@@ -213,16 +199,32 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 	}
 
 	game := games[0]
-
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,
 		FirstReleaseDate: game.FirstReleaseDate,
 		Cover:            game.Cover,
-		Websites:         game.Websites,
 		MultiplayerModes: game.MultiplayerModes,
 		Genres:           game.Genres,
 		IGDBClient:       h.igdbClient,
+	}
+
+	// Get detailed website information
+	websites, err := h.igdbClient.Websites.List(game.Websites, igdb.SetFields("url", "category"))
+	if err == nil {
+		for _, website := range websites {
+			switch website.Category {
+			case igdb.WebsiteSteam:
+				options.Websites["Steam"] = website.URL
+				continue
+			case igdb.WebsiteOfficial:
+				options.Websites["Official"] = website.URL
+				continue
+			case 17: // GOG.com
+				options.Websites["GOG"] = website.URL
+				continue
+			}
+		}
 	}
 
 	return newGameEmbed(options)

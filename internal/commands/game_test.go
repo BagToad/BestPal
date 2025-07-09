@@ -285,7 +285,7 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 			Name:             "Complete Game",
 			Summary:          "This game has all the fields filled out for testing",
 			FirstReleaseDate: 1609459200,
-			Cover:            123,
+			CoverURL:         "https://example.com/cover.jpg",
 			Websites: map[string]string{
 				"Official": "https://example.com",
 				"Steam":    "https://store.steampowered.com/app/123456/Complete_Game/",
@@ -319,7 +319,7 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 		assert.Equal(t, "Complete Game", options.Name)
 		assert.NotEmpty(t, options.Summary)
 		assert.NotZero(t, options.FirstReleaseDate)
-		assert.NotZero(t, options.Cover)
+		assert.NotZero(t, options.CoverURL)
 		assert.NotEmpty(t, options.Websites)
 		assert.NotEmpty(t, options.MultiplayerModes)
 		assert.NotEmpty(t, options.Genres)
@@ -358,7 +358,7 @@ func TestGameEmbedIntegration(t *testing.T) {
 			Name:             "The Witcher 3: Wild Hunt",
 			Summary:          "The Witcher 3: Wild Hunt is a story-driven, next-generation open world role-playing game set in a visually stunning fantasy universe full of meaningful choices and impactful consequences.",
 			FirstReleaseDate: 1431993600, // May 19, 2015
-			Cover:            12345,
+			CoverURL:         "https://images.igdb.com/igdb/image/upload/t_cover_big/co1x2h.jpg",
 			Websites: map[string]string{
 				"Official": "https://thewitcher.com/en/witcher3",
 			},

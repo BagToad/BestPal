@@ -47,7 +47,7 @@ type gameEmbedOptions struct {
 	Name             string
 	Summary          string
 	FirstReleaseDate int
-	Cover            int
+	CoverURL         string
 	Websites         map[string]string
 	MultiplayerModes []igdb.MultiplayerMode
 	Genres           []string
@@ -143,17 +143,9 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 	}
 
 	// Add cover image if available
-	if options.Cover != 0 {
-		// Get cover information
-		cover, err := options.IGDBClient.Covers.Get(options.Cover, igdb.SetFields("image_id"))
-		if err == nil {
-			// Generate cover image URL using IGDB's image service
-			imageURL, err := cover.SizedURL(igdb.SizeCoverSmall, 1)
-			if err == nil {
-				embed.Image = &discordgo.MessageEmbedImage{
-					URL: imageURL,
-				}
-			}
+	if options.CoverURL != "" {
+		embed.Image = &discordgo.MessageEmbedImage{
+			URL: options.CoverURL,
 		}
 	}
 
@@ -191,7 +183,6 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		Name:             game.Name,
 		Summary:          game.Summary,
 		FirstReleaseDate: game.FirstReleaseDate,
-		Cover:            game.Cover,
 		IGDBClient:       h.igdbClient,
 	}
 
@@ -229,6 +220,17 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		if err == nil && len(genres) > 0 {
 			for _, genre := range genres {
 				options.Genres = append(options.Genres, genre.Name)
+			}
+		}
+	}
+
+	// Get cover image if available
+	if game.Cover != 0 {
+		cover, err := options.IGDBClient.Covers.Get(game.Cover, igdb.SetFields("image_id"))
+		if err == nil {
+			// Generate cover image URL using IGDB's image service
+			if imageURL, err := cover.SizedURL(igdb.SizeCoverSmall, 1); err == nil {
+				options.CoverURL = imageURL
 			}
 		}
 	}

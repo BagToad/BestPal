@@ -17,16 +17,16 @@ func (h *Handler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreat
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	// Get the game name from the command options
-	options := i.ApplicationCommandData().Options
-	if len(options) == 0 {
+	// Get the game name from the command commandOptions
+	commandOptions := i.ApplicationCommandData().Options
+	if len(commandOptions) == 0 {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Please provide a game name to search for."),
 		})
 		return
 	}
 
-	gameName := options[0].StringValue()
+	gameName := commandOptions[0].StringValue()
 	if gameName == "" {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Please provide a valid game name to search for."),
@@ -35,10 +35,28 @@ func (h *Handler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 
 	// Search for the game using IGDB
-	result := searchGame(h, gameName)
+	game, err := searchGame(h, gameName)
+	if err != nil && !strings.Contains(err.Error(), "results are empty") {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameName), err)},
+		})
+		return
+	}
+	if game == nil {
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameName))},
+		})
+		return
+	}
+
+	// Create the embed options from the game data
+	embedOptions := newGameEmbedOptionsFromGame(h, game)
+
+	// Create the actual embed
+	embed := newGameEmbed(embedOptions)
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{result},
+		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
 
@@ -153,7 +171,7 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 }
 
 // searchGame searches for a game using IGDB API and returns an embed
-func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
+func searchGame(h *Handler, gameName string) (*igdb.Game, error) {
 	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 	// Get an exact match first
@@ -169,20 +187,21 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 			igdb.SetFields(gameFields...),
 			igdb.SetLimit(1),
 		)
-	}
-	if err != nil && !strings.Contains(err.Error(), "results are empty") {
-		return utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameName), err)
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if len(games) == 0 {
-		return utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameName))
-	}
+	return games[0], nil
+}
 
-	game := games[0]
+func newGameEmbedOptionsFromGame(h *Handler, game *igdb.Game) gameEmbedOptions {
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,
 		FirstReleaseDate: game.FirstReleaseDate,
+		Websites:         make(map[string]string),
 		IGDBClient:       h.igdbClient,
 	}
 
@@ -235,7 +254,7 @@ func searchGame(h *Handler, gameName string) *discordgo.MessageEmbed {
 		}
 	}
 
-	return newGameEmbed(options)
+	return options
 }
 
 // formatReleaseDate converts Unix timestamp to human readable date

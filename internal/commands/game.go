@@ -3,6 +3,8 @@ package commands
 import (
 	"fmt"
 	"gamerpal/internal/utils"
+	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,13 +23,44 @@ func (h *Handler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreat
 	commandOptions := i.ApplicationCommandData().Options
 	if len(commandOptions) == 0 {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Please provide a game name to search for."),
+			Content: utils.StringPtr("❌ Please provide a game name to search for or use random"),
 		})
 		return
 	}
 
-	gameName := commandOptions[0].StringValue()
-	if gameName == "" {
+	var gameNameCommandOption string
+	var randomCommandOption bool
+	for _, option := range commandOptions {
+		switch option.Name {
+		case "random":
+			if option.BoolValue() {
+				randomCommandOption = true
+			}
+			break
+		case "name":
+			gameNameCommandOption = option.StringValue()
+		}
+	}
+
+	if randomCommandOption {
+		game := getRandomGame(h.igdbClient)
+		if game == nil {
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr("❌ No games found to return randomly."),
+			})
+			return
+		}
+
+		// Create the embed options from the game data
+		embedOptions := newGameEmbedOptionsFromGame(h, game)
+		embed := newGameEmbed(embedOptions)
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+		return
+	}
+
+	if gameNameCommandOption == "" {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Please provide a valid game name to search for."),
 		})
@@ -35,16 +68,16 @@ func (h *Handler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 
 	// Search for the game using IGDB
-	game, err := searchGame(h, gameName)
+	game, err := searchGame(h, gameNameCommandOption)
 	if err != nil && !strings.Contains(err.Error(), "results are empty") {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameName), err)},
+			Embeds: &[]*discordgo.MessageEmbed{utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameNameCommandOption), err)},
 		})
 		return
 	}
 	if game == nil {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameName))},
+			Embeds: &[]*discordgo.MessageEmbed{utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameNameCommandOption))},
 		})
 		return
 	}
@@ -71,6 +104,8 @@ type gameEmbedOptions struct {
 	Genres           []string
 	IGDBClient       *igdb.Client
 }
+
+var gameFields = []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 // newGameEmbed creates a Discord embed for a game using the provided options
 func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
@@ -170,10 +205,68 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 	return embed
 }
 
+func getRandomGame(igdbClient *igdb.Client) *igdb.Game {
+	totalGames, err := igdbClient.Games.Count()
+	if err != nil || totalGames == 0 {
+		return nil
+	}
+
+	var randomGameIds []int
+	for i := 0; i < 5; i++ {
+		randomGameIds = append(randomGameIds, rand.Intn(totalGames))
+	}
+
+	fields := append(gameFields, "age_ratings") // Include age ratings to filter out mature games
+	var gameIdsFilter []string
+	for _, id := range randomGameIds {
+		gameIdsFilter = append(gameIdsFilter, strconv.Itoa(id))
+	}
+
+	games, err := igdbClient.Games.Index(
+		igdb.SetFilter("id", igdb.OpContainsAtLeast, gameIdsFilter...),
+		igdb.SetFields(fields...),
+		igdb.SetLimit(50),
+	)
+
+	for _, game := range games {
+		// return the first game that is not rated mature
+		if len(game.AgeRatings) > 0 {
+			ratings, err := igdbClient.AgeRatings.List(game.AgeRatings, igdb.SetFields("rating"))
+			if err != nil || len(ratings) == 0 {
+				return nil
+			}
+
+			for _, rating := range ratings {
+				switch rating.Rating {
+				// AgeRatingThree AgeRatingEnum = iota + 1
+				// AgeRatingSeven
+				// AgeRatingTwelve
+				// AgeRatingSixteen
+				// AgeRatingEighteen
+				// AgeRatingRP
+				// AgeRatingEC
+				// AgeRatingE
+				// AgeRatingE10
+				// AgeRatingT
+				// AgeRatingM
+				// AgeRatingAO
+				case igdb.AgeRatingE, igdb.AgeRatingE10, igdb.AgeRatingT, igdb.AgeRatingRP, igdb.AgeRatingEC:
+					return game
+				}
+			}
+		}
+	}
+
+	if err != nil || len(games) == 0 {
+		fmt.Printf("Error fetching random game: %v\n", err)
+		return nil
+	}
+
+	return games[0]
+}
+
 // searchGame searches for a game using IGDB API and returns an embed
 func searchGame(h *Handler, gameName string) (*igdb.Game, error) {
-	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
-
 	// Get an exact match first
 	games, err := h.igdbClient.Games.Index(
 		igdb.SetFilter("name", igdb.OpEquals, gameName),

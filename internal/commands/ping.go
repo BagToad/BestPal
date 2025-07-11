@@ -9,7 +9,7 @@ func (h *Handler) handlePing(s *discordgo.Session, i *discordgo.InteractionCreat
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "🏓 Pong! Bot is online and responsive.",
+			Content: "🏓 Pong! Bot is online and responsive. And it's fun!",
 		},
 	})
 }

@@ -84,6 +84,10 @@ jobs:
         
         COMMENT="${EMOJI} Development deployment ${MESSAGE}!
 
-        [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        
+        On successful deployments, you'll need to wait a moment for the bot to fully boot up AND refresh/reload your Discord client if you see a message about invalid integration ID.
+
+        Thanks!"
         
         gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"

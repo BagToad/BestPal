@@ -38,6 +38,9 @@ jobs:
 
       - name: Deploy to production
         run: |
+          # stop the service before deploying
+          ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl stop bestpal.service"
+
           # Copy binary to production server
           scp -i ~/.ssh/id_rsa bin/gamerpal-linux-amd64 ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }}:/opt/bestpal/production/bestpal
 

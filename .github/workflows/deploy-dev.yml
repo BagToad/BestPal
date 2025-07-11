@@ -59,14 +59,14 @@ jobs:
         ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl status bestpal-dev.service --no-pager"
         
     - name: Remove deploy-dev label
-      if: !cancelled()
+      if: ${{ !cancelled() }}
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh pr edit ${{ github.event.pull_request.number }} --remove-label "deploy-dev" || echo "Failed to remove label!"
         
     - name: Add deployment status comment
-      if: !cancelled()
+      if: ${{ !cancelled() }}
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |

@@ -51,6 +51,11 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 				Value:  "Shows the number of users in the server (excluding bots)",
 				Inline: false,
 			},
+			{
+				Name:   "/welcome",
+				Value:  "Generate a welcome message for new members who joined within specified minutes\n• Use `/welcome minutes:30` to find members who joined in the last 30 minutes",
+				Inline: false,
+			},
 		},
 	}
 

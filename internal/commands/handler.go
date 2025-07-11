@@ -92,6 +92,20 @@ func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 				},
 			},
 		},
+		{
+			Name:        "welcome",
+			Description: "Generate a welcome message for new members (admin only)",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "minutes",
+					Description: "Number of minutes to look back for new members",
+					Required:    true,
+					MinValue:    utils.Float64Ptr(1),
+					MaxValue:    1440, // 24 hours max
+				},
+			},
+		},
 	}
 
 	// Register commands globally
@@ -147,6 +161,11 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 			requireGuild: false,
 			requireAdmin: false,
 			handlerFunc:  h.handleTime,
+		},
+		"welcome": {
+			requireGuild: true,
+			requireAdmin: true,
+			handlerFunc:  h.handleWelcome,
 		},
 	}
 

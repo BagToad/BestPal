@@ -53,7 +53,7 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 			},
 			{
 				Name:   "/welcome",
-				Value:  "Generate a welcome message for new members who joined within specified minutes\n• Use `/welcome minutes:30` to find members who joined in the last 30 minutes",
+				Value:  "Generate a welcome message for new members who joined within specified minutes\n• Use `/welcome minutes:30` to preview the message\n• Use `/welcome minutes:30 execute:true` to post the message directly",
 				Inline: false,
 			},
 		},

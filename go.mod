@@ -6,6 +6,7 @@ toolchain go1.24.4
 
 require (
 	github.com/Henry-Sarabia/igdb/v2 v2.0.0-alpha.4
+	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/joho/godotenv v1.5.1
 	github.com/markusmobius/go-dateparser v1.2.4

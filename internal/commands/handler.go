@@ -104,6 +104,12 @@ func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 					MinValue:    utils.Float64Ptr(1),
 					MaxValue:    1440, // 24 hours max
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "execute",
+					Description: "Actually post the welcome message (default: false for preview mode)",
+					Required:    false,
+				},
 			},
 		},
 	}

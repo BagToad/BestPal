@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -16,11 +17,25 @@ func (h *Handler) handleWelcome(s *discordgo.Session, i *discordgo.InteractionCr
 	minutesOption := i.ApplicationCommandData().Options[0]
 	minutes := int(minutesOption.IntValue())
 
-	// Acknowledge the interaction immediately with ephemeral response
+	// Get the execute parameter (defaults to false if not provided)
+	execute := false
+	if len(i.ApplicationCommandData().Options) > 1 {
+		executeOption := i.ApplicationCommandData().Options[1]
+		if executeOption.Name == "execute" {
+			execute = executeOption.BoolValue()
+		}
+	}
+
+	// Acknowledge the interaction immediately
+	var responseFlags discordgo.MessageFlags
+	if !execute {
+		responseFlags = discordgo.MessageFlagsEphemeral
+	}
+
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Flags: discordgo.MessageFlagsEphemeral,
+			Flags: responseFlags,
 		},
 	})
 
@@ -63,33 +78,56 @@ func (h *Handler) handleWelcome(s *discordgo.Session, i *discordgo.InteractionCr
 			mentions = append(mentions, fmt.Sprintf("<@%s>", member.User.ID))
 		}
 
-		welcomeMessage = fmt.Sprintf("👋 Hia %s\n\nWelcome! Feel free introduce yourself in #intros or just hangout. We're glad you're here :)", strings.Join(mentions, " "))
+		introsChannelMention := "<#1375605443933507694>"
+		ticketsChannelMention := "<#1374878540784337008>"
+
+		welcomeMessage = heredoc.Docf(`👋 Hia %s
+
+		Welcome!!
+		
+		Feel free introduce yourself in %s, or just hangout here ❤️
+		
+		If you need any help, let us know in %s.
+
+		We're glad you're here :)`, strings.Join(mentions, ", "), introsChannelMention, ticketsChannelMention)
 	}
 
-	// Create embed response
-	embed := &discordgo.MessageEmbed{
-		Title:       "🎉 Welcome Message Generator",
-		Description: "Copy and paste the message below:",
-		Color:       utils.Colors.Info(),
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "Generated Welcome Message",
-				Value:  welcomeMessage,
-				Inline: false,
+	// Handle response based on execute mode
+	if execute {
+		// Direct execution mode - post the welcome message directly
+		if len(newMembers) > 0 {
+			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr(welcomeMessage),
+			})
+		} else {
+			// quietly delete the interaction response if no new members
+			s.InteractionResponseDelete(i.Interaction)
+		}
+	} else {
+		// Preview mode - show embed with details
+		embed := &discordgo.MessageEmbed{
+			Title:       "🎉 Welcome Message Generator",
+			Description: "Copy and paste the message below:",
+			Color:       utils.Colors.Info(),
+			Fields: []*discordgo.MessageEmbedField{
+				{
+					Name:   "Generated Welcome Message",
+					Value:  welcomeMessage,
+					Inline: false,
+				},
+				{
+					Name:   "Details",
+					Value:  fmt.Sprintf("Found %d new members in the last %d minutes", len(newMembers), minutes),
+					Inline: false,
+				},
 			},
-			{
-				Name:   "Details",
-				Value:  fmt.Sprintf("Found %d new members in the last %d minutes", len(newMembers), minutes),
-				Inline: false,
+			Footer: &discordgo.MessageEmbedFooter{
+				Text: "This message is only visible to you",
 			},
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "This message is only visible to you",
-		},
-	}
+		}
 
-	// Send the ephemeral response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Embeds: &[]*discordgo.MessageEmbed{embed},
-	})
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Embeds: &[]*discordgo.MessageEmbed{embed},
+		})
+	}
 }

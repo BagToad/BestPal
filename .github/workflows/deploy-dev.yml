@@ -1,0 +1,85 @@
+name: Deploy to Development
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  deploy-dev:
+    if: contains(github.event.label.name, 'deploy-dev')
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+      
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+          
+    - name: Download dependencies
+      run: make deps
+      
+    - name: Run tests
+      run: make test
+      
+    - name: Build for all platforms
+      run: make build-all
+      
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.BOT_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: Deploy to development
+      run: |
+        # Stop the dev service before deploying
+        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl stop bestpal-dev.service"
+        
+        # Copy binary to development server
+        scp -i ~/.ssh/id_rsa bin/gamerpal-linux-amd64 ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }}:/opt/bestpal/dev/bestpal
+        
+        # Restart the dev service
+        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl restart bestpal-dev.service"
+        
+    - name: Verify deployment
+      run: |
+        # Check if dev service is running
+        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl status bestpal-dev.service --no-pager"
+        
+    - name: Remove deploy-dev label
+      if: !cancelled()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh pr edit ${{ github.event.pull_request.number }} --remove-label "deploy-dev" || echo "Failed to remove label!"
+        
+    - name: Add deployment status comment
+      if: !cancelled()
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        if [ "${{ job.status }}" = "success" ]; then
+          EMOJI="✅"
+          MESSAGE="succeeded"
+        else
+          EMOJI="❌"
+          MESSAGE="failed"
+        fi
+        
+        COMMENT="${EMOJI} Development deployment ${MESSAGE}!
+
+        [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        
+        gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"

@@ -21,6 +21,7 @@ gamerpal/
 │   │   ├── help.go        # Help command
 │   │   ├── ping.go        # Ping command
 │   │   ├── prune.go       # Prune inactive users command
+│   │   ├── say.go         # Anonymous message command
 │   │   └── userstats.go   # User statistics command
 │   ├── config/            # Configuration management
 │   │   ├── config.go      # Configuration loading
@@ -51,6 +52,7 @@ TODO
 | `/userstats` | Shows member counts, growth metrics, and regional breakdown | Admin roles or Administrator permission |
 | `/ping` | Check if the bot is responsive | Admin roles or Administrator permission |
 | `/prune-inactive` | Remove users without any roles (dry run by default) | Administrator permission |
+| `/say` | Send an anonymous message to a specified channel | Administrator permission |
 | `/help` | Display all available commands | Admin roles or Administrator permission |
 
 ## Quick Start

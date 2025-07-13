@@ -47,6 +47,11 @@ func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreat
 				Inline: false,
 			},
 			{
+				Name:   "/say",
+				Value:  "Send an anonymous message to a specified channel\n• Use `/say channel:#general message:Hello everyone!` to send a message",
+				Inline: false,
+			},
+			{
 				Name:   "/userstats",
 				Value:  "Shows the number of users in the server (excluding bots)",
 				Inline: false,

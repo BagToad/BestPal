@@ -343,8 +343,7 @@ func TestHandlerCreation(t *testing.T) {
 
 		assert.NotNil(t, handler)
 		assert.NotNil(t, handler.igdbClient)
-		assert.NotNil(t, handler.commands)
-		assert.Equal(t, 0, len(handler.commands))
+		assert.NotNil(t, handler.Commands)
 	})
 }
 

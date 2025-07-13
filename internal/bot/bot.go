@@ -71,8 +71,10 @@ func (b *Bot) Start() error {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
-	// Cleanup: Unregister commands
-	b.handler.UnregisterCommands(b.session)
+	// Cleanup: Unregister commands, optionally
+	if os.Getenv("UNREGISTER_COMMANDS") == "true" {
+		b.handler.UnregisterCommands(b.session)
+	}
 
 	return nil
 }

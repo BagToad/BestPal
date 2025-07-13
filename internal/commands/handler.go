@@ -2,6 +2,7 @@ package commands
 
 import (
 	"gamerpal/internal/config"
+	"gamerpal/internal/utils"
 	"log"
 
 	"github.com/Henry-Sarabia/igdb/v2"
@@ -18,6 +19,7 @@ type Command struct {
 type Handler struct {
 	igdbClient *igdb.Client
 	Commands   map[string]*Command
+	CryptoSalt string
 }
 
 // NewHandler creates a new command handler
@@ -28,6 +30,7 @@ func NewHandler(cfg *config.Config) *Handler {
 	h := &Handler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
+		CryptoSalt: cfg.IGDBClientToken[len(cfg.IGDBClientToken)-5:],
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -120,10 +123,53 @@ func NewHandler(cfg *config.Config) *Handler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "say",
+				Description:              "Send an anonymous message to a specified channel (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionChannel,
+						Name:        "channel",
+						Description: "The channel to send the message to",
+						Required:    true,
+						ChannelTypes: []discordgo.ChannelType{
+							discordgo.ChannelTypeGuildText,
+							discordgo.ChannelTypeGuildNews,
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "message",
+						Description: "The message to send",
+						Required:    true,
+					},
+				},
+			},
+			HandlerFunc: h.handleSay,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:                     "welcome",
 				Description:              "Generate a welcome message for new members (admin only)",
 				DefaultMemberPermissions: &modPerms,
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "minutes",
+						Description: "How many minutes back to look for new members",
+						Required:    true,
+						MinValue:    utils.Float64Ptr(1),
+						MaxValue:    1440, // 24 hours
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "execute",
+						Description: "Actually send the message (default: false for preview only)",
+						Required:    false,
+					},
+				},
 			},
 			HandlerFunc: h.handleWelcome,
 		},
@@ -145,6 +191,8 @@ func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 		if err != nil {
 			return err
 		}
+		// Update the local command with the ID returned from Discord
+		c.ApplicationCommand.ID = cmd.ID
 		log.Printf("Registered command: %s", cmd.Name)
 	}
 
@@ -165,12 +213,22 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 
 // UnregisterCommands removes all registered commands (useful for cleanup)
 func (h *Handler) UnregisterCommands(s *discordgo.Session) {
-	for name, cmd := range h.Commands {
-		err := s.ApplicationCommandDelete(s.State.User.ID, "", cmd.ApplicationCommand.ID)
-		if err != nil {
-			log.Printf("Error deleting command %s: %v", name, err)
-		} else {
-			log.Printf("Unregistered command: %s", name)
+	// Get all existing commands from Discord
+	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
+	if err != nil {
+		log.Printf("Error fetching existing commands: %v", err)
+		return
+	}
+
+	// Delete each command that exists in our local command map
+	for _, existingCmd := range existingCommands {
+		if _, exists := h.Commands[existingCmd.Name]; exists {
+			err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
+			if err != nil {
+				log.Printf("Error deleting command %s: %v", existingCmd.Name, err)
+			} else {
+				log.Printf("Unregistered command: %s", existingCmd.Name)
+			}
 		}
 	}
 }

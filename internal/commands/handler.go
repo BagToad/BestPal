@@ -2,18 +2,22 @@ package commands
 
 import (
 	"gamerpal/internal/config"
-	"gamerpal/internal/utils"
 	"log"
-	"slices"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
 
+// Command represents a Discord application command with its handler
+type Command struct {
+	ApplicationCommand *discordgo.ApplicationCommand
+	HandlerFunc        func(s *discordgo.Session, i *discordgo.InteractionCreate)
+}
+
 // Handler handles command processing
 type Handler struct {
-	commands   map[string]*discordgo.ApplicationCommand
 	igdbClient *igdb.Client
+	Commands   map[string]*Command
 }
 
 // NewHandler creates a new command handler
@@ -21,106 +25,126 @@ func NewHandler(cfg *config.Config) *Handler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.IGDBClientID, cfg.IGDBClientToken, nil)
 
-	return &Handler{
-		commands:   make(map[string]*discordgo.ApplicationCommand),
+	h := &Handler{
 		igdbClient: igdbClient,
+		Commands:   make(map[string]*Command),
 	}
-}
 
-// RegisterCommands registers all slash commands with Discord
-func (h *Handler) RegisterCommands(s *discordgo.Session) error {
-	// Define all slash commands
-	commands := []*discordgo.ApplicationCommand{
+	var adminPerms int64 = discordgo.PermissionAdministrator
+	var modPerms int64 = discordgo.PermissionBanMembers
+
+	// Define all commands
+	commands := []*Command{
 		{
-			Name:        "userstats",
-			Description: "Show member statistics for the server",
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "userstats",
+				Description:              "Show member statistics for the server",
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				DefaultMemberPermissions: &modPerms,
+			},
+			HandlerFunc: h.handleUserStats,
 		},
 		{
-			Name:        "ping",
-			Description: "Check if the bot is responsive",
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "ping",
+				Description: "Check if the bot is responsive",
+			},
+			HandlerFunc: h.handlePing,
 		},
 		{
-			Name:        "help",
-			Description: "Show all available commands",
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "help",
+				Description: "Show all available commands",
+			},
+			HandlerFunc: h.handleHelp,
 		},
 		{
-			Name:        "game",
-			Description: "Look up information about a video game",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "name",
-					Description: "The name of the game to search for",
-					Required:    true,
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "game",
+				Description: "Look up information about a video game",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "The name of the game to search for",
+						Required:    true,
+					},
 				},
 			},
+			HandlerFunc: h.handleGame,
 		},
 		{
-			Name:        "prune-inactive",
-			Description: "Remove users without any roles (dry run by default)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "execute",
-					Description: "Actually remove users (default: false for dry run)",
-					Required:    false,
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "prune-inactive",
+				Description:              "Remove users without any roles (dry run by default)",
+				DefaultMemberPermissions: &adminPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "execute",
+						Description: "Actually remove users (default: false for dry run)",
+						Required:    false,
+					},
 				},
 			},
+			HandlerFunc: h.handlePruneInactive,
 		},
 		{
-			Name:        "time",
-			Description: "Time-related utilities",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionSubCommand,
-					Name:        "parse",
-					Description: "Parse a date/time and convert it to Discord timestamp format",
-					Options: []*discordgo.ApplicationCommandOption{
-						{
-							Type:        discordgo.ApplicationCommandOptionString,
-							Name:        "datetime",
-							Description: "The date/time to parse (e.g., 'January 1, 2025 MDT', '1:45PM MDT')",
-							Required:    true,
-						},
-						{
-							Type:        discordgo.ApplicationCommandOptionBoolean,
-							Name:        "full",
-							Description: "If true, print out all discord timestamp formats",
-							Required:    false,
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "time",
+				Description: "Time-related utilities",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "parse",
+						Description: "Parse a date/time and convert it to Discord timestamp format",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "datetime",
+								Description: "The date/time to parse (e.g., 'January 1, 2025 MDT', '1:45PM MDT')",
+								Required:    true,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionBoolean,
+								Name:        "full",
+								Description: "If true, print out all discord timestamp formats",
+								Required:    false,
+							},
 						},
 					},
 				},
 			},
+			HandlerFunc: h.handleTime,
 		},
 		{
-			Name:        "welcome",
-			Description: "Generate a welcome message for new members (admin only)",
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "minutes",
-					Description: "Number of minutes to look back for new members",
-					Required:    true,
-					MinValue:    utils.Float64Ptr(1),
-					MaxValue:    1440, // 24 hours max
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "execute",
-					Description: "Actually post the welcome message (default: false for preview mode)",
-					Required:    false,
-				},
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "welcome",
+				Description:              "Generate a welcome message for new members (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			},
+			HandlerFunc: h.handleWelcome,
 		},
 	}
 
+	// Populate the commands map
+	for _, cmd := range commands {
+		h.Commands[cmd.ApplicationCommand.Name] = cmd
+	}
+
+	return h
+}
+
+// RegisterCommands registers all slash commands with Discord
+func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 	// Register commands globally
-	for _, command := range commands {
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", command)
+	for _, c := range h.Commands {
+		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
 		if err != nil {
 			return err
 		}
-		h.commands[cmd.Name] = cmd
 		log.Printf("Registered command: %s", cmd.Name)
 	}
 
@@ -133,120 +157,20 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 		return
 	}
 
-	cmds := map[string]struct {
-		requireGuild bool
-		requireAdmin bool
-		handlerFunc  func(s *discordgo.Session, i *discordgo.InteractionCreate)
-	}{
-		"userstats": {
-			requireGuild: true,
-			requireAdmin: true,
-			handlerFunc:  h.handleUserStats,
-		},
-		"prune-inactive": {
-			requireGuild: true,
-			requireAdmin: true,
-			handlerFunc:  h.handlePruneInactive,
-		},
-		"ping": {
-			requireGuild: false,
-			requireAdmin: false,
-			handlerFunc:  h.handlePing,
-		},
-		"help": {
-			requireGuild: false,
-			requireAdmin: false,
-			handlerFunc:  h.handleHelp,
-		},
-		"game": {
-			requireGuild: false,
-			requireAdmin: false,
-			handlerFunc:  h.handleGame,
-		},
-		"time": {
-			requireGuild: false,
-			requireAdmin: false,
-			handlerFunc:  h.handleTime,
-		},
-		"welcome": {
-			requireGuild: true,
-			requireAdmin: true,
-			handlerFunc:  h.handleWelcome,
-		},
-	}
-
-	for name, cmd := range cmds {
-		if i.ApplicationCommandData().Name == name {
-			// Check if the command requires a guild context
-			if cmd.requireGuild {
-				if i.GuildID == "" || i.Member == nil {
-					s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-						Type: discordgo.InteractionResponseChannelMessageWithSource,
-						Data: &discordgo.InteractionResponseData{
-							Content: "❌ This command can only be used in a server.",
-							Flags:   discordgo.MessageFlagsEphemeral,
-						},
-					})
-					return
-				}
-			}
-
-			// Check if admin permissions are required
-			if cmd.requireAdmin {
-				if !h.adminCheck(s, i) {
-					return
-				}
-			}
-
-			// Call the appropriate handler function
-			cmd.handlerFunc(s, i)
-			return
-		}
+	commandName := i.ApplicationCommandData().Name
+	if cmd, exists := h.Commands[commandName]; exists {
+		cmd.HandlerFunc(s, i)
 	}
 }
 
 // UnregisterCommands removes all registered commands (useful for cleanup)
 func (h *Handler) UnregisterCommands(s *discordgo.Session) {
-	for name, cmd := range h.commands {
-		err := s.ApplicationCommandDelete(s.State.User.ID, "", cmd.ID)
+	for name, cmd := range h.Commands {
+		err := s.ApplicationCommandDelete(s.State.User.ID, "", cmd.ApplicationCommand.ID)
 		if err != nil {
 			log.Printf("Error deleting command %s: %v", name, err)
 		} else {
 			log.Printf("Unregistered command: %s", name)
 		}
 	}
-}
-
-// adminCheck checks if the user has admin permissions for a command
-func (h *Handler) adminCheck(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
-	// When needed, we only respond to users with the correct role or just straight up admin perms.
-	isAdmin := func() bool {
-		// TODO put these in a config
-		adminRoleIDs := []string{"148527996343549952", "513804949964980235"}
-		hasAdminRole := slices.ContainsFunc(i.Member.Roles, func(role string) bool {
-			return slices.Contains(adminRoleIDs, role)
-		})
-
-		if hasAdminRole {
-			return true
-		}
-
-		if utils.HasAdminPermissions(s, i) {
-			return true
-		}
-
-		return false
-	}()
-
-	if !isAdmin {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ You do not have permission to use this command.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return false
-	}
-	return true
 }

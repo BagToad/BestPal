@@ -7,6 +7,12 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "Makefile"
+      - "Dockerfile"
   workflow_dispatch:
 
 jobs:

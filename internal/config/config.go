@@ -26,6 +26,14 @@ func (c *Config) GetCryptoSalt() string {
 	return c.v.GetString("crypto_salt")
 }
 
+func (c *Config) GetSuperAdmins() []string {
+	superAdmins := c.v.GetStringSlice("super_admins")
+	if len(superAdmins) == 0 {
+		return nil
+	}
+	return superAdmins
+}
+
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
 	c.v.WriteConfig()

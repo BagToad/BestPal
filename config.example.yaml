@@ -10,3 +10,7 @@ igdb_client_token: "your-igdb-client-token-here"
 
 # For sort of random names in /say
 crypto_salt: "something-random"
+
+# Super admins. Replace with actual user IDs.
+super_admins:
+  - "user_id_1"

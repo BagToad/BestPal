@@ -40,6 +40,35 @@ func NewHandler(cfg *config.Config) *Handler {
 	commands := []*Command{
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "config",
+				Description: "View or modify the bot configuration (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "set",
+						Description: "Set a configuration value",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "key",
+								Description: "The configuration key to set",
+								Required:    true,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "value",
+								Description: "The value to set for the key",
+								Required:    true,
+							},
+						},
+					},
+				},
+			},
+			HandlerFunc: h.handleConfig,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:                     "userstats",
 				Description:              "Show member statistics for the server",
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},

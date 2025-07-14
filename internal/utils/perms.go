@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"gamerpal/internal/config"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -14,6 +16,20 @@ func HasAdminPermissions(s *discordgo.Session, i *discordgo.InteractionCreate) b
 
 	// Check for administrator permission
 	return permissions&discordgo.PermissionAdministrator != 0
+}
+
+func IsSuperAdmin(ID string, config *config.Config) bool {
+	if config == nil {
+		return false
+	}
+
+	superAdmins := config.GetSuperAdmins()
+	for _, adminID := range superAdmins {
+		if adminID == ID {
+			return true
+		}
+	}
+	return false
 }
 
 // HasRoleByName checks if the user has a specific role by name (the text descriptor)

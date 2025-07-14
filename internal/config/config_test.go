@@ -7,21 +7,40 @@ import (
 )
 
 func TestLoad(t *testing.T) {
-	// Test with missing vars
-	t.Setenv("DISCORD_BOT_TOKEN", "")
-	t.Setenv("IGDB_CLIENT_ID", "")
-	t.Setenv("IGDB_CLIENT_TOKEN", "")
-	_, err := Load()
-	require.Error(t, err)
+	t.Run("missing required variables", func(t *testing.T) {
+		_, err := NewConfig()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "bot_token is required")
+	})
 
-	// Test with valid vars
-	t.Setenv("DISCORD_BOT_TOKEN", "test_token")
-	t.Setenv("IGDB_CLIENT_ID", "test_id")
-	t.Setenv("IGDB_CLIENT_TOKEN", "test_token")
-	cfg, err := Load()
-	require.NoError(t, err)
+	t.Run("new prefixed environment variables", func(t *testing.T) {
+		t.Setenv("GAMERPAL_BOT_TOKEN", "prefixed_token")
+		t.Setenv("GAMERPAL_IGDB_CLIENT_ID", "prefixed_id")
+		t.Setenv("GAMERPAL_IGDB_CLIENT_TOKEN", "prefixed_token")
 
-	require.Equal(t, "test_token", cfg.BotToken)
-	require.Equal(t, "test_id", cfg.IGDBClientID)
-	require.Equal(t, "test_token", cfg.IGDBClientToken)
+		cfg, err := NewConfig()
+		require.NoError(t, err)
+
+		require.Equal(t, "prefixed_token", cfg.GetBotToken())
+		require.Equal(t, "prefixed_id", cfg.GetIGDBClientID())
+		require.Equal(t, "prefixed_token", cfg.GetIGDBClientToken())
+	})
+
+	t.Run("partial configuration - missing igdb client id", func(t *testing.T) {
+		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
+		t.Setenv("GAMERPAL_IGDB_CLIENT_TOKEN", "test_token")
+
+		_, err := NewConfig()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "igdb_client_id is required")
+	})
+
+	t.Run("partial configuration - missing igdb client token", func(t *testing.T) {
+		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
+		t.Setenv("GAMERPAL_IGDB_CLIENT_ID", "test_id")
+
+		_, err := NewConfig()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "igdb_client_token is required")
+	})
 }

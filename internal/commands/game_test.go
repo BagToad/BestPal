@@ -15,10 +15,11 @@ import (
 
 // createTestHandler creates a handler for testing
 func createTestHandler() *Handler {
-	cfg := &config.Config{
-		IGDBClientID:    "test_id",
-		IGDBClientToken: "test_token",
-	}
+	cfg := config.NewMockConfig(map[string]interface{}{
+		"bot_token":         "test_token",
+		"igdb_client_id":    "test_id",
+		"igdb_client_token": "test_token",
+	})
 	return NewHandler(cfg)
 }
 
@@ -334,10 +335,11 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 
 func TestHandlerCreation(t *testing.T) {
 	t.Run("handler creation with valid config", func(t *testing.T) {
-		cfg := &config.Config{
-			IGDBClientID:    "test_client_id",
-			IGDBClientToken: "test_client_token",
-		}
+		cfg := config.NewMockConfig(map[string]interface{}{
+			"bot_token":         "test_token",
+			"igdb_client_id":    "test_id",
+			"igdb_client_token": "test_token",
+		})
 
 		handler := NewHandler(cfg)
 

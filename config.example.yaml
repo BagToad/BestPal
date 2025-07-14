@@ -1,0 +1,16 @@
+# Example configuration file for GamerPal
+# Copy this to config.yaml and fill in your values
+
+# Discord Bot Configuration
+bot_token: "your-discord-bot-token-here"
+
+# IGDB API Configuration
+igdb_client_id: "your-igdb-client-id-here"
+igdb_client_token: "your-igdb-client-token-here"
+
+# For sort of random names in /say
+crypto_salt: "something-random"
+
+# Super admins. Replace with actual user IDs.
+super_admins:
+  - "user_id_1"

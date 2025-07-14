@@ -19,18 +19,18 @@ type Command struct {
 type Handler struct {
 	igdbClient *igdb.Client
 	Commands   map[string]*Command
-	CryptoSalt string
+	Config     *config.Config
 }
 
 // NewHandler creates a new command handler
 func NewHandler(cfg *config.Config) *Handler {
 	// Create IGDB client
-	igdbClient := igdb.NewClient(cfg.IGDBClientID, cfg.IGDBClientToken, nil)
+	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
 	h := &Handler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
-		CryptoSalt: cfg.IGDBClientToken[len(cfg.IGDBClientToken)-5:],
+		Config:     cfg,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -38,6 +38,35 @@ func NewHandler(cfg *config.Config) *Handler {
 
 	// Define all commands
 	commands := []*Command{
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "config",
+				Description: "View or modify the bot configuration (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "set",
+						Description: "Set a configuration value",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "key",
+								Description: "The configuration key to set",
+								Required:    true,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "value",
+								Description: "The value to set for the key",
+								Required:    true,
+							},
+						},
+					},
+				},
+			},
+			HandlerFunc: h.handleConfig,
+		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:                     "userstats",

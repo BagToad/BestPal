@@ -25,7 +25,7 @@ type Bot struct {
 // New creates a new Bot instance
 func New(cfg *config.Config) (*Bot, error) {
 	// Create Discord session
-	session, err := discordgo.New("Bot " + cfg.BotToken)
+	session, err := discordgo.New("Bot " + cfg.GetBotToken())
 	if err != nil {
 		return nil, fmt.Errorf("error creating Discord session: %w", err)
 	}

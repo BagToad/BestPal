@@ -86,7 +86,7 @@ func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	// Add the anonymous admin tag to the message content to distinguish
 	// different admins anonymously.
-	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.CryptoSalt)
+	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.Config.GetCryptoSalt())
 	if err != nil {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

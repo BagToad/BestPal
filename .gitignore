@@ -40,3 +40,5 @@ tmp/
 ehthumbs.db
 Thumbs.db
 gamerpal
+config.yaml
+config/*

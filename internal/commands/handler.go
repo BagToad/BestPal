@@ -19,18 +19,18 @@ type Command struct {
 type Handler struct {
 	igdbClient *igdb.Client
 	Commands   map[string]*Command
-	CryptoSalt string
+	Config     *config.Config
 }
 
 // NewHandler creates a new command handler
 func NewHandler(cfg *config.Config) *Handler {
 	// Create IGDB client
-	igdbClient := igdb.NewClient(cfg.IGDBClientID, cfg.IGDBClientToken, nil)
+	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
 	h := &Handler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
-		CryptoSalt: cfg.IGDBClientToken[len(cfg.IGDBClientToken)-5:],
+		Config:     cfg,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator

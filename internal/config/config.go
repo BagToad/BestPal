@@ -26,6 +26,18 @@ func (c *Config) GetCryptoSalt() string {
 	return c.v.GetString("crypto_salt")
 }
 
+func (c *Config) GetGitHubModelsToken() string {
+	return c.v.GetString("github_models_token")
+}
+
+func (c *Config) GetGamerPalsServerID() string {
+	return c.v.GetString("gamerpals_server_id")
+}
+
+func (c *Config) GetGamerPalsModActionLogChannelID() string {
+	return c.v.GetString("gamerpals_mod_action_log_channel_id")
+}
+
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
 	if len(superAdmins) == 0 {

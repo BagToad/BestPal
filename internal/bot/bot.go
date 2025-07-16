@@ -261,8 +261,17 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 		return
 	}
 
-	_, err = s.ChannelMessageSend(responseChannel, summary)
-	if err != nil {
-		log.Printf("Error sending summary message to channel %s: %v", responseChannel, err)
+	// Send in batches of 1500 characters
+	const maxMessageLength = 1500
+	for len(summary) > maxMessageLength {
+		part := summary[:maxMessageLength]
+		summary = summary[maxMessageLength:]
+
+		// Send each part as a separate message
+		_, err = s.ChannelMessageSend(responseChannel, part)
+		if err != nil {
+			log.Printf("Error sending summary part to channel %s: %v", responseChannel, err)
+			return
+		}
 	}
 }

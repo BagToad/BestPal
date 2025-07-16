@@ -354,8 +354,17 @@ func generateChannelTranscript(messages []*discordgo.Message, channelName string
 
 		// Handle different message types
 		if msg.Type == discordgo.MessageTypeDefault || msg.Type == discordgo.MessageTypeReply {
+
+			msgContent := msg.Content
+			if len(msg.Mentions) != 0 {
+				for _, mention := range msg.Mentions {
+					// Replace mentions with usernames
+					msgContent = strings.ReplaceAll(msgContent, mention.Mention(), mention.Username)
+				}
+			}
+
 			transcript.WriteString(fmt.Sprintf("[%s] %s: %s\n",
-				timestamp, msg.Author.GlobalName, msg.Content))
+				timestamp, msg.Author.GlobalName, msgContent))
 
 			// Include attachments if any
 			if len(msg.Attachments) > 0 {

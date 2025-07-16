@@ -73,6 +73,24 @@ func NewHandler(cfg *config.Config) *Handler {
 				Description:              "Show member statistics for the server",
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 				DefaultMemberPermissions: &modPerms,
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "stats",
+						Description: "Which statistics to show",
+						Required:    false,
+						Choices: []*discordgo.ApplicationCommandOptionChoice{
+							{
+								Name:  "Overview",
+								Value: "overview",
+							},
+							{
+								Name:  "Daily (Last 7 Days)",
+								Value: "daily",
+							},
+						},
+					},
+				},
 			},
 			HandlerFunc: h.handleUserStats,
 		},

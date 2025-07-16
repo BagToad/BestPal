@@ -359,7 +359,7 @@ func generateChannelTranscript(messages []*discordgo.Message, channelName string
 			if len(msg.Mentions) != 0 {
 				for _, mention := range msg.Mentions {
 					// Replace mentions with usernames
-					msgContent = strings.ReplaceAll(msgContent, mention.Mention(), mention.Username)
+					msgContent = strings.ReplaceAll(msgContent, mention.Mention(), fmt.Sprintf("%s (%s)", mention.GlobalName, mention.Username))
 				}
 			}
 

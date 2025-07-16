@@ -186,15 +186,10 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 
 	var userPrompt strings.Builder
 
-	userPrompt.WriteString("ticket number: " + c.Name + "\n\n")
-	for _, msg := range allMessages {
-		if msg.Author.ID == s.State.User.ID {
-			userPrompt.WriteString(fmt.Sprintf("%s (on behalf of mod): %s\n", msg.Author.Username, msg.Content))
-			continue
-		}
+	// Generate channel transcript
+	transcript := generateChannelTranscript(allMessages, c.Name)
 
-		userPrompt.WriteString(fmt.Sprintf("%s: %s\n", msg.Author.Username, msg.Content))
-	}
+	userPrompt.WriteString(transcript.String())
 
 	systemPrompt := heredoc.Doc(`
 			You are a helpful assistant that summarizes the discussion in a support ticket
@@ -224,20 +219,15 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 			<any other relevant details>
 		`)
 
-	modelsClient := utils.NewModelsClient(cfg)
-
 	log.Println("Generating summary for closed ticket channel:", c.ID)
+	modelsClient := utils.NewModelsClient(cfg)
 	summary := modelsClient.ModelsRequest(systemPrompt, userPrompt.String(), "openai/gpt-4.1")
 
 	if summary == "" {
 		log.Println("Failed to generate summary for closed ticket channel:", c.ID)
-		return
+	} else {
+		log.Println("Generated summary:", summary)
 	}
-
-	log.Println("Generated summary:", summary)
-
-	// Generate channel transcript
-	transcript := generateChannelTranscript(allMessages, c.Name)
 
 	responseChannel := cfg.GetGamerPalsModActionLogChannelID()
 

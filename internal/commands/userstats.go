@@ -15,6 +15,12 @@ func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.Interaction
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
+	// Get the stats type from the option (default to overview)
+	statsType := "overview"
+	if len(i.ApplicationCommandData().Options) > 0 && i.ApplicationCommandData().Options[0].Name == "stats" {
+		statsType = i.ApplicationCommandData().Options[0].StringValue()
+	}
+
 	// Get guild members
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
@@ -24,6 +30,16 @@ func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 
+	switch statsType {
+	case "daily":
+		h.handleDailyStats(s, i, members)
+	default:
+		h.handleOverviewStats(s, i, members)
+	}
+}
+
+// handleOverviewStats handles the overview statistics display
+func (h *Handler) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Count user types
 	userCount := 0
 	botCount := 0
@@ -113,7 +129,7 @@ func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.Interaction
 
 	// Create embed response
 	embed := &discordgo.MessageEmbed{
-		Title: "📊 Server Statistics",
+		Title: "📊 Server Statistics - Overview",
 		Color: utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -167,6 +183,87 @@ func (h *Handler) handleUserStats(s *discordgo.Session, i *discordgo.Interaction
 				Inline: true,
 			},
 		},
+		Footer: &discordgo.MessageEmbedFooter{
+			Text: "GamerPal Bot",
+		},
+	}
+
+	// Send the response
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Embeds: &[]*discordgo.MessageEmbed{embed},
+	})
+}
+
+// handleDailyStats handles the daily statistics display for the last 7 days
+func (h *Handler) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+	// Create a map to count joins by day for the last 7 days
+	dailyCounts := make(map[string]int)
+	now := time.Now()
+
+	// Initialize the last 7 days with 0 counts
+	for i := 0; i < 7; i++ {
+		day := now.AddDate(0, 0, -i)
+		dayKey := day.Format("2006-01-02")
+		dailyCounts[dayKey] = 0
+	}
+
+	// Count joins by day for non-bot members
+	for _, member := range members {
+		if member.User.Bot {
+			continue // Skip bots
+		}
+
+		joinedAt := member.JoinedAt
+		daysSince := int(time.Since(joinedAt).Hours() / 24)
+
+		// Only count if joined within the last 7 days
+		if daysSince < 7 {
+			dayKey := joinedAt.Format("2006-01-02")
+			if _, exists := dailyCounts[dayKey]; exists {
+				dailyCounts[dayKey]++
+			}
+		}
+	}
+
+	// Build the embed fields for each day
+	var fields []*discordgo.MessageEmbedField
+	totalWeekJoins := 0
+
+	for i := 6; i >= 0; i-- { // Show from oldest to newest
+		day := now.AddDate(0, 0, -i)
+		dayKey := day.Format("2006-01-02")
+		count := dailyCounts[dayKey]
+		totalWeekJoins += count
+
+		// Format the day display
+		var dayDisplay string
+		if i == 0 {
+			dayDisplay = "Today"
+		} else if i == 1 {
+			dayDisplay = "Yesterday"
+		} else {
+			dayDisplay = day.Format("Mon, Jan 2")
+		}
+
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   fmt.Sprintf("📅 %s", dayDisplay),
+			Value:  fmt.Sprintf("%d new members", count),
+			Inline: true,
+		})
+	}
+
+	// Add a summary field
+	fields = append(fields, &discordgo.MessageEmbedField{
+		Name:   "📊 Weekly Summary",
+		Value:  fmt.Sprintf("**%d** total new members this week", totalWeekJoins),
+		Inline: false,
+	})
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "📊 Server Statistics - Daily Joins (Last 7 Days)",
+		Color:       utils.Colors.Info(),
+		Description: "New member joins by day for the past week",
+		Fields:      fields,
 		Footer: &discordgo.MessageEmbedFooter{
 			Text: "GamerPal Bot",
 		},

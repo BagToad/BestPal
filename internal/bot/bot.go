@@ -198,6 +198,9 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 			Do not respond to users, just summarize the discussion.
 
 			The complete summary should be less than 2000 characters.
+			
+			Summaries here should be super crisp and concise. Don't just
+			repeat messages.
 
 			Respond in the following format template:
 

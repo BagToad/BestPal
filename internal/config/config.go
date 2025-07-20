@@ -46,6 +46,14 @@ func (c *Config) GetSuperAdmins() []string {
 	return superAdmins
 }
 
+func (c *Config) GetDatabasePath() string {
+	dbPath := c.v.GetString("database_path")
+	if dbPath == "" {
+		return "./gamerpal.db" // Default database path
+	}
+	return dbPath
+}
+
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
 	c.v.WriteConfig()

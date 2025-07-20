@@ -9,6 +9,7 @@ require (
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/markusmobius/go-dateparser v1.2.4
+	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
 )

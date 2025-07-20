@@ -82,6 +82,15 @@ func (b *Bot) Start() error {
 		b.handler.UnregisterCommands(b.session)
 	}
 
+	// Close database connection if it exists
+	if b.handler.DB != nil {
+		if err := b.handler.DB.Close(); err != nil {
+			fmt.Printf("Error closing database: %v\n", err)
+		} else {
+			fmt.Println("Database connection closed successfully")
+		}
+	}
+
 	return nil
 }
 

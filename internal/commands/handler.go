@@ -2,6 +2,7 @@ package commands
 
 import (
 	"gamerpal/internal/config"
+	"gamerpal/internal/database"
 	"gamerpal/internal/utils"
 	"log"
 
@@ -20,6 +21,7 @@ type Handler struct {
 	igdbClient *igdb.Client
 	Commands   map[string]*Command
 	Config     *config.Config
+	DB         *database.DB
 }
 
 // NewHandler creates a new command handler
@@ -27,10 +29,18 @@ func NewHandler(cfg *config.Config) *Handler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
+	// Initialize SQLite database
+	db, err := database.NewDB("gamerpal.db")
+	if err != nil {
+		log.Printf("Warning: Failed to initialize database: %v", err)
+		// Continue without database for now
+	}
+
 	h := &Handler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
 		Config:     cfg,
+		DB:         db,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -219,6 +229,47 @@ func NewHandler(cfg *config.Config) *Handler {
 				},
 			},
 			HandlerFunc: h.handleWelcome,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "data",
+				Description: "Store and retrieve data using SQLite database",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "store",
+						Description: "Store a key-value pair in the database",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "key",
+								Description: "The key to store data under",
+								Required:    true,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "value",
+								Description: "The value to store",
+								Required:    true,
+							},
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "fetch",
+						Description: "Fetch data from the database",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "key",
+								Description: "The key to fetch data for (optional - omit to get all your data)",
+								Required:    false,
+							},
+						},
+					},
+				},
+			},
+			HandlerFunc: h.handleData,
 		},
 	}
 

@@ -2,8 +2,9 @@ package commands
 
 import (
 	"gamerpal/internal/config"
+	"gamerpal/internal/database"
+	"gamerpal/internal/pairing"
 	"gamerpal/internal/utils"
-	"log"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -15,22 +16,32 @@ type Command struct {
 	HandlerFunc        func(s *discordgo.Session, i *discordgo.InteractionCreate)
 }
 
-// Handler handles command processing
-type Handler struct {
-	igdbClient *igdb.Client
-	Commands   map[string]*Command
-	Config     *config.Config
+// SlashHandler handles command processing
+type SlashHandler struct {
+	igdbClient     *igdb.Client
+	Commands       map[string]*Command
+	config         *config.Config
+	DB             *database.DB
+	PairingService *pairing.PairingService
 }
 
-// NewHandler creates a new command handler
-func NewHandler(cfg *config.Config) *Handler {
+// NewSlashHandler creates a new command handler
+func NewSlashHandler(cfg *config.Config) *SlashHandler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
-	h := &Handler{
+	// Initialize SQLite database
+	db, err := database.NewDB(cfg.GetDatabasePath())
+	if err != nil {
+		cfg.Logger.Warn("Warning: Failed to initialize database: %v", err)
+		// Continue without database for now
+	}
+
+	h := &SlashHandler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
-		Config:     cfg,
+		config:     cfg,
+		DB:         db,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -220,6 +231,124 @@ func NewHandler(cfg *config.Config) *Handler {
 			},
 			HandlerFunc: h.handleWelcome,
 		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "roulette",
+				Description: "Sign up for a pairing or manage your game list",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "signup",
+						Description: "Sign up for roulette pairing",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "nah",
+						Description: "Remove yourself from roulette pairing",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "games-add",
+						Description: "Add games to your roulette list",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "name",
+								Description: "Game name or comma-separated list of games",
+								Required:    true,
+							},
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "games-remove",
+						Description: "Remove games from your roulette list",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "name",
+								Description: "Game name or comma-separated list of games",
+								Required:    true,
+							},
+						},
+					},
+				},
+			},
+			HandlerFunc: h.handleRoulette,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "roulette-admin",
+				Description:              "Admin commands for managing the roulette system",
+				DefaultMemberPermissions: &adminPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "debug",
+						Description: "Show debug information about the roulette system",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "pair",
+						Description: "Schedule or execute pairing",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "time",
+								Description: "Schedule pairing for this time",
+								Required:    false,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionBoolean,
+								Name:        "immediate-pair",
+								Description: "Execute pairing immediately",
+								Required:    false,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionBoolean,
+								Name:        "dryrun",
+								Description: "Dry run mode (default: true)",
+								Required:    false,
+							},
+						},
+					},
+					{
+						Name:        "simulate-pairing",
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Description: "Simulate pairing with fake users for testing purposes",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionInteger,
+								Name:        "user-count",
+								Description: "Number of fake users to simulate (4-50, default: 8)",
+								Required:    false,
+								MinValue:    &[]float64{4}[0],
+								MaxValue:    50,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionBoolean,
+								Name:        "create-channels",
+								Description: "Actually create pairing channels with fake users (default: false)",
+								Required:    false,
+							},
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "reset",
+						Description: "Delete all existing pairing channels",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "delete-schedule",
+						Description: "Remove the current scheduled pairing time",
+					},
+				},
+			},
+			HandlerFunc: h.handleRouletteAdmin,
+		},
 	}
 
 	// Populate the commands map
@@ -230,8 +359,18 @@ func NewHandler(cfg *config.Config) *Handler {
 	return h
 }
 
+// GetDB returns the database instance (used by scheduler)
+func (h *SlashHandler) GetDB() *database.DB {
+	return h.DB
+}
+
+// InitializePairingService initializes the pairing service with a Discord session
+func (h *SlashHandler) InitializePairingService(session *discordgo.Session) {
+	h.PairingService = pairing.NewPairingService(session, h.config, h.DB)
+}
+
 // RegisterCommands registers all slash commands with Discord
-func (h *Handler) RegisterCommands(s *discordgo.Session) error {
+func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	// Register commands globally
 	for _, c := range h.Commands {
 		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
@@ -240,14 +379,14 @@ func (h *Handler) RegisterCommands(s *discordgo.Session) error {
 		}
 		// Update the local command with the ID returned from Discord
 		c.ApplicationCommand.ID = cmd.ID
-		log.Printf("Registered command: %s", cmd.Name)
+		h.config.Logger.Infof("Registered command: %s", cmd.Name)
 	}
 
 	return nil
 }
 
 // HandleInteraction processes slash command interactions
-func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ApplicationCommandData().Name == "" {
 		return
 	}
@@ -259,11 +398,11 @@ func (h *Handler) HandleInteraction(s *discordgo.Session, i *discordgo.Interacti
 }
 
 // UnregisterCommands removes all registered commands (useful for cleanup)
-func (h *Handler) UnregisterCommands(s *discordgo.Session) {
+func (h *SlashHandler) UnregisterCommands(s *discordgo.Session) {
 	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
-		log.Printf("Error fetching existing commands: %v", err)
+		h.config.Logger.Warn("Error fetching existing commands: %v", err)
 		return
 	}
 
@@ -272,9 +411,9 @@ func (h *Handler) UnregisterCommands(s *discordgo.Session) {
 		if _, exists := h.Commands[existingCmd.Name]; exists {
 			err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
 			if err != nil {
-				log.Printf("Error deleting command %s: %v", existingCmd.Name, err)
+				h.config.Logger.Warn("Error deleting command %s: %v", existingCmd.Name, err)
 			} else {
-				log.Printf("Unregistered command: %s", existingCmd.Name)
+				h.config.Logger.Infof("Unregistered command: %s", existingCmd.Name)
 			}
 		}
 	}

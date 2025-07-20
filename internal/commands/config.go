@@ -8,8 +8,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func (h *Handler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if !utils.IsSuperAdmin(i.User.ID, h.Config) {
+func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if !utils.IsSuperAdmin(i.User.ID, h.config) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -35,7 +35,7 @@ func (h *Handler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCre
 					value = subOption.StringValue()
 				}
 			}
-			handleConfigSet(s, i, h.Config, key, value)
+			handleConfigSet(s, i, h.config, key, value)
 		}
 	}
 

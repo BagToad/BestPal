@@ -2,12 +2,16 @@ package config
 
 import (
 	"fmt"
+	"os"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	v *viper.Viper
+	v      *viper.Viper
+	Logger *log.Logger
 }
 
 func (c *Config) GetBotToken() string {
@@ -38,12 +42,24 @@ func (c *Config) GetGamerPalsModActionLogChannelID() string {
 	return c.v.GetString("gamerpals_mod_action_log_channel_id")
 }
 
+func (c *Config) GetGamerPalsPairingCategoryID() string {
+	return c.v.GetString("gamerpals_pairing_category_id")
+}
+
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
 	if len(superAdmins) == 0 {
 		return nil
 	}
 	return superAdmins
+}
+
+func (c *Config) GetDatabasePath() string {
+	dbPath := c.v.GetString("database_path")
+	if dbPath == "" {
+		return "./gamerpal.db" // Default database path
+	}
+	return dbPath
 }
 
 func (c *Config) Set(key string, value interface{}) {
@@ -80,7 +96,10 @@ func NewConfig() (*Config, error) {
 		return nil, err
 	}
 
-	return &Config{v: v}, nil
+	return &Config{
+		v:      v,
+		Logger: log.New(os.Stderr),
+	}, nil
 }
 
 // NewMockConfig creates a mock configuration for testing

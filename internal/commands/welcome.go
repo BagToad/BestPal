@@ -12,7 +12,7 @@ import (
 )
 
 // handleWelcome handles the welcome slash command
-func (h *Handler) handleWelcome(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) handleWelcome(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get the minutes parameter
 	minutesOption := i.ApplicationCommandData().Options[0]
 	minutes := int(minutesOption.IntValue())

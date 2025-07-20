@@ -7,7 +7,7 @@ import (
 )
 
 // handleHelp handles the help slash command
-func (h *Handler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎮 GamerPal Bot - Help",
 		Description: "A bot for r/GamerPals. Check out the code on [GitHub](https://github.com/bagtoad/bestpal)",

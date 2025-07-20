@@ -14,13 +14,13 @@ import (
 )
 
 // createTestHandler creates a handler for testing
-func createTestHandler() *Handler {
+func createTestHandler() *SlashHandler {
 	cfg := config.NewMockConfig(map[string]interface{}{
 		"bot_token":         "test_token",
 		"igdb_client_id":    "test_id",
 		"igdb_client_token": "test_token",
 	})
-	return NewHandler(cfg)
+	return NewSlashHandler(cfg)
 }
 
 func TestFormatReleaseDate(t *testing.T) {
@@ -341,7 +341,7 @@ func TestHandlerCreation(t *testing.T) {
 			"igdb_client_token": "test_token",
 		})
 
-		handler := NewHandler(cfg)
+		handler := NewSlashHandler(cfg)
 
 		assert.NotNil(t, handler)
 		assert.NotNil(t, handler.igdbClient)

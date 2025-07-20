@@ -14,3 +14,8 @@ crypto_salt: "something-random"
 # Super admins. Replace with actual user IDs.
 super_admins:
   - "user_id_1"
+
+# GamerPals server configuration
+gamerpals_server_id: "your-server-id-here"
+gamerpals_mod_action_log_channel_id: "your-mod-log-channel-id-here"
+gamerpals_pairing_category_id: "your-pairing-category-id-here"

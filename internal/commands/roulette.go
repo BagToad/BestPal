@@ -292,7 +292,12 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	if len(invalidGames) > 0 {
 		response.WriteString("❌ **Couldn't find these games:**\n")
 		for _, invalidGame := range invalidGames {
-			response.WriteString(fmt.Sprintf("• %s (did you mean: %s?)\n", invalidGame.Name, strings.Join(invalidGame.Suggestions, ", ")))
+			response.WriteString(fmt.Sprintf("• %s", invalidGame.Name))
+			if len(invalidGame.Suggestions) > 0 {
+				response.WriteString(fmt.Sprintf("(did you mean: %s?)\n", strings.Join(invalidGame.Suggestions, ", ")))
+			} else {
+				response.WriteString("\n")
+			}
 		}
 		response.WriteString("\n")
 	}

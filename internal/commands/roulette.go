@@ -297,7 +297,13 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	currentGames, err := h.DB.GetRouletteGames(userID, guildID)
 	if err == nil && len(currentGames) > 0 {
 		response.WriteString("📋 **Your current game list:**\n")
-		for _, game := range currentGames[0:10] { // Show up to 10 games
+		l := func() int {
+			if len(currentGames) < 10 {
+				return len(currentGames)
+			}
+			return 10
+		}()
+		for _, game := range currentGames[:l] { // Show up to 10 games
 			response.WriteString(fmt.Sprintf("• %s\n", game.GameName))
 		}
 		if len(currentGames) > 10 {

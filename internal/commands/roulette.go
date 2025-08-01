@@ -243,13 +243,15 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 			invalidGames = append(invalidGames, invalidGame{
 				Name: gameName,
 				Suggestions: func() []string {
-					// return first 10 game names as suggestions
+					// return first x game names as suggestions
 					suggestions := make([]string, 0, len(games))
+					maxSuggestions := 5
+
 					l := func() int {
-						if len(games) < 10 {
+						if len(games) < maxSuggestions {
 							return len(games)
 						}
-						return 10
+						return maxSuggestions
 					}()
 					for _, g := range games[:l] {
 						if g.Name != "" {

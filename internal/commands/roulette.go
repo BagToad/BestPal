@@ -51,7 +51,7 @@ func (h *SlashHandler) handleRoulette(s *discordgo.Session, i *discordgo.Interac
 func (h *SlashHandler) handleRouletteHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎲 Roulette Pairing System - Help",
-		Description: "Find gaming partners through our automated pairing system",
+		Description: "Find some GamerPals! Meet new people!",
 		Color:       utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{

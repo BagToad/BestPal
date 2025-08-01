@@ -9,8 +9,8 @@ import (
 // handleHelp handles the help slash command
 func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
-		Title:       "🎮 GamerPal Bot - Help",
-		Description: "A bot for r/GamerPals. Check out the code on [GitHub](https://github.com/bagtoad/bestpal)",
+		Title:       "🎮 Best Pal Bot - Help",
+		Description: "A bot for r/GamerPals. Check out the code on [GitHub](https://github.com/BagToad/BestPal)",
 		Color:       utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{
@@ -29,7 +29,7 @@ func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.Interaction
 			},
 			{
 				Name:   "/time",
-				Value:  "Time-related utilities\n• Use `/time parse datetime:2024-12-25 3:00 PM` to convert dates to Discord timestamps",
+				Value:  "Time-related utilities\n• Use `/time parse datetime:2025-08-25 3:00 PM` to convert dates to Discord timestamps\n• Use `full:true` to see all Discord timestamp formats",
 				Inline: false,
 			},
 			{
@@ -38,12 +38,26 @@ func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.Interaction
 				Inline: false,
 			},
 			{
-				Name:   "🚀 Commands for Admins:",
+				Name:   "/roulette help",
+				Value:  "Show detailed help for roulette pairing commands",
 				Inline: false,
 			},
 			{
-				Name:   "/prune-inactive",
-				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users\n",
+				Name:   "🛠️ Moderator Commands:",
+				Inline: false,
+			},
+			{
+				Name:   "/userstats",
+				Value:  "Show member statistics for the server\n• Use `stats:overview` or `stats:daily` for different views",
+				Inline: false,
+			},
+			{
+				Name:   "/welcome",
+				Value:  "Generate a welcome message for new members\n• Use `/welcome minutes:30` to preview\n• Use `execute:true` to post the message directly",
+				Inline: false,
+			},
+			{
+				Name:   "🚀 Admin Commands:",
 				Inline: false,
 			},
 			{
@@ -52,13 +66,13 @@ func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.Interaction
 				Inline: false,
 			},
 			{
-				Name:   "/userstats",
-				Value:  "Shows the number of users in the server (excluding bots)",
+				Name:   "/prune-inactive",
+				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users",
 				Inline: false,
 			},
 			{
-				Name:   "/welcome",
-				Value:  "Generate a welcome message for new members who joined within specified minutes\n• Use `/welcome minutes:30` to preview the message\n• Use `/welcome minutes:30 execute:true` to post the message directly",
+				Name:   "/roulette-admin help",
+				Value:  "Show detailed help for roulette admin commands",
 				Inline: false,
 			},
 		},

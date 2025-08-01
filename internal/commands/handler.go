@@ -239,6 +239,11 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "help",
+						Description: "Show detailed help for roulette commands",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
 						Name:        "signup",
 						Description: "Sign up for roulette pairing",
 					},
@@ -284,6 +289,11 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				DefaultMemberPermissions: &adminPerms,
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "help",
+						Description: "Show detailed help for roulette admin commands",
+					},
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
 						Name:        "debug",

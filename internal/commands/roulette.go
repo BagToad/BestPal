@@ -245,7 +245,13 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 				Suggestions: func() []string {
 					// return first 10 game names as suggestions
 					suggestions := make([]string, 0, len(games))
-					for _, g := range games[:10] {
+					l := func() int {
+						if len(games) < 10 {
+							return len(games)
+						}
+						return 10
+					}()
+					for _, g := range games[:l] {
 						if g.Name != "" {
 							suggestions = append(suggestions, g.Name)
 						}

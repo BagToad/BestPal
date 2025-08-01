@@ -74,7 +74,7 @@ func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordg
 			},
 			{
 				Name:   "/roulette-admin debug",
-				Value:  "Show detailed system information\n• View current signups and their games\n• Check scheduled pairing times\n• See existing pairing channels",
+				Value:  "Show detailed system information\n• View current signups and their games\n• Check scheduled pairing times",
 				Inline: false,
 			},
 			{
@@ -84,7 +84,7 @@ func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordg
 			},
 			{
 				Name:   "/roulette-admin reset",
-				Value:  "Delete all existing pairing channels\n• Removes all channels created by previous pairings\n• Use this to clean up after events",
+				Value:  "Delete all existing pairing channels\n• Removes all channels created by previous pairings",
 				Inline: false,
 			},
 			{

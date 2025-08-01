@@ -138,23 +138,10 @@ func (h *SlashHandler) handleRouletteNah(s *discordgo.Session, i *discordgo.Inte
 		return
 	}
 
-	// Also remove all games
-	err = h.DB.RemoveAllRouletteGames(userID, guildID)
-	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Error removing games: " + err.Error(),
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "✅ Successfully removed from roulette pairing and cleared your games list.",
+			Content: "✅ Successfully removed from roulette pairing.",
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
@@ -287,8 +274,11 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	currentGames, err := h.DB.GetRouletteGames(userID, guildID)
 	if err == nil && len(currentGames) > 0 {
 		response.WriteString("📋 **Your current game list:**\n")
-		for _, game := range currentGames {
+		for _, game := range currentGames[0:10] { // Show up to 10 games
 			response.WriteString(fmt.Sprintf("• %s\n", game.GameName))
+		}
+		if len(currentGames) > 10 {
+			response.WriteString(fmt.Sprintf("... and %d more games\n", len(currentGames[10:])))
 		}
 	}
 

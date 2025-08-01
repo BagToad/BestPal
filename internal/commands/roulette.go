@@ -197,7 +197,12 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 
 	gameNames := strings.Split(options[0].StringValue(), ",")
 	var validGames []string
-	var invalidGames []string
+
+	type invalidGame struct {
+		Name        string
+		Suggestions []string
+	}
+	var invalidGames []invalidGame
 
 	// Lookup each game in IGDB
 	for _, gameName := range gameNames {
@@ -214,7 +219,10 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 
 		if err != nil {
 			h.config.Logger.Warn("Failed to fetch game %s: %v", gameName, err)
-			invalidGames = append(invalidGames, gameName)
+			invalidGames = append(invalidGames, invalidGame{
+				Name:        gameName,
+				Suggestions: nil, // No suggestions if IGDB lookup fails
+			})
 			continue
 		}
 
@@ -232,14 +240,29 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 
 		if game == nil {
 			h.config.Logger.Warn("Failed to exact match for game %s: %v", gameName, err)
-			invalidGames = append(invalidGames, gameName)
+			invalidGames = append(invalidGames, invalidGame{
+				Name: gameName,
+				Suggestions: func() []string {
+					// return first 10 game names as suggestions
+					suggestions := make([]string, 0, len(games))
+					for _, g := range games[:10] {
+						if g.Name != "" {
+							suggestions = append(suggestions, g.Name)
+						}
+					}
+					return suggestions
+				}(),
+			})
 			continue
 		}
 
 		// Add the game to the user's list
 		err = h.DB.AddRouletteGame(userID, guildID, game.Name, game.ID)
 		if err != nil {
-			invalidGames = append(invalidGames, gameName+" (database error)")
+			invalidGames = append(invalidGames, invalidGame{
+				Name:        gameName + " (database error)",
+				Suggestions: nil,
+			})
 			continue
 		}
 
@@ -260,8 +283,8 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 
 	if len(invalidGames) > 0 {
 		response.WriteString("❌ **Couldn't find these games:**\n")
-		for _, game := range invalidGames {
-			response.WriteString(fmt.Sprintf("• %s\n", game))
+		for _, invalidGame := range invalidGames {
+			response.WriteString(fmt.Sprintf("• %s (did you mean: %s?)\n", invalidGame.Name, strings.Join(invalidGame.Suggestions, ", ")))
 		}
 		response.WriteString("\n")
 	}

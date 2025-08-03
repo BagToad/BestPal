@@ -3,7 +3,6 @@ package commands
 import (
 	"fmt"
 	"gamerpal/internal/utils"
-	"log"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -11,7 +10,7 @@ import (
 const maxInactiveUsersDisplay = 20
 
 // handlePruneInactive handles the prune-inactive slash command
-func (h *Handler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has administrator permissions
 	if !utils.HasAdminPermissions(s, i) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -72,10 +71,10 @@ func (h *Handler) handlePruneInactive(s *discordgo.Session, i *discordgo.Interac
 		for _, member := range usersWithoutRoles {
 			err := s.GuildMemberDeleteWithReason(i.GuildID, member.User.ID, "Pruned: User is inactive")
 			if err != nil {
-				log.Printf("Error removing user %s: %v", member.User.Username, err)
+				h.config.Logger.Warn("Error removing user %s: %v", member.User.Username, err)
 			} else {
 				removedCount++
-				log.Printf("Removed user: %s#%s", member.User.Username, member.User.Discriminator)
+				h.config.Logger.Infof("Removed user: %s#%s", member.User.Username, member.User.Discriminator)
 			}
 		}
 

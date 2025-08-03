@@ -5,13 +5,11 @@ import (
 	"gamerpal/internal/utils"
 	"strings"
 
-	"github.com/markusmobius/go-dateparser"
-
 	"github.com/bwmarrin/discordgo"
 )
 
 // handleTime handles the time slash command with subcommands
-func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -54,7 +52,7 @@ func (h *Handler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreat
 }
 
 // handleTimeParse handles the time parse subcommand
-func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Missing Parameter",
@@ -91,7 +89,7 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 		fullOutput = options[1].BoolValue()
 	}
 
-	parsedUnixTime, err := parseUnixTimestamp(dateString)
+	parsedUnixTime, err := utils.ParseUnixTimestamp(dateString)
 	if err != nil {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Parse Error",
@@ -166,17 +164,4 @@ func (h *Handler) handleTimeParse(s *discordgo.Session, i *discordgo.Interaction
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{&embed},
 	})
-}
-
-// parseUnixTimestamp attempts to parse a date/time string and return a unix timestamp.
-func parseUnixTimestamp(dateString string) (int64, error) {
-	dateString = strings.TrimSpace(dateString)
-
-	dt, err := dateparser.Parse(nil, dateString)
-	if err != nil {
-		return 0, fmt.Errorf("unable to parse date/time format: %w", err)
-	}
-
-	timestamp := dt.Time.Unix()
-	return timestamp, nil
 }

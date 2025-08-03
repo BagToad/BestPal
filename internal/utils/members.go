@@ -29,50 +29,83 @@ func GetAllGuildMembers(s *discordgo.Session, guildID string) ([]*discordgo.Memb
 	return allMembers, nil
 }
 
+var Nouns = []string{
+	"Cucumber",
+	"Tomato",
+	"Banana",
+	"Apple",
+	"Orange",
+	"Strawberry",
+	"Blueberry",
+	"Raspberry",
+	"Kiwi",
+	"Peach",
+	"Plum",
+	"Melon",
+	"Grape",
+	"Cherry",
+	"Papaya",
+	"Mango",
+	"Watermelon",
+	"Pineapple",
+	"Avocado",
+	"Passionfruit",
+	"Dragonfruit",
+	"Lychee",
+	"Coconut",
+	"Fig",
+	"Date",
+	"Pomegranate",
+	"Guava",
+	"Tangerine",
+	"Lemon",
+	"Lime",
+	"Apricot",
+	"Persimmon",
+	"Cranberry",
+	"Blackberry",
+	"Clementine",
+	"Eggplant",
+	"Prickly-Pear",
+}
+
+var Adjectives = []string{
+	"Shiny",
+	"Juicy",
+	"Sweet",
+	"Tasty",
+	"Fresh",
+	"Ripe",
+	"Delicious",
+	"Colorful",
+	"Vibrant",
+	"Exotic",
+	"Delightful",
+	"Succulent",
+	"Zesty",
+	"Fragrant",
+	"Flavorful",
+	"Refreshing",
+	"Tropical",
+	"Excellent",
+	"Scrumptious",
+	"Yummy",
+	"Delectable",
+	"Appetizing",
+	"Enticing",
+	"Inviting",
+	"Tempting",
+	"Succulent",
+	"Luscious",
+	"Zingy",
+	"Zesty",
+	"Spicy",
+}
+
 // ObfuscateID generates an obfuscated version of a Discord user ID
 func ObfuscateID(userID string, salt string) (string, error) {
 	if userID == "" || salt == "" {
 		return "", fmt.Errorf("Failed to read salt or something, IDK. Someone should fix it.")
-	}
-
-	nouns := []string{
-		"Cucumber",
-		"Tomato",
-		"Banana",
-		"Apple",
-		"Orange",
-		"Strawberry",
-		"Blueberry",
-		"Raspberry",
-		"Kiwi",
-		"Peach",
-		"Plum",
-		"Melon",
-		"Grape",
-		"Cherry",
-		"Papaya",
-		"Mango",
-		"Watermelon",
-	}
-
-	adjectives := []string{
-		"Shiny",
-		"Juicy",
-		"Sweet",
-		"Tasty",
-		"Fresh",
-		"Ripe",
-		"Delicious",
-		"Colorful",
-		"Vibrant",
-		"Exotic",
-		"Delightful",
-		"Succulent",
-		"Zesty",
-		"Fragrant",
-		"Flavorful",
-		"Refreshing",
-		"Tropical",
 	}
 
 	// This isn't the most secure, but should be sufficient for obfuscation.
@@ -82,13 +115,13 @@ func ObfuscateID(userID string, salt string) (string, error) {
 	hash := fnv.New32a()
 	hash.Write([]byte(salt))
 	hash.Write([]byte(userID))
-	noun := nouns[hash.Sum32()%uint32(len(nouns))]
+	noun := Nouns[hash.Sum32()%uint32(len(Nouns))]
 
 	// Use the salt to create a hash within the range of adjectives
 	hash.Reset()
 	hash.Write([]byte(salt))
 	hash.Write([]byte(userID))
-	adjective := adjectives[hash.Sum32()%uint32(len(adjectives))]
+	adjective := Adjectives[hash.Sum32()%uint32(len(Adjectives))]
 
 	return fmt.Sprintf("%s %s", adjective, noun), nil
 }

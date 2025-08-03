@@ -8,7 +8,7 @@ import (
 )
 
 // handleSay handles the say slash command
-func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Parse command options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 2 {
@@ -86,7 +86,7 @@ func (h *Handler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	// Add the anonymous admin tag to the message content to distinguish
 	// different admins anonymously.
-	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.Config.GetCryptoSalt())
+	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.config.GetCryptoSalt())
 	if err != nil {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

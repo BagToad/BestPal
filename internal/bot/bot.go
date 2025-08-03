@@ -91,6 +91,10 @@ func (b *Bot) Start() error {
 	b.scheduler.StartMinuteScheduler()
 	defer b.scheduler.StopMinuteScheduler()
 
+	// Start the hourly scheduler
+	b.scheduler.StartHourScheduler()
+	defer b.scheduler.StopHourScheduler()
+
 	// Update status to indicate the bot is awake
 	if err := b.session.UpdateGameStatus(0, "OK OK I'm awake!"); err != nil {
 		b.config.Logger.Warn("error updating bot status:", err)

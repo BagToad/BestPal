@@ -95,15 +95,17 @@ func NewConfig() (*Config, error) {
 	v.BindEnv("igdb_client_id", "GAMERPAL_IGDB_CLIENT_ID")
 	v.BindEnv("igdb_client_token", "GAMERPAL_IGDB_CLIENT_TOKEN")
 
+	newCfg := &Config{
+		v:      v,
+		Logger: log.New(os.Stderr),
+	}
+
 	// Validate required fields
-	if err := validateConfig(v); err != nil {
+	if err := validateConfig(newCfg); err != nil {
 		return nil, err
 	}
 
-	return &Config{
-		v:      v,
-		Logger: log.New(os.Stderr),
-	}, nil
+	return newCfg, nil
 }
 
 // NewMockConfig creates a mock configuration for testing
@@ -121,17 +123,17 @@ func setDefaults(v *viper.Viper) {
 }
 
 // validateConfig validates that all required configuration fields are present
-func validateConfig(v *viper.Viper) error {
-	if v.GetString("bot_token") == "" {
+func validateConfig(cfg *Config) error {
+	if cfg.v.GetString("bot_token") == "" {
 		return fmt.Errorf("bot_token is required (set DISCORD_BOT_TOKEN or GAMERPAL_BOT_TOKEN environment variable)")
 	}
 
-	if v.GetString("igdb_client_id") == "" {
-		return fmt.Errorf("igdb_client_id is required (set IGDB_CLIENT_ID or GAMERPAL_IGDB_CLIENT_ID environment variable)")
+	if cfg.v.GetString("igdb_client_id") == "" {
+		cfg.Logger.Warn("igdb_client_id is not set (set IGDB_CLIENT_ID or GAMERPAL_IGDB_CLIENT_ID environment variable)")
 	}
 
-	if v.GetString("igdb_client_token") == "" {
-		return fmt.Errorf("igdb_client_token is required (set IGDB_CLIENT_TOKEN or GAMERPAL_IGDB_CLIENT_TOKEN environment variable)")
+	if cfg.v.GetString("igdb_client_token") == "" {
+		cfg.Logger.Warn("igdb_client_token is not set (set IGDB_CLIENT_TOKEN or GAMERPAL_IGDB_CLIENT_TOKEN environment variable)")
 	}
 
 	return nil

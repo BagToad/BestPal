@@ -69,6 +69,11 @@ func (b *Bot) Start() error {
 	}
 	defer b.session.Close()
 
+	// Set bot status to "initializing"
+	if err := b.session.UpdateGameStatus(0, "Rolling out of bed..."); err != nil {
+		b.config.Logger.Warn("error updating bot status:", err)
+	}
+
 	// Register slash commands
 	if err := b.slashHandler.RegisterCommands(b.session); err != nil {
 		return fmt.Errorf("error registering commands: %w", err)
@@ -84,7 +89,12 @@ func (b *Bot) Start() error {
 	b.scheduler.Start()
 	defer b.scheduler.Stop()
 
-	fmt.Println("GamerPal bot is now running. Press CTRL+C to exit.")
+	// Update status to indicate the bot is awake
+	if err := b.session.UpdateGameStatus(0, "OK OK I'm awake!"); err != nil {
+		b.config.Logger.Warn("error updating bot status:", err)
+	}
+
+	b.config.Logger.Info("GamerPal bot is now running. Press CTRL+C to exit.")
 
 	// Wait for interrupt signal
 	sc := make(chan os.Signal, 1)
@@ -101,7 +111,7 @@ func (b *Bot) Start() error {
 
 // onReady handles the ready event
 func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
-	fmt.Printf("Bot is ready! Logged in as: %s#%s\n", r.User.Username, r.User.Discriminator)
+	b.config.Logger.Infof("Bot received ready signal! Logged in as: %s#%s\n", r.User.Username, r.User.Discriminator)
 
 	// Set bot status to something fresh every hour
 	c := time.NewTicker(time.Hour)

@@ -113,7 +113,7 @@ func pruneOldLogFiles(dir string) error {
 			continue
 		}
 		if time.Since(info.ModTime()) > 7*24*time.Hour {
-			if err := os.Remove(filepath.Join("logs", file.Name())); err != nil {
+			if err := os.Remove(filepath.Join(dir, file.Name())); err != nil {
 				return fmt.Errorf("failed to remove old log file %s: %w", file.Name(), err)
 			}
 		}

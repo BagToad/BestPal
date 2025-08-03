@@ -28,6 +28,11 @@ func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.Interaction
 				Inline: false,
 			},
 			{
+				Name:   "/intro",
+				Value:  "Look up a user's latest introduction post\n• Use `/intro` to find your own introduction\n• Use `/intro user:@username` to find someone else's introduction",
+				Inline: false,
+			},
+			{
 				Name:   "/time",
 				Value:  "Time-related utilities\n• Use `/time parse datetime:2025-08-25 3:00 PM` to convert dates to Discord timestamps\n• Use `full:true` to see all Discord timestamp formats",
 				Inline: false,

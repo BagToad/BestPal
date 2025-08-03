@@ -115,6 +115,21 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "intro",
+				Description: "Look up a user's latest introduction post from the introductions forum",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionUser,
+						Name:        "user",
+						Description: "The user whose introduction to look up (defaults to yourself)",
+						Required:    false,
+					},
+				},
+			},
+			HandlerFunc: h.handleIntro,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "help",
 				Description: "Show all available commands",
 			},

@@ -384,15 +384,25 @@ func (h *SlashHandler) InitializePairingService(session *discordgo.Session) {
 
 // RegisterCommands registers all slash commands with Discord
 func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
+	// Get all existing commands from Discord
+	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
+	if err != nil {
+		h.config.Logger.Warn("Error fetching existing commands: %v", err)
+		return err
+	}
+
 	// Register commands globally
 	for _, c := range h.Commands {
 		if c.Disabled {
-			// Don't care if this fails
-			err := s.ApplicationCommandDelete(s.State.User.ID, "", c.ApplicationCommand.ID)
-			if err != nil {
-				h.config.Logger.Warn("Error deleting command %s: %v", c.ApplicationCommand.Name, err)
-			} else {
-				h.config.Logger.Infof("Unregistered command: %s", c.ApplicationCommand.Name)
+			for _, existingCmd := range existingCommands {
+				if existingCmd.Name == c.ApplicationCommand.Name {
+					err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
+					if err != nil {
+						h.config.Logger.Warn("Error deleting command %s: %v", c.ApplicationCommand.Name, err)
+					} else {
+						h.config.Logger.Infof("Unregistered command: %s", c.ApplicationCommand.Name)
+					}
+				}
 			}
 			continue
 		}

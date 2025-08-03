@@ -74,6 +74,16 @@ func NewConfig() (*Config, error) {
 
 // newLogFile generates a new log file
 func newLogFile(dir string) (*os.File, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("log directory is not set")
+	}
+
+	// Create dir if it doesn't exist
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
+	}
+
+	// Create a new log file with timestamp
 	file, err := os.Create(fmt.Sprintf("%s/gamerpal_%s.log", dir, time.Now().Format("20060102_150405")))
 	if err != nil {
 		return nil, err
@@ -127,7 +137,7 @@ func NewMockConfig(kv map[string]interface{}) *Config {
 // setDefaults sets default configuration values
 func setDefaults(v *viper.Viper) {
 	// Add any default values here if needed in the future
-	v.SetDefault("log_dir", "logs")
+	v.SetDefault("log_dir", "./logs")
 	v.SetDefault("database_path", "./gamerpal.db")
 }
 

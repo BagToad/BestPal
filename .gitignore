@@ -26,6 +26,10 @@ go.work
 bin/
 tmp/
 
+# Logs
+logs/
+*.log
+
 # Environment variables
 .env*
 

@@ -14,6 +14,7 @@ import (
 type Command struct {
 	ApplicationCommand *discordgo.ApplicationCommand
 	HandlerFunc        func(s *discordgo.Session, i *discordgo.InteractionCreate)
+	Disabled           bool
 }
 
 // SlashHandler handles command processing
@@ -281,6 +282,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRoulette,
+			Disabled:    true, // Disabled while in development
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
@@ -358,6 +360,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRouletteAdmin,
+			Disabled:    true, // Disabled while in development
 		},
 	}
 
@@ -383,6 +386,9 @@ func (h *SlashHandler) InitializePairingService(session *discordgo.Session) {
 func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	// Register commands globally
 	for _, c := range h.Commands {
+		if c.Disabled {
+			continue
+		}
 		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
 		if err != nil {
 			return err

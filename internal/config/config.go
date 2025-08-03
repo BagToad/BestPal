@@ -114,7 +114,10 @@ func NewMockConfig(kv map[string]interface{}) *Config {
 	for k, val := range kv {
 		v.Set(k, val)
 	}
-	return &Config{v: v}
+	return &Config{
+		v:      v,
+		Logger: log.New(os.Stderr),
+	}
 }
 
 // setDefaults sets default configuration values

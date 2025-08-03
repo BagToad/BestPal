@@ -51,8 +51,10 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(bot.onInteractionCreate)
 
 	// Other events
-	session.AddHandler(events.OnMessageCreate)
 	// Wrapped with anonymous function to pass config
+	session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+		events.OnMessageCreate(s, m, cfg)
+	})
 	session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		events.OnChannelUpdate(s, c, cfg)
 	})

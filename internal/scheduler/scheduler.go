@@ -5,7 +5,6 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
-	"log"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -38,14 +37,14 @@ func (s *Scheduler) Start() {
 	s.ticker = time.NewTicker(time.Minute)
 
 	go func() {
-		log.Println("Scheduler started - checking for scheduled pairings every minute")
+		s.config.Logger.Info("Scheduler started - checking for scheduled pairings every minute")
 
 		for {
 			select {
 			case <-s.ticker.C:
 				s.checkAndExecuteScheduledPairings()
 			case <-s.stopCh:
-				log.Println("Scheduler stopping")
+				s.config.Logger.Info("Scheduler stopping")
 				return
 			}
 		}
@@ -64,7 +63,7 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) checkAndExecuteScheduledPairings() {
 	scheduledPairings, err := s.db.GetScheduledPairings()
 	if err != nil {
-		log.Printf("Error getting scheduled pairings: %v", err)
+		s.config.Logger.Errorf("Error getting scheduled pairings: %v", err)
 		return
 	}
 
@@ -72,7 +71,7 @@ func (s *Scheduler) checkAndExecuteScheduledPairings() {
 		return // No scheduled pairings
 	}
 
-	log.Printf("Found %d scheduled pairing(s) to execute", len(scheduledPairings))
+	s.config.Logger.Infof("Found %d scheduled pairing(s) to execute", len(scheduledPairings))
 
 	for _, schedule := range scheduledPairings {
 		s.executeScheduledPairing(schedule)
@@ -81,22 +80,22 @@ func (s *Scheduler) checkAndExecuteScheduledPairings() {
 
 // executeScheduledPairing executes a single scheduled pairing
 func (s *Scheduler) executeScheduledPairing(schedule database.RouletteSchedule) {
-	log.Printf("Executing scheduled pairing for guild %s (scheduled for %s)",
+	s.config.Logger.Infof("Executing scheduled pairing for guild %s (scheduled for %s)",
 		schedule.GuildID, schedule.ScheduledAt.Format("2006-01-02 15:04:05"))
 
 	// Execute pairing using the pairing service
 	result, err := s.pairingService.ExecutePairing(schedule.GuildID, false)
 	if err != nil {
-		log.Printf("Error executing scheduled pairing for guild %s: %v", schedule.GuildID, err)
+		s.config.Logger.Errorf("Error executing scheduled pairing for guild %s: %v", schedule.GuildID, err)
 		s.notifyFailedPairing(schedule.GuildID, fmt.Sprintf("Error executing pairing: %v", err))
 		return
 	}
 
 	if !result.Success {
-		log.Printf("Scheduled pairing failed for guild %s: %s", schedule.GuildID, result.ErrorMessage)
+		s.config.Logger.Errorf("Scheduled pairing failed for guild %s: %s", schedule.GuildID, result.ErrorMessage)
 		s.notifyFailedPairing(schedule.GuildID, result.ErrorMessage)
 	} else {
-		log.Printf("Successfully executed scheduled pairing for guild %s: %d pair(s) created",
+		s.config.Logger.Infof("Successfully executed scheduled pairing for guild %s: %d pair(s) created",
 			schedule.GuildID, result.PairCount)
 
 		// Log the results
@@ -120,6 +119,6 @@ func (s *Scheduler) notifyFailedPairing(guildID, reason string) {
 
 	_, err := s.session.ChannelMessageSend(modLogChannelID, message)
 	if err != nil {
-		log.Printf("Error sending failed pairing notification: %v", err)
+		s.config.Logger.Errorf("Error sending failed pairing notification: %v", err)
 	}
 }

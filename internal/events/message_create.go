@@ -1,13 +1,13 @@
 package events
 
 import (
-	"log"
+	"gamerpal/internal/config"
 
 	"github.com/bwmarrin/discordgo"
 )
 
 // OnMessageCreate handles message events
-func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
+func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *config.Config) {
 	// Ignore messages from bots (including ourselves)
 	if m.Author.Bot {
 		return
@@ -18,7 +18,7 @@ func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if mention.ID == s.State.User.ID {
 			err := s.MessageReactionAdd(m.ChannelID, m.ID, "❤️")
 			if err != nil {
-				log.Printf("Error adding heart reaction: %v", err)
+				cfg.Logger.Errorf("Error adding heart reaction: %v", err)
 			}
 			return
 		}

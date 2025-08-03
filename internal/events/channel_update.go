@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
-	"log"
 	"sort"
 	"strings"
 	"time"
@@ -18,7 +17,7 @@ import (
 func OnChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
 	renamed := c.BeforeUpdate.Name != c.Name
 	if !renamed {
-		log.Println("Channel was not renamed, ignoring update")
+		cfg.Logger.Info("Channel was not renamed, ignoring update")
 		return
 	}
 
@@ -27,14 +26,14 @@ func OnChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *conf
 		cfg.GetGitHubModelsToken() != ""
 
 	if !hasCorrectConfigs {
-		log.Println("GamerPals server ID or mod action log channel ID not set, ignoring channel update")
+		cfg.Logger.Info("GamerPals server ID or mod action log channel ID not set, ignoring channel update")
 		return
 	}
 
 	if strings.EqualFold(c.GuildID, cfg.GetGamerPalsServerID()) {
 		closedTicketChannel := strings.HasPrefix(c.Name, "closed-")
 		if !closedTicketChannel || c.IsThread() {
-			log.Printf("Ignoring channel update for non-closed ticket channel: %s", c.Name)
+			cfg.Logger.Infof("Ignoring channel update for non-closed ticket channel: %s", c.Name)
 			return
 		}
 
@@ -47,7 +46,7 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 	// Get all channel messages using pagination
 	allMessages, err := getAllChannelMessages(s, c.ID)
 	if err != nil {
-		log.Printf("Error getting channel messages: %v", err)
+		cfg.Logger.Errorf("Error getting channel messages: %v", err)
 		return
 	}
 
@@ -91,14 +90,14 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 			<any other relevant details>
 		`)
 
-	log.Println("Generating summary for closed ticket channel:", c.ID)
+	cfg.Logger.Infof("Generating summary for closed ticket channel: %s", c.ID)
 	modelsClient := utils.NewModelsClient(cfg)
 	summary := modelsClient.ModelsRequest(systemPrompt, userPrompt.String(), "openai/gpt-4.1")
 
 	if summary == "" {
-		log.Println("Failed to generate summary for closed ticket channel:", c.ID)
+		cfg.Logger.Errorf("Failed to generate summary for closed ticket channel: %s", c.ID)
 	} else {
-		log.Println("Generated summary:", summary)
+		cfg.Logger.Infof("Generated summary: %s", summary)
 	}
 
 	responseChannel := cfg.GetGamerPalsModActionLogChannelID()
@@ -134,7 +133,7 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 	// Send the embed first
 	_, err = s.ChannelMessageSendEmbed(responseChannel, embed)
 	if err != nil {
-		log.Printf("Error sending embed message to channel %s: %v", responseChannel, err)
+		cfg.Logger.Errorf("Error sending embed message to channel %s: %v", responseChannel, err)
 	}
 
 	// Send in batches of 1500 characters
@@ -146,7 +145,7 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 		// Send each part as a separate message
 		_, err = s.ChannelMessageSend(responseChannel, part)
 		if err != nil {
-			log.Printf("Error sending summary part to channel %s: %v", responseChannel, err)
+			cfg.Logger.Errorf("Error sending summary part to channel %s: %v", responseChannel, err)
 			continue
 		}
 	}
@@ -155,7 +154,7 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 	if len(summary) > 0 {
 		_, err = s.ChannelMessageSend(responseChannel, summary)
 		if err != nil {
-			log.Printf("Error sending final summary part to channel %s: %v", responseChannel, err)
+			cfg.Logger.Errorf("Error sending final summary part to channel %s: %v", responseChannel, err)
 		}
 	}
 
@@ -175,10 +174,10 @@ func handleSupportTicketClose(s *discordgo.Session, c *discordgo.ChannelUpdate, 
 
 	_, err = s.ChannelMessageSendComplex(responseChannel, messageData)
 	if err != nil {
-		log.Printf("Error sending transcript attachment to channel %s: %v", responseChannel, err)
+		cfg.Logger.Errorf("Error sending transcript attachment to channel %s: %v", responseChannel, err)
 	}
 
-	log.Printf("Successfully processed closed ticket %s and sent transcript", c.Name)
+	cfg.Logger.Infof("Successfully processed closed ticket %s and sent transcript", c.Name)
 }
 
 // getAllChannelMessages fetches all messages from a channel using pagination

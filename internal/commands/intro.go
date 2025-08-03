@@ -76,14 +76,9 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	// Create the direct link to the forum post
 	postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, latestThread.ID)
 
-	s.InteractionResponseDelete(i.Interaction)
-
 	// Respond with just the link as requested
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: postURL,
-		},
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(postURL),
 	})
 }
 

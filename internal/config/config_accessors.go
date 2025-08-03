@@ -49,6 +49,10 @@ func (c *Config) GetDatabasePath() string {
 	return dbPath
 }
 
+func (c *Config) GetLogDir() string {
+	return c.v.GetString("log_dir")
+}
+
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
 	c.v.WriteConfig()

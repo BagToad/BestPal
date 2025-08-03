@@ -81,6 +81,26 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "log",
+				Description: "Log file management commands (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "download",
+						Description: "Download all current log files as a zip archive",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "latest",
+						Description: "Download the last 500 lines of the latest log file",
+					},
+				},
+			},
+			HandlerFunc: h.handleLog,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:                     "userstats",
 				Description:              "Show member statistics for the server",
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},

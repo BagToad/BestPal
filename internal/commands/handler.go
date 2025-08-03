@@ -387,6 +387,9 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	// Register commands globally
 	for _, c := range h.Commands {
 		if c.Disabled {
+			// Don't care if this fails
+			_ = s.ApplicationCommandDelete(s.State.User.ID, "", c.ApplicationCommand.ID)
+			h.config.Logger.Infof("Unregistered command: %s", c.ApplicationCommand.Name)
 			continue
 		}
 		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)

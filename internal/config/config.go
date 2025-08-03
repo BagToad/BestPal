@@ -46,6 +46,10 @@ func (c *Config) GetGamerPalsPairingCategoryID() string {
 	return c.v.GetString("gamerpals_pairing_category_id")
 }
 
+func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
+	return c.v.GetString("gamerpals_introductions_forum_channel_id")
+}
+
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
 	if len(superAdmins) == 0 {

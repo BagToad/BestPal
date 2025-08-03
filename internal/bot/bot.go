@@ -88,8 +88,8 @@ func (b *Bot) Start() error {
 	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashHandler.GetDB(), b.slashHandler.PairingService)
 
 	// Start the scheduler
-	b.scheduler.Start()
-	defer b.scheduler.Stop()
+	b.scheduler.StartMinuteScheduler()
+	defer b.scheduler.StopMinuteScheduler()
 
 	// Update status to indicate the bot is awake
 	if err := b.session.UpdateGameStatus(0, "OK OK I'm awake!"); err != nil {

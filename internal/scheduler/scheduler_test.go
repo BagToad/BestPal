@@ -49,12 +49,12 @@ func TestScheduler(t *testing.T) {
 	}
 
 	// Test starting and stopping scheduler
-	scheduler.Start()
+	scheduler.StartMinuteScheduler()
 
 	// Let it run briefly
 	time.Sleep(100 * time.Millisecond)
 
-	scheduler.Stop()
+	scheduler.StopMinuteScheduler()
 
 	// Test that we can get scheduled pairings (should be empty)
 	scheduledPairings, err := db.GetScheduledPairings()

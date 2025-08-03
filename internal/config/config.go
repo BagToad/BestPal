@@ -83,16 +83,41 @@ func newLogFile(dir string) (*os.File, error) {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
-	// Create a new log file with timestamp
-	file, err := os.Create(fmt.Sprintf("%s/gamerpal_%s.log", dir, time.Now().Format("20060102_150405")))
+	// Generate a timestamped log file name in yyyy-mm-dd format
+	fileName := fmt.Sprintf("gamerpal_%s.log", time.Now().Format("2006-01-02"))
+
+	// If it exists, just return the existing file
+	if _, err := os.Stat(filepath.Join(dir, fileName)); err == nil {
+		return os.OpenFile(filepath.Join(dir, fileName), os.O_APPEND|os.O_WRONLY, 0644)
+	}
+
+	// Otherwise, create a new log file
+	file, err := os.Create(filepath.Join(dir, fileName))
 	if err != nil {
 		return nil, err
 	}
 	return file, nil
 }
 
-func (c *Config) PruneOldLogFiles() error {
-	return pruneOldLogFiles(c.v.GetString("log_dir"))
+func (c *Config) RotateAndPruneLogs() error {
+	// First rotate the log file
+	newLogFile, err := newLogFile(c.v.GetString("log_dir"))
+	if err != nil {
+		return fmt.Errorf("Failed to rotate and create new log file: %w", err)
+	}
+
+	w := io.MultiWriter(os.Stderr, newLogFile)
+	c.Logger.SetOutput(w)
+
+	// After rotating, we can prune old log files
+	err = pruneOldLogFiles(c.v.GetString("log_dir"))
+	if err != nil {
+		return fmt.Errorf("Failed to prune old log files: %w", err)
+	}
+
+	c.Logger.Info("Log file rotated and old logs pruned successfully")
+
+	return nil
 }
 
 // pruneOldLogFiles removes log files older than 7 days
@@ -107,12 +132,12 @@ func pruneOldLogFiles(dir string) error {
 			continue
 		}
 
-		// Check if the file is older than 7 days
+		// Check if the file is older than 3 days
 		info, err := file.Info()
 		if err != nil {
 			continue
 		}
-		if time.Since(info.ModTime()) > 7*24*time.Hour {
+		if time.Since(info.ModTime()) > 3*24*time.Hour {
 			if err := os.Remove(filepath.Join(dir, file.Name())); err != nil {
 				return fmt.Errorf("failed to remove old log file %s: %w", file.Name(), err)
 			}

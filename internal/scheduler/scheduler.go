@@ -70,8 +70,8 @@ func (s *Scheduler) StartHourScheduler() {
 		for {
 			select {
 			case <-s.ticker.C:
-				if err := s.config.PruneOldLogFiles(); err != nil {
-					s.config.Logger.Errorf("Scheduler failed pruning old log files: %v", err)
+				if err := s.config.RotateAndPruneLogs(); err != nil {
+					s.config.Logger.Errorf("Scheduler failed handling log files: %v", err)
 				}
 			case <-s.hourStopCh:
 				s.config.Logger.Info("Hourly scheduler stopping")

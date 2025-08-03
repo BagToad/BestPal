@@ -35,9 +35,6 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	// Acknowledge the interaction immediately as this might take time
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Flags: discordgo.MessageFlagsEphemeral,
-		},
 	})
 
 	// Get all active threads from the forum channel

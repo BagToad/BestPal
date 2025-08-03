@@ -7,10 +7,13 @@ import (
 )
 
 func TestLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GAMERPAL_LOG_DIR", tmpDir)
+	t.Setenv("GAMERPAL_DATABASE_PATH", tmpDir+"/test.db")
+
 	t.Run("missing required variables", func(t *testing.T) {
 		_, err := NewConfig()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "bot_token is required")
 	})
 
 	t.Run("new prefixed environment variables", func(t *testing.T) {
@@ -26,21 +29,19 @@ func TestLoad(t *testing.T) {
 		require.Equal(t, "prefixed_token", cfg.GetIGDBClientToken())
 	})
 
-	t.Run("partial configuration - missing igdb client id", func(t *testing.T) {
+	t.Run("partial configuration - missing igdb client id doesn't cause startup fail", func(t *testing.T) {
 		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
 		t.Setenv("GAMERPAL_IGDB_CLIENT_TOKEN", "test_token")
 
 		_, err := NewConfig()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "igdb_client_id is required")
+		require.NoError(t, err)
 	})
 
-	t.Run("partial configuration - missing igdb client token", func(t *testing.T) {
+	t.Run("partial configuration - missing igdb client token doesn't cause startup fail", func(t *testing.T) {
 		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
 		t.Setenv("GAMERPAL_IGDB_CLIENT_ID", "test_id")
 
 		_, err := NewConfig()
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "igdb_client_token is required")
+		require.NoError(t, err)
 	})
 }

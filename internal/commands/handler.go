@@ -81,6 +81,26 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "log",
+				Description: "Log file management commands (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "download",
+						Description: "Download all current log files as a zip archive",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "latest",
+						Description: "Download the last 500 lines of the latest log file",
+					},
+				},
+			},
+			HandlerFunc: h.handleLog,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:                     "userstats",
 				Description:              "Show member statistics for the server",
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
@@ -406,8 +426,9 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 		return err
 	}
 
-	// Register commands globally
 	for _, c := range h.Commands {
+		// If a command is disabled, we're not only going to skip it, but we'll
+		// also unregister it if it exists
 		if c.Disabled {
 			for _, existingCmd := range existingCommands {
 				if existingCmd.Name == c.ApplicationCommand.Name {
@@ -421,10 +442,13 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 			}
 			continue
 		}
+
+		// Register commands globally
 		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
 		if err != nil {
 			return err
 		}
+
 		// Update the local command with the ID returned from Discord
 		c.ApplicationCommand.ID = cmd.ID
 		h.config.Logger.Infof("Registered command: %s", cmd.Name)
@@ -433,7 +457,7 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	return nil
 }
 
-// HandleInteraction processes slash command interactions
+// HandleInteraction routes slash command interactions
 func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ApplicationCommandData().Name == "" {
 		return

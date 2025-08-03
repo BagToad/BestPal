@@ -1,26 +1,31 @@
 package main
 
 import (
-	"log"
+	"os"
 
 	"gamerpal/internal/bot"
 	"gamerpal/internal/config"
+
+	"github.com/charmbracelet/log"
 )
 
 func main() {
 	// Load configuration
 	cfg, err := config.NewConfig()
 	if err != nil {
-		log.Fatal("Failed to load configuration:", err)
+		// Use a fallback logger if config fails to load
+		logger := log.New(os.Stderr)
+		logger.Fatal("Failed to load configuration:", err)
+		return
 	}
 
 	// Create and start bot
-	gamerBot, err := bot.New(cfg)
+	bestPalBot, err := bot.New(cfg)
 	if err != nil {
-		log.Fatal("Failed to create bot:", err)
+		cfg.Logger.Fatal("Failed to create bot:", err)
 	}
 
-	if err := gamerBot.Start(); err != nil {
-		log.Fatal("Failed to start bot:", err)
+	if err := bestPalBot.Start(); err != nil {
+		cfg.Logger.Fatal("Failed to start bot:", err)
 	}
 }

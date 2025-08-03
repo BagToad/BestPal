@@ -13,14 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// createTestHandler creates a handler for testing
-func createTestHandler() *SlashHandler {
+// newTestHandler creates a handler for testing
+func newTestHandler(t *testing.T) *SlashHandler {
+	t.Helper()
+	cfg := newTestConfig(t)
+
+	return NewSlashHandler(cfg)
+}
+
+// newTestConfig creates a mock configuration for testing
+func newTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	tmpDir := t.TempDir()
+
 	cfg := config.NewMockConfig(map[string]interface{}{
 		"bot_token":         "test_token",
 		"igdb_client_id":    "test_id",
 		"igdb_client_token": "test_token",
+		"database_path":     tmpDir + "/gamerpal.db",
 	})
-	return NewSlashHandler(cfg)
+
+	return cfg
 }
 
 func TestFormatReleaseDate(t *testing.T) {
@@ -68,7 +81,7 @@ func TestFormatReleaseDate(t *testing.T) {
 }
 
 func TestNewGameEmbed_BasicStructure(t *testing.T) {
-	handler := createTestHandler()
+	handler := newTestHandler(t)
 
 	t.Run("basic embed with minimal data", func(t *testing.T) {
 		options := gameEmbedOptions{
@@ -217,7 +230,7 @@ func assertEmbedFieldsNotContains(t *testing.T, embed *discordgo.MessageEmbed, s
 }
 
 func TestNewGameEmbed_EdgeCases(t *testing.T) {
-	handler := createTestHandler()
+	handler := newTestHandler(t)
 
 	t.Run("empty game name", func(t *testing.T) {
 		options := gameEmbedOptions{
@@ -279,7 +292,7 @@ func TestNewGameEmbed_EdgeCases(t *testing.T) {
 }
 
 func TestGameEmbedOptions_FieldValidation(t *testing.T) {
-	handler := createTestHandler()
+	handler := newTestHandler(t)
 
 	t.Run("all fields populated", func(t *testing.T) {
 		options := gameEmbedOptions{
@@ -335,11 +348,7 @@ func TestGameEmbedOptions_FieldValidation(t *testing.T) {
 
 func TestHandlerCreation(t *testing.T) {
 	t.Run("handler creation with valid config", func(t *testing.T) {
-		cfg := config.NewMockConfig(map[string]interface{}{
-			"bot_token":         "test_token",
-			"igdb_client_id":    "test_id",
-			"igdb_client_token": "test_token",
-		})
+		cfg := newTestConfig(t)
 
 		handler := NewSlashHandler(cfg)
 
@@ -351,7 +360,7 @@ func TestHandlerCreation(t *testing.T) {
 
 // Integration tests that test the functions without external dependencies
 func TestGameEmbedIntegration(t *testing.T) {
-	handler := createTestHandler()
+	handler := newTestHandler(t)
 
 	t.Run("realistic game data", func(t *testing.T) {
 		// Simulate data that would come from IGDB for a popular game

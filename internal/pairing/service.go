@@ -5,7 +5,6 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/utils"
-	"log"
 	"math/rand"
 	"slices"
 	"strings"
@@ -77,7 +76,7 @@ func (s *PairingService) BuildUserPairingData(guildID string) ([]User, error) {
 		// Get user's regions
 		member, err := s.session.GuildMember(guildID, signup.UserID)
 		if err != nil {
-			log.Printf("Error getting guild member %s: %v", signup.UserID, err)
+			s.config.Logger.Errorf("Error getting guild member %s: %v", signup.UserID, err)
 			continue
 		}
 
@@ -287,7 +286,7 @@ func (s *PairingService) CleanupPreviousPairings(guildID string) error {
 		if channel.ParentID == pairingCategoryID {
 			_, err := s.session.ChannelDelete(channel.ID)
 			if err != nil {
-				log.Printf("Error deleting channel %s: %v", channel.Name, err)
+				s.config.Logger.Errorf("Error deleting channel %s: %v", channel.Name, err)
 			}
 		}
 	}
@@ -393,7 +392,7 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 
 	_, err = s.session.ChannelMessageSend(textChannel.ID, message)
 	if err != nil {
-		log.Printf("Error sending welcome message: %v", err)
+		s.config.Logger.Errorf("Error sending welcome message: %v", err)
 	}
 
 	// Create voice channel
@@ -405,7 +404,7 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 	})
 
 	if err != nil {
-		log.Printf("Error creating voice channel: %v", err)
+		s.config.Logger.Errorf("Error creating voice channel: %v", err)
 	}
 
 	return nil
@@ -452,7 +451,7 @@ func (s *PairingService) ExecutePairing(guildID string, dryRun bool) (*PairingRe
 	if !dryRun {
 		// Clean up previous pairing channels
 		if err := s.CleanupPreviousPairings(guildID); err != nil {
-			log.Printf("Error cleaning up previous pairings: %v", err)
+			s.config.Logger.Errorf("Error cleaning up previous pairings: %v", err)
 		}
 
 		// Create pairing channels
@@ -467,13 +466,13 @@ func (s *PairingService) ExecutePairing(guildID string, dryRun bool) (*PairingRe
 			}
 
 			if err := s.CreatePairingChannels(guildID, group, commonGames); err != nil {
-				log.Printf("Error creating pairing channels: %v", err)
+				s.config.Logger.Errorf("Error creating pairing channels: %v", err)
 			}
 		}
 
 		// Clear the schedule if this was a scheduled pairing
 		if err := s.db.ClearRouletteSchedule(guildID); err != nil {
-			log.Printf("Error clearing schedule: %v", err)
+			s.config.Logger.Errorf("Error clearing schedule: %v", err)
 		}
 	}
 
@@ -541,7 +540,7 @@ func (s *PairingService) SimulatePairing(guildID string, userCount int, createCh
 	if createChannels {
 		// Clean up previous pairing channels
 		if err := s.CleanupPreviousPairings(guildID); err != nil {
-			log.Printf("Error cleaning up previous pairings: %v", err)
+			s.config.Logger.Errorf("Error cleaning up previous pairings: %v", err)
 		}
 
 		// Create pairing channels with fake users
@@ -556,7 +555,7 @@ func (s *PairingService) SimulatePairing(guildID string, userCount int, createCh
 			}
 
 			if err := s.CreatePairingChannels(guildID, group, commonGames); err != nil {
-				log.Printf("Error creating simulation pairing channels: %v", err)
+				s.config.Logger.Errorf("Error creating simulation pairing channels: %v", err)
 			}
 		}
 	}
@@ -670,6 +669,6 @@ func (s *PairingService) LogPairingResults(guildID string, result *PairingResult
 
 	_, err := s.session.ChannelMessageSend(modLogChannelID, message)
 	if err != nil {
-		log.Printf("Error sending pairing results notification: %v", err)
+		s.config.Logger.Errorf("Error sending pairing results notification: %v", err)
 	}
 }

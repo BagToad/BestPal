@@ -15,10 +15,10 @@ BINARY_PATH=./bin/$(BINARY_NAME)
 # Main package path
 MAIN_PATH=./cmd/gamerpal
 
-.PHONY: all build clean test deps run help
+.PHONY: all build clean test run help
 
 # Default target
-all: clean deps build
+all: clean build
 
 # Build the application
 build:
@@ -37,16 +37,10 @@ test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
 
-# Download dependencies
-deps:
-	@echo "Downloading dependencies..."
-	$(GOMOD) download
-	$(GOMOD) tidy
-
 # Run the application
-run: build
+run:
 	@echo "Starting $(BINARY_NAME)..."
-	$(BINARY_PATH)
+	$(GOCMD) run $(MAIN_PATH)
 
 # Build for multiple platforms
 build-all:
@@ -57,25 +51,12 @@ build-all:
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOBUILD) -o bin/$(BINARY_NAME)-darwin-arm64 $(MAIN_PATH)
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -o bin/$(BINARY_NAME)-windows-amd64.exe $(MAIN_PATH)
 
-# Build Docker image
-docker-build:
-	@echo "Building Docker image..."
-	docker build -t gamerpal:latest .
-
-# Run Docker container
-docker-run:
-	@echo "Running Docker container..."
-	docker run --rm --env-file .env gamerpal:latest
-
 # Show help
 help:
 	@echo "Available targets:"
 	@echo "  build       - Build the application"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  test        - Run tests"
-	@echo "  deps        - Download dependencies"
 	@echo "  run         - Build and run the application"
 	@echo "  build-all   - Build for multiple platforms"
-	@echo "  docker-build - Build Docker image"
-	@echo "  docker-run  - Run Docker container"
 	@echo "  help        - Show this help message"

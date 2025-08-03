@@ -1,49 +1,8 @@
 # Best Pal
 
-Built for [r/GamerPals](https://www.reddit.com/r/GamerPals).
+Built for [r/GamerPals](https://www.reddit.com/r/GamerPals). Join the discord at [discord.gg/gamerpals](https://discord.gg/gamerpals).
 
-It's a work in progress.
-
-## Project Structure
-
-This project follows Go's standard directory layout:
-
-```
-gamerpal/
-├── cmd/
-│   └── gamerpal/           # Main application entry point
-│       └── main.go
-├── internal/               # Private application code
-│   ├── bot/               # Bot core functionality
-│   │   └── bot.go
-│   ├── commands/          # Slash command handlers
-│   │   ├── handler.go     # Command registration and routing
-│   │   ├── help.go        # Help command
-│   │   ├── ping.go        # Ping command
-│   │   ├── prune.go       # Prune inactive users command
-│   │   ├── say.go         # Anonymous message command
-│   │   └── userstats.go   # User statistics command
-│   ├── config/            # Configuration management
-│   │   ├── config.go      # Configuration loading
-│   │   └── config_test.go # Configuration tests
-│   └── utils/             # Internal utility functions
-│       ├── members.go     # Member management utilities
-│       ├── perms.go       # Permission checking utilities
-│       └── types.go       # Type helper functions
-├── pkg/                   # Public library code (currently empty)
-├── bin/                   # Compiled binaries (gitignored)
-├── .env                   # Environment variables (gitignored)
-├── .env.example          # Environment variables template
-├── Dockerfile            # Docker configuration
-├── Makefile             # Build automation
-├── LICENSE              # MIT License
-├── USAGE.md             # Usage documentation
-└── go.mod               # Go module definition
-```
-
-## Features
-
-TODO
+It's a work in progress, and probably always will be.
 
 ## Slash Commands
 
@@ -62,68 +21,26 @@ TODO
 - Go 1.23 or higher
 - A Discord bot token (see [Discord Developer Portal](https://discord.com/developers/applications))
 
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/bagtoad/gamerpal.git
-   cd gamerpal
-   ```
-
-2. Install dependencies:
-   ```bash
-   make deps
-   ```
-
-3. Configure your bot:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your bot token
-   ```
-
-4. Build and run:
-   ```bash
-   make run
-   ```
-
 ## Development
 
 ### Building
 
-```bash
-# Build the application
-make build
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/bagtoad/bestpal.git
+   cd bestpal
+   ```
 
-# Build for multiple platforms
-make build-all
+2. Configure your bot:
+   ```bash
+   cp config.example.yaml config.yaml
+   # Edit config.yaml with your bot token
+   ```
 
-# Clean build artifacts
-make clean
-```
-
-### Running
-
-```bash
-# Run the bot
-make run
-```
-
-### Testing
-
-```bash
-# Run tests
-make test
-```
-
-### Docker
-
-```bash
-# Build Docker image
-make docker-build
-
-# Run with Docker
-make docker-run
-```
+3. Build and run:
+   ```bash
+   make run
+   ```
 
 ## Configuration
 
@@ -142,30 +59,19 @@ The bot requires the following permissions:
 - ✅ **Read Server Members** (for user statistics and prune functionality)
 - ✅ **Kick Members** (for prune functionality)
 
-
-## Important Notes
-
-- **Slash Commands**: This bot uses Discord's modern slash commands system. Commands appear in the Discord command picker when you type `/`
-- **Auto-Registration**: Commands are automatically registered when the bot starts and unregistered when it shuts down
-- **Global Commands**: Commands are registered globally and may take up to 1 hour to appear in all servers
-
 ## Adding New Commands
 
 To add a new slash command:
 
-1. Add the command definition to `RegisterCommands()` in `internal/commands/handler.go`
-2. Add a case for the command in `HandleInteraction()`
-3. Create a new file in `internal/commands/` with your command handler (following the pattern `handle{CommandName}`)
-4. Implement permission checking if needed using utilities from `internal/utils/perms.go`
-5. The command will be automatically registered when the bot starts
+1. Add the command definition to `NewSlashHandler()` in `internal/commands/handler.go`
+2. Create a new file in `internal/commands/` with your command handler (following the pattern `handle{CommandName}`)
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests and ensure code quality
-5. Submit a pull request
+4. Submit a pull request
 
 ## License
 
@@ -173,4 +79,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-For support, please create an issue in the GitHub repository.
+For support, make a ticket in [GamerPals Discord server](https://discord.gg/gamerpals) or open an issue on GitHub.

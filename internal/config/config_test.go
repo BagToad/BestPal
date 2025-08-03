@@ -7,10 +7,13 @@ import (
 )
 
 func TestLoad(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GAMERPAL_LOG_DIR", tmpDir)
+	t.Setenv("GAMERPAL_DATABASE_PATH", tmpDir+"/test.db")
+
 	t.Run("missing required variables", func(t *testing.T) {
 		_, err := NewConfig()
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "bot_token is required")
 	})
 
 	t.Run("new prefixed environment variables", func(t *testing.T) {

@@ -16,6 +16,7 @@ func main() {
 		// Use a fallback logger if config fails to load
 		logger := log.New(os.Stderr)
 		logger.Fatal("Failed to load configuration:", err)
+		return
 	}
 
 	// Create and start bot

@@ -15,12 +15,12 @@ func main() {
 	}
 
 	// Create and start bot
-	gamerBot, err := bot.New(cfg)
+	bestPalBot, err := bot.New(cfg)
 	if err != nil {
 		log.Fatal("Failed to create bot:", err)
 	}
 
-	if err := gamerBot.Start(); err != nil {
+	if err := bestPalBot.Start(); err != nil {
 		log.Fatal("Failed to start bot:", err)
 	}
 }

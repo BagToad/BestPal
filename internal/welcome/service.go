@@ -126,7 +126,7 @@ func (ws *WelcomeService) CleanOldWelcomeMessages() {
 		return
 	}
 
-	ws.config.Logger.Info("Cleaning up old welcome messages in channel:", welcomeChannelID)
+	ws.config.Logger.Infof("Cleaning up old welcome messages in channel: %s", welcomeChannelID)
 
 	// Fetch the messages in the welcome channel
 	messages, err := ws.session.ChannelMessages(welcomeChannelID, 100, "", "", "")

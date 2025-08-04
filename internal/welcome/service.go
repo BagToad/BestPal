@@ -138,7 +138,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 		return
 	}
 
-	ws.config.Logger.Info("Cleaning up New Pals role from members older than %s", newPalsKeepRoleDuration.String())
+	ws.config.Logger.Infof("Cleaning up New Pals role from members older than %s", newPalsKeepRoleDuration.String())
 
 	// Fetch all members in the guild
 	members, err := utils.GetAllHumanGuildMembers(ws.session, guildID)

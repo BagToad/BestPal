@@ -36,7 +36,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	gamerPalsServerID := ws.config.GetGamerPalsServerID()
 	timeBetweenRuns := ws.config.GetNewPalsTimeBetweenWelcomeMessages()
 	isNewPalsEnabled := ws.config.GetNewPalsSystemEnabled()
-	welcomeChannelID := ws.config.GetGamerPalsIntroductionsForumChannelID()
+	welcomeChannelID := ws.config.GetNewPalsChannelID()
 	newPalsRoleID := ws.config.GetNewPalsRoleID()
 
 	if !isNewPalsEnabled {
@@ -44,7 +44,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 		return
 	}
 
-	requiredConfigsSet := welcomeChannelID != "0" && newPalsRoleID != "0" && timeBetweenRuns > 0
+	requiredConfigsSet := welcomeChannelID != "" && newPalsRoleID != "" && timeBetweenRuns > 0
 	if !requiredConfigsSet {
 		ws.config.Logger.Error("Required configurations for New Pals system are not set, skipping welcome process")
 		return

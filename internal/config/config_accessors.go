@@ -40,14 +40,17 @@ func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 
 // New Pals systems
 // -----
-func (c *Config) GetNewPalsRoleID() string {
-	return c.v.GetString("new_pals_role_id")
-}
-
 func (c *Config) GetNewPalsSystemEnabled() bool {
 	return c.v.GetBool("new_pals_system_enabled")
 }
 
+func (c *Config) GetNewPalsRoleID() string {
+	return c.v.GetString("new_pals_role_id")
+}
+
+func (c *Config) GetNewPalsChannelID() string {
+	return c.v.GetString("new_pals_channel_id")
+}
 func (c *Config) GetNewPalsKeepRoleDuration() time.Duration {
 	return c.v.GetDuration("new_pals_keep_role_duration")
 }

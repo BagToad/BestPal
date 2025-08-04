@@ -97,13 +97,13 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 
 	Everyone here is also new, so feel free to chat! It's a cozy space just for new pals.
 
-	If you prefer to jump right into the main chat, feel free to do that as well!
+	If you prefer to jump right into the main chat with the regulars, feel free to do that as well!
 
-	Moderators and welcomers monitor this channel, so feel free to ask any questions. There's no such thing as a dumb question!
+	Moderators and other welcomers monitor this channel, so feel free to ask any questions. There's no such thing as a dumb question!
 
-	Note: after %s in the server, this channel will go away.
+	Note: after %[2]s%s%[2]s in the server, this channel will go away.
 	`,
-		newPalsMentionsString, ws.config.GetNewPalsKeepRoleDuration().String(),
+		newPalsMentionsString, "`", ws.config.GetNewPalsKeepRoleDuration().String(),
 	)
 
 	// Send the welcome message in the welcome channel
@@ -117,6 +117,35 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	ws.config.Logger.Infof("Sent welcome message to %d new Pals in channel %s", len(newPals), welcomeChannelID)
 }
 
+// CleanOldWelcomeMessages cleans up old welcome messages in the welcome channel
+func (ws *WelcomeService) CleanOldWelcomeMessages() {
+	welcomeChannelID := ws.config.GetNewPalsChannelID()
+
+	if welcomeChannelID == "" {
+		ws.config.Logger.Error("No welcome channel ID configured, skipping cleanup")
+		return
+	}
+
+	ws.config.Logger.Info("Cleaning up old welcome messages in channel:", welcomeChannelID)
+
+	// Fetch the messages in the welcome channel
+	messages, err := ws.session.ChannelMessages(welcomeChannelID, 100, "", "", "")
+	if err != nil {
+		ws.config.Logger.Error("Failed to fetch messages from welcome channel:", err)
+		return
+	}
+
+	for _, message := range messages {
+		if message.Author.ID == ws.session.State.User.ID {
+			err := ws.session.ChannelMessageDelete(welcomeChannelID, message.ID)
+			if err != nil {
+				ws.config.Logger.Error("Failed to delete old welcome message:", err)
+			}
+		}
+	}
+}
+
+// CleanNewPalsRoleFromOldMembers removes the New Pals role from members who have had it for too long
 func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	guildID := ws.config.GetGamerPalsServerID()
 	newPalsRoleID := ws.config.GetNewPalsRoleID()

@@ -44,7 +44,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 		return
 	}
 
-	requiredConfigsSet := welcomeChannelID != "" && newPalsRoleID != "" && timeBetweenRuns > 0
+	requiredConfigsSet := welcomeChannelID != "0" && newPalsRoleID != "0" && timeBetweenRuns > 0
 	if !requiredConfigsSet {
 		ws.config.Logger.Error("Required configurations for New Pals system are not set, skipping welcome process")
 		return
@@ -138,7 +138,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 		return
 	}
 
-	ws.config.Logger.Info("Cleaning up New Pals role from members who have had it for too long")
+	ws.config.Logger.Info("Cleaning up New Pals role from members older than %s", newPalsKeepRoleDuration.String())
 
 	// Fetch all members in the guild
 	members, err := utils.GetAllHumanGuildMembers(ws.session, guildID)

@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
@@ -17,7 +18,8 @@ type Scheduler struct {
 	db             *database.DB
 	pairingService *pairing.PairingService
 	welcomeService *welcome.WelcomeService
-	ticker         *time.Ticker
+	minuteTicker   *time.Ticker
+	hourTicker     *time.Ticker
 	minuteStopCh   chan struct{}
 	hourStopCh     chan struct{}
 }
@@ -38,15 +40,16 @@ func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.D
 // StartMinuteScheduler starts a scheduler that runs every minute
 func (s *Scheduler) StartMinuteScheduler() {
 	// Check for scheduled pairings every minute
-	s.ticker = time.NewTicker(time.Minute)
+	s.minuteTicker = time.NewTicker(time.Minute)
 
 	go func() {
 		s.config.Logger.Info("Minute scheduler started!")
 
 		for {
 			select {
-			case <-s.ticker.C:
+			case <-s.minuteTicker.C:
 				s.config.Logger.Info("Running scheduled tasks...")
+				fmt.Printf("Checking welcome service at %s...\n", time.Now().Format(time.RFC1123))
 				go func() {
 					s.config.Logger.Info("Checking welcome service...")
 					s.welcomeService.CleanNewPalsRoleFromOldMembers()
@@ -63,22 +66,22 @@ func (s *Scheduler) StartMinuteScheduler() {
 
 // StopMinuteScheduler stops the scheduler
 func (s *Scheduler) StopMinuteScheduler() {
-	if s.ticker != nil {
-		s.ticker.Stop()
+	if s.minuteTicker != nil {
+		s.minuteTicker.Stop()
 	}
 	close(s.minuteStopCh)
 }
 
 func (s *Scheduler) StartHourScheduler() {
 	// Check for old log files every hour
-	s.ticker = time.NewTicker(time.Hour)
+	s.hourTicker = time.NewTicker(time.Hour)
 
 	go func() {
 		s.config.Logger.Info("Hourly scheduler started!")
 
 		for {
 			select {
-			case <-s.ticker.C:
+			case <-s.hourTicker.C:
 				if err := s.config.RotateAndPruneLogs(); err != nil {
 					s.config.Logger.Errorf("Scheduler failed handling log files: %v", err)
 				}
@@ -92,8 +95,8 @@ func (s *Scheduler) StartHourScheduler() {
 
 // StopHourScheduler stops the hourly scheduler
 func (s *Scheduler) StopHourScheduler() {
-	if s.ticker != nil {
-		s.ticker.Stop()
+	if s.hourTicker != nil {
+		s.hourTicker.Stop()
 	}
 	close(s.hourStopCh)
 }

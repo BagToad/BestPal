@@ -58,6 +58,9 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		events.OnChannelUpdate(s, c, cfg)
 	})
+	session.AddHandler(func(s *discordgo.Session, r *discordgo.GuildMemberAdd) {
+		events.OnGuildMemberAdd(s, r, cfg)
+	})
 
 	return bot, nil
 }

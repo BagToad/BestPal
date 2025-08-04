@@ -4,6 +4,9 @@ Built for [r/GamerPals](https://www.reddit.com/r/GamerPals). Join the discord at
 
 It's a work in progress, and probably always will be.
 
+Note that this bot is coded to only work with a single server per bot instance since channel IDs are all set in a
+global config file.
+
 ## Slash Commands
 
 | Command | Description | Permissions |

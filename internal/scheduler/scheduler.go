@@ -4,6 +4,7 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
+	"gamerpal/internal/welcome"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -15,6 +16,7 @@ type Scheduler struct {
 	config         *config.Config
 	db             *database.DB
 	pairingService *pairing.PairingService
+	welcomeService *welcome.WelcomeService
 	ticker         *time.Ticker
 	minuteStopCh   chan struct{}
 	hourStopCh     chan struct{}
@@ -27,6 +29,7 @@ func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.D
 		config:         cfg,
 		db:             db,
 		pairingService: pairingService,
+		welcomeService: welcome.NewWelcomeService(session, cfg),
 		minuteStopCh:   make(chan struct{}),
 		hourStopCh:     make(chan struct{}),
 	}
@@ -43,6 +46,10 @@ func (s *Scheduler) StartMinuteScheduler() {
 		for {
 			select {
 			case <-s.ticker.C:
+				go func() {
+					s.welcomeService.CleanNewPalsRoleFromOldMembers()
+					s.welcomeService.CheckAndWelcomeNewPals()
+				}()
 				s.checkAndExecuteScheduledPairings()
 			case <-s.minuteStopCh:
 				s.config.Logger.Info("Minute scheduler stopping")

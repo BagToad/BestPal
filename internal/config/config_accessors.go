@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 func (c *Config) GetBotToken() string {
 	return c.v.GetString("bot_token")
 }
@@ -34,6 +36,24 @@ func (c *Config) GetGamerPalsPairingCategoryID() string {
 
 func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 	return c.v.GetString("gamerpals_introductions_forum_channel_id")
+}
+
+// New Pals systems
+// -----
+func (c *Config) GetNewPalsRoleID() string {
+	return c.v.GetString("new_pals_role_id")
+}
+
+func (c *Config) GetNewPalsSystemEnabled() bool {
+	return c.v.GetBool("new_pals_system_enabled")
+}
+
+func (c *Config) GetNewPalsKeepRoleDuration() time.Duration {
+	return c.v.GetDuration("new_pals_keep_role_duration")
+}
+
+func (c *Config) GetNewPalsTimeBetweenWelcomeMessages() time.Duration {
+	return c.v.GetDuration("new_pals_time_between_welcome_messages")
 }
 
 func (c *Config) GetSuperAdmins() []string {

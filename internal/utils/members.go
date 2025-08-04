@@ -29,6 +29,23 @@ func GetAllGuildMembers(s *discordgo.Session, guildID string) ([]*discordgo.Memb
 	return allMembers, nil
 }
 
+func GetAllHumanGuildMembers(s *discordgo.Session, guildID string) ([]*discordgo.Member, error) {
+	allMembers, err := GetAllGuildMembers(s, guildID)
+	if err != nil {
+		return nil, err
+	}
+
+	var humanMembers []*discordgo.Member
+	for _, member := range allMembers {
+		if member.User.Bot {
+			continue
+		}
+		humanMembers = append(humanMembers, member)
+	}
+
+	return humanMembers, nil
+}
+
 var Nouns = []string{
 	"Cucumber",
 	"Tomato",

@@ -48,7 +48,6 @@ func (s *Scheduler) StartMinuteScheduler() {
 			select {
 			case <-s.minuteTicker.C:
 				go func() {
-					s.welcomeService.CleanOldWelcomeMessages()
 					s.welcomeService.CleanNewPalsRoleFromOldMembers()
 					s.welcomeService.CheckAndWelcomeNewPals()
 				}()

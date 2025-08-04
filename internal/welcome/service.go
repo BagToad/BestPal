@@ -115,10 +115,12 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}
 
 	ws.config.Logger.Infof("Sent welcome message to %d new Pals in channel %s", len(newPals), welcomeChannelID)
+
+	ws.cleanOldWelcomeMessages()
 }
 
-// CleanOldWelcomeMessages cleans up old welcome messages in the welcome channel
-func (ws *WelcomeService) CleanOldWelcomeMessages() {
+// cleanOldWelcomeMessages cleans up old welcome messages in the welcome channel
+func (ws *WelcomeService) cleanOldWelcomeMessages() {
 	welcomeChannelID := ws.config.GetNewPalsChannelID()
 
 	if welcomeChannelID == "" {

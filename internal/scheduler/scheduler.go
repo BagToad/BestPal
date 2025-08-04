@@ -48,10 +48,7 @@ func (s *Scheduler) StartMinuteScheduler() {
 		for {
 			select {
 			case <-s.minuteTicker.C:
-				s.config.Logger.Info("Running scheduled tasks...")
-				fmt.Printf("Checking welcome service at %s...\n", time.Now().Format(time.RFC1123))
 				go func() {
-					s.config.Logger.Info("Checking welcome service...")
 					s.welcomeService.CleanNewPalsRoleFromOldMembers()
 					s.welcomeService.CheckAndWelcomeNewPals()
 				}()

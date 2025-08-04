@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"fmt"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"

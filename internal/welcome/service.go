@@ -137,7 +137,7 @@ func (ws *WelcomeService) cleanOldWelcomeMessages() {
 		return
 	}
 
-	for _, message := range messages[0 : len(messages)-1] { // Skip the last message (the most recent one)
+	for _, message := range messages[1:] { // Skip the most recent message
 		if message.Author.ID == ws.session.State.User.ID {
 			err := ws.session.ChannelMessageDelete(welcomeChannelID, message.ID)
 			if err != nil {

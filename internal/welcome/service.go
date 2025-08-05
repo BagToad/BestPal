@@ -110,6 +110,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}
 
 	ws.config.Logger.Infof("Sent welcome message to %d new Pals in channel %s", len(newPals), welcomeChannelID)
+	ws.nextRun = time.Now().Add(timeBetweenRuns)
 
 	ws.cleanOldWelcomeMessages()
 }

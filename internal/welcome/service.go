@@ -194,7 +194,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 			}
 
 			ws.config.Logger.Infof("Removed New Pals role from member %s (%s) after %s",
-				member.User.Username, member.User.ID, newPalsKeepRoleDuration)
+				member.User.Username, member.User.ID, time.Since(roleAddedAt))
 		}
 	}
 

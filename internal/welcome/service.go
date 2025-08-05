@@ -96,9 +96,9 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 
 	Moderators and other kind folks watch this channel, so feel free to ask any questions. There's no such thing as a dumb question!
 
-	Note: after %[2]s%s%[2]s in the server, this channel will go away.
+	Note: after some time in the server, this channel will go away, keeping it cozy for new pals.
 	`,
-		newPalsMentionsString, "`", ws.config.GetNewPalsKeepRoleDuration().String(),
+		newPalsMentionsString,
 	)
 
 	// Send the welcome message in the welcome channel

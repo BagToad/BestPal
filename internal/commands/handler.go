@@ -75,6 +75,11 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 							},
 						},
 					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "list-keys",
+						Description: "List all available configuration keys",
+					},
 				},
 			},
 			HandlerFunc: h.handleConfig,

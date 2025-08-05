@@ -36,6 +36,8 @@ func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.Interacti
 				}
 			}
 			handleConfigSet(s, i, h.config, key, value)
+		case "list-keys":
+			handleConfigListKeys(s, i)
 		}
 	}
 
@@ -54,7 +56,7 @@ func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *
 		return
 	}
 
-	forbiddenKeys := []string{"super_admins"}
+	forbiddenKeys := []string{"super_admins", "bot_token"}
 	if slices.Contains(forbiddenKeys, key) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -74,6 +76,45 @@ func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "✅ Configuration updated successfully.",
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
+func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// List of all available configuration keys based on the config accessors
+	// Note: super_admins and bot_token are excluded as they shouldn't be modified via Discord commands
+	configKeys := []string{
+		"igdb_client_id",
+		"igdb_client_token",
+		"crypto_salt",
+		"github_models_token",
+		"gamerpals_server_id",
+		"gamerpals_mod_action_log_channel_id",
+		"gamerpals_pairing_category_id",
+		"gamerpals_introductions_forum_channel_id",
+		"new_pals_system_enabled",
+		"new_pals_role_id",
+		"new_pals_channel_id",
+		"new_pals_keep_role_duration",
+		"new_pals_time_between_welcome_messages",
+		"database_path",
+		"log_dir",
+	}
+
+	// Format the keys into a readable list
+	var keysList string
+	for _, key := range configKeys {
+		keysList += "• `" + key + "`\n"
+	}
+
+	content := "📋 **Available Configuration Keys:**\n\n" + keysList + "\n*Use `/config set <key> <value>` to modify any of these keys.*"
+
+	// Respond to the interaction
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: content,
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})

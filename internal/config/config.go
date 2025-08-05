@@ -60,8 +60,12 @@ func NewConfig() (*Config, error) {
 	w := io.MultiWriter(os.Stderr, newLogFile)
 
 	newCfg := &Config{
-		v:      v,
-		Logger: log.New(w),
+		v: v,
+		Logger: log.NewWithOptions(w, log.Options{
+			ReportCaller:    true,
+			ReportTimestamp: true,
+			TimeFormat:      time.Kitchen,
+		}),
 	}
 
 	// Validate required fields

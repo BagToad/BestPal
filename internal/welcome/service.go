@@ -55,7 +55,6 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 		return
 	}
 
-	ws.config.Logger.Info("Welcome process for new Pals is ready to run")
 	defer func() {
 		ws.lastRun = time.Now()
 	}()
@@ -75,7 +74,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}
 
 	if len(newPals) == 0 {
-		ws.config.Logger.Info("No new Pals found since last run")
+		ws.config.Logger.Debug("No new Pals found since last run")
 		return
 	}
 
@@ -91,15 +90,11 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	welcomeMessage := heredoc.Docf(`
 	%s
 
-	Hi!! Welcome!
+	Hi!! Welcome! :green_heart:
 	
-	I've added you to this channel as a private space for people who are new to the server.
+	I've added you to this channel as a private space for people who are new to the server. Everyone here is also new, so feel free to chat! It's a cozy space just for new pals. If you prefer to jump right into the main chat with the regulars, feel free to do that as well!
 
-	Everyone here is also new, so feel free to chat! It's a cozy space just for new pals.
-
-	If you prefer to jump right into the main chat with the regulars, feel free to do that as well!
-
-	Moderators and other welcomers monitor this channel, so feel free to ask any questions. There's no such thing as a dumb question!
+	Moderators and other kind folks watch this channel, so feel free to ask any questions. There's no such thing as a dumb question!
 
 	Note: after %[2]s%s%[2]s in the server, this channel will go away.
 	`,

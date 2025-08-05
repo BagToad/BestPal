@@ -91,12 +91,12 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	%s
 
 	Hi!! Welcome! :green_heart:
-	
-	I've added you to this channel as a private space for people who are new to the server. Everyone here is also new, so feel free to chat! It's a cozy space just for new pals. If you prefer to jump right into the main chat with the regulars, feel free to do that as well!
 
-	Moderators and other kind folks watch this channel, so feel free to ask any questions. There's no such thing as a dumb question!
+	I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
 
-	Note: after some time in the server, this channel will go away, keeping it cozy for new pals.
+	If you prefer to jump right into the main chat with the regulars, please do!
+
+	Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
 	`,
 		newPalsMentionsString,
 	)

@@ -37,7 +37,7 @@ func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.Interacti
 			}
 			handleConfigSet(s, i, h.config, key, value)
 		case "list-keys":
-			handleConfigListKeys(s, i)
+			handleConfigListKeys(s, i, h.config)
 		}
 	}
 
@@ -81,31 +81,45 @@ func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *
 	})
 }
 
-func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// List of all available configuration keys based on the config accessors
-	// Note: super_admins and bot_token are excluded as they shouldn't be modified via Discord commands
-	configKeys := []string{
-		"igdb_client_id",
-		"igdb_client_token",
-		"crypto_salt",
-		"github_models_token",
-		"gamerpals_server_id",
-		"gamerpals_mod_action_log_channel_id",
-		"gamerpals_pairing_category_id",
-		"gamerpals_introductions_forum_channel_id",
-		"new_pals_system_enabled",
-		"new_pals_role_id",
-		"new_pals_channel_id",
-		"new_pals_keep_role_duration",
-		"new_pals_time_between_welcome_messages",
-		"database_path",
-		"log_dir",
+func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *config.Config) {
+	// List of configuration keys with their current values
+	// Note: sensitive keys like tokens are excluded from showing values
+
+	type configItem struct {
+		key       string
+		showValue bool
+	}
+
+	configItems := []configItem{
+		{"igdb_client_id", false},                          // Token-like, don't show value
+		{"igdb_client_token", false},                       // Token, don't show value
+		{"github_models_token", false},                     // Token, don't show value
+		{"crypto_salt", false},                             // Sensitive, don't show value
+		{"gamerpals_server_id", true},                      // Harmless ID
+		{"gamerpals_mod_action_log_channel_id", true},      // Harmless ID
+		{"gamerpals_pairing_category_id", true},            // Harmless ID
+		{"gamerpals_introductions_forum_channel_id", true}, // Harmless ID
+		{"new_pals_system_enabled", true},                  // Boolean setting
+		{"new_pals_role_id", true},                         // Harmless ID
+		{"new_pals_channel_id", true},                      // Harmless ID
+		{"new_pals_keep_role_duration", true},              // Duration setting
+		{"new_pals_time_between_welcome_messages", true},   // Duration setting
+		{"database_path", true},                            // File path
+		{"log_dir", true},                                  // Directory path
 	}
 
 	// Format the keys into a readable list
 	var keysList string
-	for _, key := range configKeys {
-		keysList += "• `" + key + "`\n"
+	for _, item := range configItems {
+		if item.showValue {
+			value := cfg.GetString(item.key)
+			if value == "" {
+				value = "(not set)"
+			}
+			keysList += "• `" + item.key + "`: `" + value + "`\n"
+		} else {
+			keysList += "• `" + item.key + "`: *(hidden)*\n"
+		}
 	}
 
 	content := "📋 **Available Configuration Keys:**\n\n" + keysList + "\n*Use `/config set <key> <value>` to modify any of these keys.*"

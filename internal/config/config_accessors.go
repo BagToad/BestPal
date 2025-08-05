@@ -80,3 +80,8 @@ func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
 	c.v.WriteConfig()
 }
+
+// GetString returns the string value for a given config key
+func (c *Config) GetString(key string) string {
+	return c.v.GetString(key)
+}

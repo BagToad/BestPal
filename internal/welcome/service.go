@@ -179,8 +179,8 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 		}
 
 		// Check how long the member has had the role
-		roleAddedAt := member.JoinedAt.Add(newPalsKeepRoleDuration)
-		if time.Now().After(roleAddedAt) {
+		roleExpirationTime := member.JoinedAt.Add(newPalsKeepRoleDuration)
+		if time.Now().After(roleExpirationTime) {
 			err := ws.session.GuildMemberRoleRemove(guildID, member.User.ID, newPalsRoleID)
 			if err != nil {
 				ws.config.Logger.Error("Failed to remove New Pals role from member %s (%s): %v",
@@ -189,7 +189,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 			}
 
 			ws.config.Logger.Infof("Removed New Pals role from member %s (%s) after %s",
-				member.User.Username, member.User.ID, time.Since(roleAddedAt))
+				member.User.Username, member.User.ID, time.Since(member.JoinedAt))
 		}
 	}
 

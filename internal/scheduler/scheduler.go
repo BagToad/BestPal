@@ -81,6 +81,8 @@ func (s *Scheduler) StartHourScheduler() {
 				if err := s.config.RotateAndPruneLogs(); err != nil {
 					s.config.Logger.Errorf("Scheduler failed handling log files: %v", err)
 				}
+				// Rotate channel topic
+				s.welcomeService.RotateTopicIfNeeded()
 			case <-s.hourStopCh:
 				s.config.Logger.Info("Hourly scheduler stopping")
 				return

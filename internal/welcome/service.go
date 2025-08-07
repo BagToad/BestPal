@@ -1,6 +1,7 @@
 package welcome
 
 import (
+	"fmt"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"slices"
@@ -13,21 +14,24 @@ import (
 
 // WelcomeService handles welcome messages and related functionality
 type WelcomeService struct {
-	session *discordgo.Session
-	config  *config.Config
-	nextRun time.Time
-	lastRun time.Time
+	session      *discordgo.Session
+	config       *config.Config
+	nextRun      time.Time
+	lastRun      time.Time
+	topicService *TopicService
 }
 
 // NewWelcomeService creates a new WelcomeService instance
 func NewWelcomeService(session *discordgo.Session, config *config.Config) *WelcomeService {
 	timeBetweenRuns := config.GetNewPalsTimeBetweenWelcomeMessages()
+	newPalsChannelID := config.GetNewPalsChannelID()
 
 	return &WelcomeService{
-		session: session,
-		config:  config,
-		nextRun: time.Now().Add(timeBetweenRuns),
-		lastRun: time.Now(),
+		session:      session,
+		config:       config,
+		nextRun:      time.Now().Add(timeBetweenRuns),
+		lastRun:      time.Now(),
+		topicService: NewTopicService(session, newPalsChannelID),
 	}
 }
 
@@ -87,10 +91,17 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}
 	newPalsMentionsString := strings.Join(newPalsMentions, " ")
 
+	// Get the current topic for the welcome message
+	currentTopic := ws.topicService.GetCurrentTopic()
+	topicMessage := ""
+	if currentTopic != "" {
+		topicMessage = fmt.Sprintf("**The current channel topic is _%s_**\n\n", currentTopic)
+	}
+
 	welcomeMessage := heredoc.Docf(`
 	%s
 
-	Hi!! Welcome! :green_heart:
+	%sHi!! Welcome! :green_heart:
 
 	I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
 
@@ -99,6 +110,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
 	`,
 		newPalsMentionsString,
+		topicMessage,
 	)
 
 	// Send the welcome message in the welcome channel
@@ -195,4 +207,20 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	}
 
 	ws.config.Logger.Info("Finished cleaning up New Pals roles")
+}
+
+// RotateTopicIfNeeded rotates the channel topic if enough time has passed
+func (ws *WelcomeService) RotateTopicIfNeeded() {
+	if ws.topicService == nil {
+		return
+	}
+
+	if ws.topicService.ShouldRotate() {
+		err := ws.topicService.RotateTopic()
+		if err != nil {
+			ws.config.Logger.Error("Failed to rotate channel topic:", err)
+		} else {
+			ws.config.Logger.Infof("Successfully rotated channel topic to: %s", ws.topicService.GetCurrentTopic())
+		}
+	}
 }

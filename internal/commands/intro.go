@@ -122,9 +122,9 @@ func getAllActiveThreads(s *discordgo.Session, channelID string, guildID string)
 	return allThreads, nil
 }
 
-// handleIntroPrune scans the introductions forum for threads where the original post was deleted
-// and deletes the entire thread when execute:true. Dry-run (default) only reports findings.
-func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handlePruneForum scans a forum channel for threads whose starter was deleted.
+// Dry run by default; when execute:true, deletes flagged threads.
+func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Admin guard
 	if !utils.HasAdminPermissions(s, i) {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -137,25 +137,49 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
-	introsChannelID := h.config.GetGamerPalsIntroductionsForumChannelID()
-	if introsChannelID == "" {
+	var forumID string
+	var forumChannel *discordgo.Channel
+	execute := false
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Name == "forum" {
+			forumChannel = opt.ChannelValue(s)
+			if forumChannel == nil {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "❌ Unable to resolve the provided channel.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+			forumID = forumChannel.ID
+			// Also runtime-validate it's a forum
+			if forumChannel.Type != discordgo.ChannelTypeGuildForum {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "❌ The selected channel is not a forum channel.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+		}
+		if opt.Name == "execute" {
+			execute = opt.BoolValue()
+		}
+	}
+
+	if forumID == "" {
 		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Introductions forum channel is not configured.",
+				Content: "❌ You must provide a forum channel to prune.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
-	}
-
-	// Parse execute option (default: false)
-	execute := false
-	for _, opt := range i.ApplicationCommandData().Options {
-		if opt.Name == "execute" {
-			execute = opt.BoolValue()
-			break
-		}
 	}
 
 	// Defer response
@@ -163,11 +187,11 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	// Fetch all threads under the forum
-	threads, err := getAllActiveThreads(s, introsChannelID, i.GuildID)
+	// Fetch threads under the forum
+	threads, err := getAllActiveThreads(s, forumID, i.GuildID)
 	if err != nil {
 		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing introductions forum: %v", err)),
+			Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing forum: %v", err)),
 		})
 		return
 	}
@@ -178,35 +202,30 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	var flaggedThreads []flagged
+	var unknownThreads []flagged
 
-	// Scan each thread; look for any message authored by the thread owner
 	for _, th := range threads {
-		// Skip if somehow not a thread
 		if !th.IsThread() {
 			continue
 		}
 
-		msgs, err := fetchMessagesLimited(s, th.ID, 500)
+		maxMessages := 500
+
+		msgs, err := fetchMessagesLimited(s, th.ID, maxMessages)
 		if err != nil {
-			// On error, skip this thread but note it
 			h.config.Logger.Warnf("Error fetching messages for thread %s: %v", th.ID, err)
 			continue
 		}
-
-		// If there are no messages at all, it's clearly orphaned
 		if len(msgs) == 0 {
 			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "no messages remain"})
 			continue
 		}
 
-		// Compute thread creation time from snowflake and inspect the oldest available message
 		threadCreated, err := snowflakeTime(th.ID)
 		if err != nil {
-			// If we can't parse the snowflake, fall back to conservative check
 			h.config.Logger.Warnf("Unable to parse snowflake for thread %s: %v", th.ID, err)
 		}
 
-		// Determine if any message is authored by the thread owner
 		hasOwnerMessage := false
 		for _, m := range msgs {
 			if m.Author != nil && m.Author.ID == th.OwnerID {
@@ -215,49 +234,41 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 			}
 		}
 
-		// Oldest available message we fetched (msgs are accumulated newest->oldest)
-		oldest := msgs[len(msgs)-1]
-
-		// If the oldest message is not by the owner, it's very likely the starter was deleted
-		if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
-			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
-			// Be gentle with rate limits when scanning many threads
-			time.Sleep(50 * time.Millisecond)
-			continue
-		}
-
-		// If oldest is by the owner but there is a large gap from thread creation, the starter was likely deleted
-		// Forum posts create the starter message at thread creation; this gap should normally be just seconds
-		if !threadCreated.IsZero() {
-			gap := oldest.Timestamp.Sub(threadCreated)
-			if gap > 2*time.Second { // grace window to avoid false positives
-				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
+		// Only do this if the thread has a reasonable number of messages
+		if forumChannel.MessageCount <= maxMessages {
+			oldest := msgs[len(msgs)-1]
+			if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
+				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
 				time.Sleep(50 * time.Millisecond)
 				continue
 			}
+			if !threadCreated.IsZero() {
+				gap := oldest.Timestamp.Sub(threadCreated)
+				if gap > 2*time.Second {
+					flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
+					time.Sleep(50 * time.Millisecond)
+					continue
+				}
+			}
+			if !hasOwnerMessage {
+				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner has no messages in thread"})
+			}
+		} else {
+			unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
 		}
 
-		// If we never saw an owner message at all, also flag
-		if !hasOwnerMessage {
-			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner has no messages in thread"})
-		}
-
-		// Be gentle with rate limits when scanning many threads
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// Sort by newest first (by ID)
 	sort.Slice(flaggedThreads, func(a, b int) bool { return flaggedThreads[a].thread.ID > flaggedThreads[b].thread.ID })
 
 	deletedCount := 0
 	failedCount := 0
-
 	if execute {
 		for _, f := range flaggedThreads {
 			if _, err := s.ChannelDelete(f.thread.ID); err != nil {
 				failedCount++
 				h.config.Logger.Warnf("Failed deleting thread %s: %v", f.thread.ID, err)
-				// small delay to avoid hammering on failures
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
@@ -266,7 +277,6 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 		}
 	}
 
-	// Build response embed
 	mode := "Dry Run"
 	color := utils.Colors.Info()
 	if execute {
@@ -274,21 +284,22 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 		color = utils.Colors.Warning()
 	}
 
-	description := fmt.Sprintf("Mode: %s\nThreads scanned: %d\nThreads flagged: %d", mode, len(threads), len(flaggedThreads))
+	description := fmt.Sprintf("Mode: %s\nForum: <#%s>\nThreads scanned: %d\nThreads flagged: %d\nThreads unknown: %d", mode, forumID, len(threads), len(flaggedThreads), len(unknownThreads))
 	if execute {
 		description += fmt.Sprintf("\nThreads deleted: %d\nDelete failures: %d", deletedCount, failedCount)
 	}
 
-	// List up to 20 flagged threads with reasons
 	maxList := 20
 	fieldValue := ""
-	for idx, f := range flaggedThreads {
+	allThreads := append(flaggedThreads, unknownThreads...)
+	for idx, f := range allThreads {
 		if idx >= maxList {
-			fieldValue += fmt.Sprintf("\n…and %d more", len(flaggedThreads)-maxList)
+			fieldValue += fmt.Sprintf("\n…and %d more", len(allThreads)-maxList)
 			break
 		}
 		fieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
 	}
+
 	fields := []*discordgo.MessageEmbedField{}
 	if len(flaggedThreads) > 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{
@@ -299,12 +310,12 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	embed := &discordgo.MessageEmbed{
-		Title:       "Introductions Prune Report",
+		Title:       "Forum Prune Report",
 		Description: description,
 		Color:       color,
 		Fields:      fields,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Use /intro-prune execute:true to delete flagged threads",
+			Text: fmt.Sprintf("Use /prune-forum forum:<#%s> execute:true to delete flagged threads", forumID),
 		},
 	}
 

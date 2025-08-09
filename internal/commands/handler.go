@@ -155,6 +155,23 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "intro-prune",
+				Description:              "Find intro threads whose post was deleted; delete them (dry-run by default)",
+				DefaultMemberPermissions: &adminPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "execute",
+						Description: "Actually delete the threads (default: false for dry run)",
+						Required:    false,
+					},
+				},
+			},
+			HandlerFunc: h.handleIntroPrune,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "help",
 				Description: "Show all available commands",
 			},

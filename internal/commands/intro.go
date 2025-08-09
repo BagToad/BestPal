@@ -235,6 +235,8 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 		}
 
 		// Only do this if the thread has a reasonable number of messages
+		// I don't think this actually works though since the docs say MessageCount
+		// tops out at 50...
 		if forumChannel.MessageCount <= maxMessages {
 			oldest := msgs[len(msgs)-1]
 			if oldest.Author == nil || oldest.Author.ID != th.OwnerID {

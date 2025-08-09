@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gamerpal/internal/utils"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -185,7 +186,7 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 			continue
 		}
 
-		msgs, err := fetchMessagesLimited(s, th.ID, 300)
+		msgs, err := fetchMessagesLimited(s, th.ID, 500)
 		if err != nil {
 			// On error, skip this thread but note it
 			h.config.Logger.Warnf("Error fetching messages for thread %s: %v", th.ID, err)
@@ -198,7 +199,14 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 			continue
 		}
 
-		// Check if any message is authored by the thread owner
+		// Compute thread creation time from snowflake and inspect the oldest available message
+		threadCreated, err := snowflakeTime(th.ID)
+		if err != nil {
+			// If we can't parse the snowflake, fall back to conservative check
+			h.config.Logger.Warnf("Unable to parse snowflake for thread %s: %v", th.ID, err)
+		}
+
+		// Determine if any message is authored by the thread owner
 		hasOwnerMessage := false
 		for _, m := range msgs {
 			if m.Author != nil && m.Author.ID == th.OwnerID {
@@ -206,8 +214,32 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 				break
 			}
 		}
+
+		// Oldest available message we fetched (msgs are accumulated newest->oldest)
+		oldest := msgs[len(msgs)-1]
+
+		// If the oldest message is not by the owner, it's very likely the starter was deleted
+		if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
+			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
+			// Be gentle with rate limits when scanning many threads
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
+		// If oldest is by the owner but there is a large gap from thread creation, the starter was likely deleted
+		// Forum posts create the starter message at thread creation; this gap should normally be just seconds
+		if !threadCreated.IsZero() {
+			gap := oldest.Timestamp.Sub(threadCreated)
+			if gap > 90*time.Second { // grace window to avoid false positives
+				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+		}
+
+		// If we never saw an owner message at all, also flag
 		if !hasOwnerMessage {
-			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner's post missing"})
+			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner has no messages in thread"})
 		}
 
 		// Be gentle with rate limits when scanning many threads
@@ -314,4 +346,16 @@ func fetchMessagesLimited(s *discordgo.Session, channelID string, limitTotal int
 	}
 
 	return all, nil
+}
+
+// snowflakeTime converts a Discord snowflake ID string into its creation time.
+func snowflakeTime(id string) (time.Time, error) {
+	// Discord epoch (ms) = 2015-01-01T00:00:00.000Z
+	const discordEpochMS int64 = 1420070400000
+	v, err := strconv.ParseUint(id, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	ms := int64(v>>22) + discordEpochMS
+	return time.Unix(0, ms*int64(time.Millisecond)), nil
 }

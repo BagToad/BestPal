@@ -325,21 +325,37 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	maxList := 20
-	fieldValue := ""
-	allThreads := append(flaggedThreads, unknownThreads...)
-	for idx, f := range allThreads {
+	flaggedFieldValue := ""
+	for idx, f := range flaggedThreads {
 		if idx >= maxList {
-			fieldValue += fmt.Sprintf("\n…and %d more", len(allThreads)-maxList)
+			flaggedFieldValue += fmt.Sprintf("\n…and %d more", len(flaggedThreads)-maxList)
 			break
 		}
-		fieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
+		flaggedFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
+	}
+
+	unknownFieldValue := ""
+	for idx, f := range unknownThreads {
+		if idx >= maxList {
+			unknownFieldValue += fmt.Sprintf("\n…and %d more", len(unknownThreads)-maxList)
+			break
+		}
+		unknownFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
 	}
 
 	fields := []*discordgo.MessageEmbedField{}
 	if len(flaggedThreads) > 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{
 			Name:   "Flagged Threads",
-			Value:  fieldValue,
+			Value:  flaggedFieldValue,
+			Inline: false,
+		})
+	}
+
+	if len(unknownThreads) > 0 {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "Unknown Threads",
+			Value:  unknownFieldValue,
 			Inline: false,
 		})
 	}

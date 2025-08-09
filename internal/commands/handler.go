@@ -155,6 +155,32 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "prune-forum",
+				Description:              "Find forum threads whose starter post was deleted; delete them (dry-run by default)",
+				DefaultMemberPermissions: &adminPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionChannel,
+						Name:        "forum",
+						Description: "The forum channel to prune",
+						Required:    true,
+						ChannelTypes: []discordgo.ChannelType{
+							discordgo.ChannelTypeGuildForum,
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "execute",
+						Description: "Actually delete the threads (default: false for dry run)",
+						Required:    false,
+					},
+				},
+			},
+			HandlerFunc: h.handlePruneForum,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "help",
 				Description: "Show all available commands",
 			},

@@ -13,7 +13,9 @@ global config file.
 |---------|-------------|-------------|
 | `/userstats` | Shows member counts, growth metrics, and regional breakdown | Admin roles or Administrator permission |
 | `/ping` | Check if the bot is responsive | Admin roles or Administrator permission |
+| `/intro` | Look up a user's latest introduction post from the introductions forum | Everyone |
 | `/prune-inactive` | Remove users without any roles (dry run by default) | Administrator permission |
+| `/prune-forum` | Scan a forum for threads whose starter post was deleted; dry-run by default, use `execute:true` to delete | Administrator permission |
 | `/say` | Send an anonymous message to a specified channel | Administrator permission |
 | `/help` | Display all available commands | Admin roles or Administrator permission |
 

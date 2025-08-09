@@ -230,7 +230,7 @@ func (h *SlashHandler) handleIntroPrune(s *discordgo.Session, i *discordgo.Inter
 		// Forum posts create the starter message at thread creation; this gap should normally be just seconds
 		if !threadCreated.IsZero() {
 			gap := oldest.Timestamp.Sub(threadCreated)
-			if gap > 90*time.Second { // grace window to avoid false positives
+			if gap > 2*time.Second { // grace window to avoid false positives
 				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
 				time.Sleep(50 * time.Millisecond)
 				continue

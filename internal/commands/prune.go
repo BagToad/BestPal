@@ -272,6 +272,11 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 		// tops out at 50...
 		if forumChannel.MessageCount <= maxMessages {
 			oldest := msgs[len(msgs)-1]
+			// This should work though...
+			if hasMore, _ := hasMoreMessages(s, th.ID, oldest.ID); hasMore {
+				unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
+				continue
+			}
 			if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
 				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
 				time.Sleep(50 * time.Millisecond)
@@ -392,6 +397,15 @@ func fetchMessagesLimited(s *discordgo.Session, channelID string, limitTotal int
 	}
 
 	return all, nil
+}
+
+// hasMoreMessages checks if there are more messages in the channel before a given message ID
+func hasMoreMessages(s *discordgo.Session, channelID string, beforeID string) (bool, error) {
+	msgs, err := s.ChannelMessages(channelID, 1, beforeID, "", "")
+	if err != nil {
+		return false, err
+	}
+	return len(msgs) > 0, nil
 }
 
 // snowflakeTime converts a Discord snowflake ID string into its creation time.

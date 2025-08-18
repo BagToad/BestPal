@@ -89,7 +89,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 		fullOutput = options[1].BoolValue()
 	}
 
-	parsedUnixTime, err := utils.ParseUnixTimestamp(dateString)
+	parsedUnixTime, err := utils.ResolveDateToUnixTimestamp(dateString)
 	if err != nil {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Parse Error",

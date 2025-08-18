@@ -197,7 +197,7 @@ func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordg
 	for _, option := range options {
 		switch option.Name {
 		case "time":
-			t, err := utils.ParseUnixTimestamp(option.StringValue())
+			t, err := utils.ResolveDateToUnixTimestamp(option.StringValue())
 			if err != nil {
 				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,

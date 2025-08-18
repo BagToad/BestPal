@@ -129,6 +129,17 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 		"Relative Time":   fmt.Sprintf("<t:%d:R>", parsedUnixTime),
 	}
 
+	if !fullOutput {
+		msgBody := fmt.Sprintf("`%s` is %s at %s\n",
+			dateString,
+			discordTimestamps["Relative Time"],
+			discordTimestamps["Long Date/Time"])
+		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(msgBody),
+		})
+		return
+	}
+
 	// Create the embed
 	embed := *utils.NewEmbed()
 	embed.Fields = append(embed.Fields, []*discordgo.MessageEmbedField{
@@ -145,21 +156,17 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 			Inline: false,
 		},
 	}...)
-
-	// Add full output field if requested
-	if fullOutput {
-		formatOrder := []string{"Default", "Short Time", "Long Time", "Short Date", "Long Date", "Short Date/Time", "Long Date/Time", "Relative Time"}
-		var formatsList strings.Builder
-		for _, format := range formatOrder {
-			formatsList.WriteString(fmt.Sprintf("• **%s**: `%s` → %s\n", format, discordTimestamps[format], discordTimestamps[format]))
-		}
-
-		embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
-			Name:   "📋 Available Discord Timestamp Formats",
-			Value:  formatsList.String(),
-			Inline: false,
-		})
+	formatOrder := []string{"Default", "Short Time", "Long Time", "Short Date", "Long Date", "Short Date/Time", "Long Date/Time", "Relative Time"}
+	var formatsList strings.Builder
+	for _, format := range formatOrder {
+		formatsList.WriteString(fmt.Sprintf("• **%s**: `%s` → %s\n", format, discordTimestamps[format], discordTimestamps[format]))
 	}
+
+	embed.Fields = append(embed.Fields, &discordgo.MessageEmbedField{
+		Name:   "📋 Available Discord Timestamp Formats",
+		Value:  formatsList.String(),
+		Inline: false,
+	})
 
 	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{&embed},

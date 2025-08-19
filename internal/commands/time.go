@@ -130,7 +130,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 	}
 
 	if !fullOutput {
-		msgBody := fmt.Sprintf("`%s` is %s at %s\n",
+		msgBody := fmt.Sprintf("\"`%s`\" is %s at %s\n",
 			dateString,
 			discordTimestamps["Relative Time"],
 			discordTimestamps["Long Date/Time"])

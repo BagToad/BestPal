@@ -8,50 +8,18 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// handleTime handles the time slash command with subcommands
+// handleTime handles the /time command
 func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	// Get the subcommand
-	options := i.ApplicationCommandData().Options
-	if len(options) == 0 {
-		embed := &discordgo.MessageEmbed{
-			Title:       "❌ Error",
-			Description: "Please specify a subcommand. Use `/time parse` to parse a date.",
-			Color:       utils.Colors.Error(),
-			Footer: &discordgo.MessageEmbedFooter{
-				Text: "GamerPal Bot",
-			},
-		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-		return
-	}
-
-	subcommand := options[0]
-	switch subcommand.Name {
-	case "parse":
-		h.handleTimeParse(s, i, subcommand.Options)
-	default:
-		embed := &discordgo.MessageEmbed{
-			Title:       "❌ Unknown Command",
-			Description: "Unknown subcommand. Use `/time parse` to parse a date.",
-			Color:       utils.Colors.Error(),
-			Footer: &discordgo.MessageEmbedFooter{
-				Text: "GamerPal Bot",
-			},
-		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Embeds: &[]*discordgo.MessageEmbed{embed},
-		})
-	}
+	// Forward top-level options directly to the parser
+	h.handleTimeParse(s, i, i.ApplicationCommandData().Options)
 }
 
-// handleTimeParse handles the time parse subcommand
+// handleTimeParse handles the time parse logic
 func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
 		embed := &discordgo.MessageEmbed{

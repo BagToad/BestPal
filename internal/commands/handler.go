@@ -224,23 +224,16 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				Description: "Time-related utilities",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
-						Type:        discordgo.ApplicationCommandOptionSubCommand,
-						Name:        "parse",
-						Description: "Parse a date/time and convert it to Discord timestamp format",
-						Options: []*discordgo.ApplicationCommandOption{
-							{
-								Type:        discordgo.ApplicationCommandOptionString,
-								Name:        "datetime",
-								Description: "The date/time to parse (e.g., 'January 1, 2025 MDT', '1:45PM MDT')",
-								Required:    true,
-							},
-							{
-								Type:        discordgo.ApplicationCommandOptionBoolean,
-								Name:        "full",
-								Description: "If true, print out all discord timestamp formats",
-								Required:    false,
-							},
-						},
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "datetime",
+						Description: "The date/time to parse (e.g., 'January 1, 2025 MDT', '1:45PM MDT')",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "full",
+						Description: "If true, print out all discord timestamp formats",
+						Required:    false,
 					},
 				},
 			},

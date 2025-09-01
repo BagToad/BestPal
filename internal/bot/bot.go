@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -126,6 +127,30 @@ func (b *Bot) Start() error {
 func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	b.config.Logger.Infof("Bot received ready signal! Logged in as: %s#%s\n", r.User.Username, r.User.Discriminator)
 
+	// Preload LFG forum threads into cache (best-effort)
+	go func() {
+		forumID := b.config.GetGamerPalsLFGForumChannelID()
+		if forumID == "" {
+			return
+		}
+		// Attempt to list active threads in forum parent (Discord provides list of active threads guild-wide)
+		threads, err := s.GuildThreadsActive(b.config.GetGamerPalsServerID())
+		if err != nil {
+			b.config.Logger.Warnf("LFG preload: failed to list active threads: %v", err)
+			return
+		}
+		count := 0
+		for _, th := range threads.Threads {
+			if th.ParentID == forumID {
+				// Normalize name to lower for lookup (basic)
+				normalized := strings.ToLower(th.Name)
+				commands.LFGCacheSet(normalized, th.ID)
+				count++
+			}
+		}
+		b.config.Logger.Infof("LFG preload: cached %d existing threads", count)
+	}()
+
 	// Set bot status to something fresh every hour
 	c := time.NewTicker(time.Hour)
 	go func() {
@@ -155,7 +180,22 @@ func (b *Bot) randomStatus() string {
 
 // onInteractionCreate handles slash command interactions
 func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i.ApplicationCommandData().Name != "" {
-		b.slashHandler.HandleInteraction(s, i)
+	// Slash commands
+	if i.Type == discordgo.InteractionApplicationCommand {
+		if i.ApplicationCommandData().Name != "" {
+			b.slashHandler.HandleInteraction(s, i)
+		}
+		return
+	}
+	// Component interactions
+	if i.Type == discordgo.InteractionMessageComponent {
+		// Delegate to LFG handler (currently only component using)
+		b.slashHandler.HandleLFGComponent(s, i)
+		return
+	}
+	// Modal submit
+	if i.Type == discordgo.InteractionModalSubmit {
+		b.slashHandler.HandleLFGModalSubmit(s, i)
+		return
 	}
 }

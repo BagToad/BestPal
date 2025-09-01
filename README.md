@@ -18,6 +18,7 @@ global config file.
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted; dry-run by default, use `execute:true` to delete | Administrator permission |
 | `/say` | Send an anonymous message to a specified channel | Administrator permission |
 | `/help` | Display all available commands | Admin roles or Administrator permission |
+| `/lfg setup` | Post the LFG panel in the current channel | Admin roles or Administrator permission |
 
 ## Quick Start
 

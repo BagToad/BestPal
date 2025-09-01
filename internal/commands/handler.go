@@ -51,6 +51,21 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 	commands := []*Command{
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "lfg",
+				Description: "LFG (Looking For Group) utilities",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup",
+						Description: "Set up the LFG panel in this channel",
+					},
+				},
+			},
+			HandlerFunc: h.handleLFG,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "config",
 				Description: "View or modify the bot configuration (super-admin only)",
 				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},

@@ -38,6 +38,10 @@ func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 	return c.v.GetString("gamerpals_introductions_forum_channel_id")
 }
 
+func (c *Config) GetGamerPalsLFGForumChannelID() string {
+	return c.v.GetString("gamerpals_lfg_forum_channel_id")
+}
+
 // New Pals systems
 // -----
 func (c *Config) GetNewPalsSystemEnabled() bool {

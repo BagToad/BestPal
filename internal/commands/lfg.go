@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	"gamerpal/internal/games"
+
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
@@ -13,14 +15,48 @@ import (
 // This is simplistic; future optimization could add eviction / persistence.
 var lfgThreadCache = struct {
 	sync.RWMutex
-	m map[string]string
-}{m: make(map[string]string)}
+	nameToThreadID map[string]string
+}{
+	nameToThreadID: make(map[string]string),
+}
 
 // LFGCacheSet allows other packages to seed the cache.
 func LFGCacheSet(normalizedName, threadID string) {
 	lfgThreadCache.Lock()
 	defer lfgThreadCache.Unlock()
-	lfgThreadCache.m[normalizedName] = threadID
+	lfgThreadCache.nameToThreadID[normalizedName] = threadID
+}
+
+type LFGCacheSearchResult struct {
+	ExactThreadID    string
+	PartialThreadIDs []string
+}
+
+func LFGCacheSearch(name string) (LFGCacheSearchResult, bool) {
+	lfgThreadCache.RLock()
+	defer lfgThreadCache.RUnlock()
+	if threadID, ok := lfgThreadCache.nameToThreadID[name]; ok {
+		return LFGCacheSearchResult{
+			ExactThreadID: threadID,
+		}, ok
+	}
+
+	// We want to support a partial match search as well
+	// So if a user searches "league", want to find the
+	// "League of Legends" thread
+	var partialHitThreadIDs []string
+	for k, v := range lfgThreadCache.nameToThreadID {
+		if strings.Contains(strings.ToLower(k), strings.ToLower(name)) {
+			partialHitThreadIDs = append(partialHitThreadIDs, v)
+		}
+	}
+	if len(partialHitThreadIDs) > 0 {
+		return LFGCacheSearchResult{
+			PartialThreadIDs: partialHitThreadIDs,
+		}, true
+	}
+
+	return LFGCacheSearchResult{}, false
 }
 
 const (
@@ -56,12 +92,21 @@ func (h *SlashHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.Interac
 	// Respond with panel
 	components := []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			&discordgo.Button{Style: discordgo.PrimaryButton, Label: "LFG Thread", CustomID: lfgPanelCustomID},
+			&discordgo.Button{
+				Style:    discordgo.PrimaryButton,
+				Label:    "LFG Thread",
+				CustomID: lfgPanelCustomID,
+			},
 		}},
 	}
 
 	content := "Click the button to find or create a game LFG forum thread."
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: content, Components: components}})
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content:    content,
+			Components: components,
+		}})
 }
 
 // Handle component interactions (button press -> show modal)
@@ -77,9 +122,18 @@ func (h *SlashHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.Int
 			CustomID: lfgModalCustomID,
 			Title:    "Find/Create LFG Thread",
 			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-					&discordgo.TextInput{CustomID: lfgModalInputCustomID, Label: "Game Name", Style: discordgo.TextInputShort, Placeholder: "Enter game name", Required: true, MaxLength: 100},
-				}},
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						&discordgo.TextInput{
+							CustomID:    lfgModalInputCustomID,
+							Label:       "Game Name",
+							Style:       discordgo.TextInputShort,
+							Placeholder: "Enter game name",
+							Required:    true,
+							MaxLength:   100,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -121,27 +175,41 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 			break
 		}
 	}
+
 	if gameName == "" {
 		// Log for diagnostics in case modal structure changes unexpectedly
 		h.config.Logger.Warnf("LFG modal submit: game name input not found in components; customID=%s", i.ModalSubmitData().CustomID)
 	}
+
 	gameName = strings.TrimSpace(gameName)
 	if gameName == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Game name required.", Flags: discordgo.MessageFlagsEphemeral}})
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Game name required.", Flags: discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
 	normalized := strings.ToLower(gameName)
 
 	// Defer ephemeral response while we work
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}}); err != nil {
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	}); err != nil {
 		h.config.Logger.Errorf("LFG: failed to defer modal submit: %v", err)
 		return
 	}
 
 	threadChannel, err := h.ensureLFGThread(s, forumID, gameName, normalized)
 	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr(fmt.Sprintf("❌ %v", err))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: fmtPtr(fmt.Sprintf("❌ %v", err)),
+		})
 		return
 	}
 
@@ -154,55 +222,60 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayName, normalized string) (*discordgo.Channel, error) {
 	// First check cache
 	lfgThreadCache.RLock()
-	cachedID, ok := lfgThreadCache.m[normalized]
+	cacheRes, ok := LFGCacheSearch(normalized)
 	lfgThreadCache.RUnlock()
+	// Cache hit on exact or partial match
 	if ok {
-		// Validate it still exists
-		ch, err := s.Channel(cachedID)
-		if err == nil && ch != nil && ch.ParentID == forumID { // still valid
-			return ch, nil
+		if cacheRes.ExactThreadID != "" {
+			// Validate it still exists
+			ch, err := s.Channel(cacheRes.ExactThreadID)
+			if err == nil && ch != nil && ch.ParentID == forumID { // still valid
+				return ch, nil
+			}
+
+			// That exact hit is invalid/no longer exists, so remove invalid cache entry
+			lfgThreadCache.Lock()
+			delete(lfgThreadCache.nameToThreadID, normalized)
+			lfgThreadCache.Unlock()
+
+			// Continue onwards. We'll need to either create a new thread if
+			// we can get an exact game name match from IGDB, or return some
+			// suggestions.
 		}
-		// Remove invalid cache entry
-		lfgThreadCache.Lock()
-		delete(lfgThreadCache.m, normalized)
-		lfgThreadCache.Unlock()
 	}
 
-	// Search existing threads in forum (may need pagination)
-	// Discord API: List active threads in forum channel via s.GuildThreadsActive? Instead iterate guild channels not ideal.
-	// For simplicity, attempt to find by name using cached threads from forum's available tags (not provided) => fallback create.
-	// We attempt to create; if name conflict Discord will allow duplicates; improvement: prefetch threads on startup.
+	// Ensure IGDB client is available before continuing.
+	// We put this check here so that the cache logic above can continue
+	// even if IGDB is not linked.
+	if h.igdbClient == nil {
+		return nil, fmt.Errorf("IGDB client is not initialized. Admin intervention required")
+	}
 
 	// Validate game exists using IGDB: fetch up to 10 candidates, pick exact (case-insensitive) or return suggestions.
 	var gameSummary string
 	var playerLine string
 	var linksLine string
-	if h.igdbClient != nil {
-		inputName := displayName
-		games, err := h.igdbClient.Games.Search(displayName,
-			igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes"),
-			igdb.SetLimit(10),
-		)
-		if err != nil || len(games) == 0 {
-			return nil, fmt.Errorf("could not find game %s", inputName)
-		}
-		var exact *igdb.Game
-		suggestions := make([]string, 0, len(games))
-		for _, g := range games {
-			if g == nil || g.Name == "" {
-				continue
-			}
-			suggestions = append(suggestions, g.Name)
-			if strings.EqualFold(g.Name, inputName) {
-				exact = g
-			}
-		}
-		if exact == nil { // no exact match; return suggestions
-			if len(suggestions) > 0 {
-				return nil, fmt.Errorf("could not find game %s. Did you mean: %s?", inputName, strings.Join(suggestions, ", "))
-			}
-			return nil, fmt.Errorf("could not find game %s", inputName)
-		}
+
+	igdbSearchResult, err := games.ExactMatchWithSuggestions(h.igdbClient, displayName)
+	if err != nil {
+		return nil, fmt.Errorf("error looking up game %s: %w", displayName, err)
+	}
+
+	// No exact match on game title.
+	// The only thing we can do now is show suggestions including:
+	// - any existing partial match threads
+	// - any not-exact game names returned from IGDB
+	if igdbSearchResult != nil && igdbSearchResult.ExactMatch == nil {
+		return nil, lfgThreadSuggestionsResponseErr(&cacheRes, igdbSearchResult, forumID)
+	}
+
+	// We have an exact match on game title, so assume that's what the user wants.
+	// At this point, there wasn't already a thread for this game, so we will
+	// create it.
+	if igdbSearchResult != nil && igdbSearchResult.ExactMatch != nil {
+		// This logic prepares the thread post content with some game metadata.
+
+		exact := igdbSearchResult.ExactMatch
 		displayName = exact.Name
 		// Prepare summary (description)
 		if exact.Summary != "" {
@@ -301,9 +374,33 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		return nil, fmt.Errorf("failed creating thread: %w", err)
 	}
 	lfgThreadCache.Lock()
-	lfgThreadCache.m[normalized] = thread.ID
+	lfgThreadCache.nameToThreadID[normalized] = thread.ID
 	lfgThreadCache.Unlock()
 	return thread, nil
+}
+
+func lfgThreadSuggestionsResponseErr(cacheResponse *LFGCacheSearchResult, gameSearchResponse *games.GameSearchResult, forumID string) error {
+	errString := strings.Builder{}
+	errString.WriteString("I couldn't find exact matches, but maybe one of these will do?\n")
+
+	// If we have partial match thread IDs from cache,
+	// that means we have some channels to link as suggestions.
+	if len(cacheResponse.PartialThreadIDs) > 0 {
+		errString.WriteString("\nExisting threads:\n")
+		for _, id := range cacheResponse.PartialThreadIDs {
+			errString.WriteString(fmt.Sprintf("<https://discord.com/channels/%s/%s>\n", forumID, id))
+		}
+	}
+
+	// If we have suggestions in our gameSearchResponse, let's add those too.
+	if len(gameSearchResponse.Suggestions) > 0 {
+		errString.WriteString("\nSuggested game titles:\n")
+		for _, suggestion := range gameSearchResponse.Suggestions {
+			errString.WriteString(fmt.Sprintf("- \"_%s_\"\n", suggestion.Name))
+		}
+	}
+
+	return nil
 }
 
 func threadLink(ch *discordgo.Channel) string {
@@ -316,10 +413,13 @@ func threadLink(ch *discordgo.Channel) string {
 func fmtPtr(s string) *string { return &s }
 
 // Public wrappers used by bot interaction router
+
+// HandleLFGComponent handles the LFG component interactions.
 func (h *SlashHandler) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	h.handleLFGComponent(s, i)
 }
 
+// HandleLFGModalSubmit handles the submission of the LFG modal.
 func (h *SlashHandler) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	h.handleLFGModalSubmit(s, i)
 }

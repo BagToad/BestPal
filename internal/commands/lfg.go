@@ -268,7 +268,7 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	// - any not-exact game names returned from IGDB
 	if igdbSearchResult != nil && igdbSearchResult.ExactMatch == nil {
 		h.config.Logger.Infof("LFG: no exact IGDB match for '%s'", displayName)
-		return nil, lfgThreadSuggestionsResponseErr(&cacheRes, igdbSearchResult, forumID)
+		return nil, lfgThreadSuggestionsResponseErr(s, &cacheRes, igdbSearchResult, forumID)
 	}
 
 	// We have an exact match on game title, so assume that's what the user wants.
@@ -382,8 +382,15 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	return thread, nil
 }
 
-func lfgThreadSuggestionsResponseErr(cacheResponse *LFGCacheSearchResult, gameSearchResponse *games.GameSearchResult, forumID string) error {
+func lfgThreadSuggestionsResponseErr(s *discordgo.Session, cacheResponse *LFGCacheSearchResult, gameSearchResponse *games.GameSearchResult, forumID string) error {
 	errString := strings.Builder{}
+
+	haveSomethingToSay := len(cacheResponse.PartialThreadIDs) > 0 && len(gameSearchResponse.Suggestions) > 0
+	if !haveSomethingToSay {
+		errString.WriteString("I couldn't find any matches, sorry! Please try again\n")
+		return fmt.Errorf("%s", errString.String())
+	}
+
 	errString.WriteString("I couldn't find exact matches, but maybe one of these will do?\n")
 
 	// If we have partial match thread IDs from cache,
@@ -391,7 +398,11 @@ func lfgThreadSuggestionsResponseErr(cacheResponse *LFGCacheSearchResult, gameSe
 	if len(cacheResponse.PartialThreadIDs) > 0 {
 		errString.WriteString("\nExisting threads:\n")
 		for _, id := range cacheResponse.PartialThreadIDs {
-			errString.WriteString(fmt.Sprintf("<https://discord.com/channels/%s/%s>\n", forumID, id))
+			// Ensure the channel exists and is a child of the forum
+			ch, err := s.Channel(id)
+			if err == nil && ch != nil && ch.ParentID == forumID {
+				errString.WriteString(threadLink(ch) + "\n")
+			}
 		}
 	}
 

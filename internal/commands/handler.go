@@ -4,7 +4,6 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
-	"gamerpal/internal/utils"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -265,31 +264,6 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleSay,
-		},
-		{
-			ApplicationCommand: &discordgo.ApplicationCommand{
-				Name:                     "welcome",
-				Description:              "Generate a welcome message for new members (admin only)",
-				DefaultMemberPermissions: &modPerms,
-				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionInteger,
-						Name:        "minutes",
-						Description: "How many minutes back to look for new members",
-						Required:    true,
-						MinValue:    utils.Float64Ptr(1),
-						MaxValue:    1440, // 24 hours
-					},
-					{
-						Type:        discordgo.ApplicationCommandOptionBoolean,
-						Name:        "execute",
-						Description: "Actually send the message (default: false for preview only)",
-						Required:    false,
-					},
-				},
-			},
-			HandlerFunc: h.handleWelcome,
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{

@@ -174,10 +174,13 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	// We attempt to create; if name conflict Discord will allow duplicates; improvement: prefetch threads on startup.
 
 	// Validate game exists using IGDB: fetch up to 10 candidates, pick exact (case-insensitive) or return suggestions.
+	var gameSummary string
+	var playerLine string
+	var linksLine string
 	if h.igdbClient != nil {
 		inputName := displayName
 		games, err := h.igdbClient.Games.Search(displayName,
-			igdb.SetFields("id", "name"),
+			igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes"),
 			igdb.SetLimit(10),
 		)
 		if err != nil || len(games) == 0 {
@@ -201,10 +204,97 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 			return nil, fmt.Errorf("could not find game %s", inputName)
 		}
 		displayName = exact.Name
+		// Prepare summary (description)
+		if exact.Summary != "" {
+			gameSummary = exact.Summary
+			if len(gameSummary) > 400 { // trim to keep message under limit
+				gameSummary = gameSummary[:397] + "..."
+			}
+		}
+		// Fetch websites for links (Steam, Official, GOG)
+		if len(exact.Websites) > 0 {
+			if sites, err := h.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
+				var parts []string
+				// preserve order preference
+				addSite := func(label, url string) {
+					if url != "" {
+						parts = append(parts, fmt.Sprintf("%s: %s", label, url))
+					}
+				}
+				var official, steam, gog string
+				for _, w := range sites {
+					if w == nil || w.URL == "" {
+						continue
+					}
+					switch w.Category {
+					case igdb.WebsiteSteam:
+						if steam == "" {
+							steam = w.URL
+						}
+					case igdb.WebsiteOfficial:
+						if official == "" {
+							official = w.URL
+						}
+					case 17: // GOG
+						if gog == "" {
+							gog = w.URL
+						}
+					}
+				}
+				addSite("Steam", steam)
+				addSite("Official", official)
+				addSite("GOG", gog)
+				if len(parts) > 0 {
+					linksLine = "Links: " + strings.Join(parts, " | ")
+				}
+			}
+		}
+		// Multiplayer modes (online player counts)
+		if len(exact.MultiplayerModes) > 0 {
+			if modes, err := h.igdbClient.MultiplayerModes.List(exact.MultiplayerModes, igdb.SetFields("*")); err == nil {
+				var onlineMax, coopMax int
+				for _, m := range modes {
+					if m == nil {
+						continue
+					}
+					if m.Onlinemax > onlineMax {
+						onlineMax = m.Onlinemax
+					}
+					if m.Onlinecoopmax > coopMax {
+						coopMax = m.Onlinecoopmax
+					}
+				}
+				if onlineMax > 0 || coopMax > 0 {
+					if onlineMax > 0 {
+						playerLine = fmt.Sprintf("Players: up to %d online", onlineMax)
+					}
+					if coopMax > 0 {
+						if playerLine != "" {
+							playerLine += "; "
+						}
+						playerLine += fmt.Sprintf("co-op up to %d", coopMax)
+					}
+				}
+			}
+		}
 	}
 
 	// Create a new forum thread (forum post) with required initial message.
-	initialContent := fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName)
+	// Build initial thread message with optional extra info.
+	initialParts := []string{fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName)}
+	if gameSummary != "" {
+		initialParts = append(initialParts, gameSummary)
+	}
+	if playerLine != "" {
+		initialParts = append(initialParts, playerLine)
+	}
+	if linksLine != "" {
+		initialParts = append(initialParts, linksLine)
+	}
+	initialContent := strings.Join(initialParts, "\n\n")
+	if len(initialContent) > 1800 { // safety truncation
+		initialContent = initialContent[:1797] + "..."
+	}
 	// Use 4320 (3 days) auto-archive duration – acceptable standard value; adjust if needed.
 	thread, err := s.ForumThreadStart(forumID, displayName, 4320, initialContent)
 	if err != nil {

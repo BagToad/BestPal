@@ -188,18 +188,13 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		}
 	}
 
-	// Create a new thread (forum post) – supply name; Discord will create starter message with no content if omitted
-	params := &discordgo.ThreadStart{Type: discordgo.ChannelTypeGuildPublicThread, Name: displayName}
-	thread, err := s.ThreadStartComplex(forumID, params)
+	// Create a new forum thread (forum post) with required initial message.
+	initialContent := fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName)
+	// Use 4320 (3 days) auto-archive duration – acceptable standard value; adjust if needed.
+	thread, err := s.ForumThreadStart(forumID, displayName, 4320, initialContent)
 	if err != nil {
-		h.config.Logger.Errorf("LFG: failed creating thread '%s' in forum %s: %v", displayName, forumID, err)
+		h.config.Logger.Errorf("LFG: failed creating forum thread '%s' in forum %s: %v", displayName, forumID, err)
 		return nil, fmt.Errorf("failed creating thread: %w", err)
-	}
-
-	// Send initial message to the thread
-	_, err = s.ChannelMessageSend(thread.ID, fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName))
-	if err != nil {
-		h.config.Logger.Warnf("LFG: failed sending initial message to thread '%s': %v", displayName, err)
 	}
 	lfgThreadCache.Lock()
 	lfgThreadCache.m[normalized] = thread.ID

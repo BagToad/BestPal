@@ -14,7 +14,7 @@ import (
 type Command struct {
 	ApplicationCommand *discordgo.ApplicationCommand
 	HandlerFunc        func(s *discordgo.Session, i *discordgo.InteractionCreate)
-	Disabled           bool
+	Development        bool
 }
 
 // SlashHandler handles command processing
@@ -341,7 +341,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRoulette,
-			Disabled:    true, // Disabled while in development
+			Development: true, // Disabled while in development
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
@@ -419,7 +419,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRouletteAdmin,
-			Disabled:    true, // Disabled while in development
+			Development: true, // Disabled while in development
 		},
 	}
 
@@ -451,9 +451,9 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	}
 
 	for _, c := range h.Commands {
-		// If a command is disabled, we're not only going to skip it, but we'll
-		// also unregister it if it exists
-		if c.Disabled {
+		// If a command is in development, we're not only going to skip it, but we'll
+		// also unregister it if it exists.
+		if c.Development {
 			for _, existingCmd := range existingCommands {
 				if existingCmd.Name == c.ApplicationCommand.Name {
 					err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)

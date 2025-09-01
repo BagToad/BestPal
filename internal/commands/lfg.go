@@ -215,7 +215,6 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		if len(exact.Websites) > 0 {
 			if sites, err := h.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
 				var parts []string
-				// Use markdown links ([Label](URL)) so Discord doesn't unfurl rich embeds for each store page.
 				addSite := func(label, url string) {
 					if url != "" {
 						parts = append(parts, fmt.Sprintf("[%s](%s)", label, url))
@@ -245,7 +244,7 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 				addSite("Official", official)
 				addSite("GOG", gog)
 				if len(parts) > 0 {
-					linksLine = "Links: " + strings.Join(parts, " | ") + "\n_(Links formatted to avoid embed spam.)_"
+					linksLine = strings.Join(parts, " | ")
 				}
 			}
 		}
@@ -281,9 +280,9 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 
 	// Create a new forum thread (forum post) with required initial message.
 	// Build initial thread message with optional extra info.
-	initialParts := []string{fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName)}
+	initialParts := []string{fmt.Sprintf("This is the LFG thread for _%s_! Use the LFG panel anytime to get a link.", displayName)}
 	if gameSummary != "" {
-		initialParts = append(initialParts, gameSummary)
+		initialParts = append(initialParts, "_"+gameSummary+"_")
 	}
 	if playerLine != "" {
 		initialParts = append(initialParts, playerLine)

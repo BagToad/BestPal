@@ -409,8 +409,12 @@ func lfgThreadSuggestionsResponseErr(s *discordgo.Session, cacheResponse *LFGCac
 	// If we have suggestions in our gameSearchResponse, let's add those too.
 	if len(gameSearchResponse.Suggestions) > 0 {
 		errString.WriteString("\nSuggested game titles:\n")
-		for _, suggestion := range gameSearchResponse.Suggestions {
+		for i, suggestion := range gameSearchResponse.Suggestions {
 			errString.WriteString(fmt.Sprintf("- \"_%s_\"\n", suggestion.Name))
+			// Let's only show three title suggestions.
+			if i >= 3 {
+				break
+			}
 		}
 	}
 

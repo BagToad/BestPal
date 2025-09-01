@@ -257,7 +257,8 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 
 	igdbSearchResult, err := games.ExactMatchWithSuggestions(h.igdbClient, displayName)
 	if err != nil {
-		return nil, fmt.Errorf("error looking up game %s: %w", displayName, err)
+		h.config.Logger.Errorf("LFG: failed to search IGDB for '%s': %v", displayName, err)
+		return nil, fmt.Errorf("error looking up game _\"%s\"_", displayName)
 	}
 
 	h.config.Logger.Debugf("%+v", igdbSearchResult)
@@ -410,11 +411,11 @@ func lfgThreadSuggestionsResponseErr(s *discordgo.Session, cacheResponse *LFGCac
 	if len(gameSearchResponse.Suggestions) > 0 {
 		errString.WriteString("\nSuggested game titles:\n")
 		for i, suggestion := range gameSearchResponse.Suggestions {
-			errString.WriteString(fmt.Sprintf("- \"_%s_\"\n", suggestion.Name))
 			// Let's only show three title suggestions.
 			if i >= 3 {
 				break
 			}
+			errString.WriteString(fmt.Sprintf("- \"_%s_\"\n", suggestion.Name))
 		}
 	}
 

@@ -312,7 +312,7 @@ func (h *SlashHandler) getLastNLines(filePath string, n int) ([]string, error) {
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
-		h.config.Logger.Warnf("error closing file while tailing: %v", err)
+			h.config.Logger.Warnf("error closing file while tailing: %v", err)
 		}
 	}()
 

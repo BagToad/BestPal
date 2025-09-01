@@ -7,7 +7,7 @@ import (
 )
 
 func OnGuildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd, cfg *config.Config) {
-	if cfg.GetNewPalsSystemEnabled() == false {
+	if !cfg.GetNewPalsSystemEnabled() {
 		return
 	}
 

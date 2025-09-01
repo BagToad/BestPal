@@ -20,13 +20,13 @@ func TestScheduler(t *testing.T) {
 
 	// Use a unique name for the test database
 	dbPath := tmpDir + "/test_scheduler.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create mock config
 	cfg := config.NewMockConfig(map[string]interface{}{

@@ -10,13 +10,13 @@ import (
 func TestRouletteScheduleManagement(t *testing.T) {
 	// Create a temporary database
 	dbPath := "test_schedule_management.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	guildID := "123456789"
 
@@ -68,13 +68,13 @@ func TestRouletteScheduleManagement(t *testing.T) {
 func TestRouletteScheduleTimezone(t *testing.T) {
 	// Create a temporary database
 	dbPath := "test_schedule_timezone.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	guildID := "123456789"
 

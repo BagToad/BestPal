@@ -72,7 +72,11 @@ func (b *Bot) Start() error {
 	if err != nil {
 		return fmt.Errorf("error opening Discord connection: %w", err)
 	}
-	defer b.session.Close()
+	defer func() {
+		if err := b.session.Close(); err != nil {
+			b.config.Logger.Warn("error closing Discord session:", err)
+		}
+	}()
 
 	// Set bot status to "initializing"
 	if err := b.session.UpdateGameStatus(0, "Rolling out of bed..."); err != nil {

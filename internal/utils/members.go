@@ -122,7 +122,7 @@ var Adjectives = []string{
 // ObfuscateID generates an obfuscated version of a Discord user ID
 func ObfuscateID(userID string, salt string) (string, error) {
 	if userID == "" || salt == "" {
-		return "", fmt.Errorf("Failed to read salt or something, IDK. Someone should fix it.")
+		return "", fmt.Errorf("failed to read salt; someone should fix it")
 	}
 
 	// This isn't the most secure, but should be sufficient for obfuscation.

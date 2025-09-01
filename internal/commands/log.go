@@ -82,7 +82,11 @@ func (h *SlashHandler) handleLogDownload(s *discordgo.Session, i *discordgo.Inte
 
 	// Create a temporary zip file
 	zipPath := filepath.Join(os.TempDir(), fmt.Sprintf("gamerpal_logs_%s.zip", time.Now().Format("2006-01-02_15-04-05")))
-	defer os.Remove(zipPath) // Clean up after sending
+	defer func() {
+		if err := os.Remove(zipPath); err != nil {
+			h.config.Logger.Warnf("could not remove temp zip %s: %v", zipPath, err)
+		}
+	}() // Clean up after sending
 
 	err = h.createLogZip(logFiles, zipPath)
 	if err != nil {
@@ -98,7 +102,11 @@ func (h *SlashHandler) handleLogDownload(s *discordgo.Session, i *discordgo.Inte
 		h.sendErrorFollowup(s, i, "❌ Error opening log archive.")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			h.config.Logger.Warnf("error closing zip file: %v", err)
+		}
+	}()
 
 	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(fmt.Sprintf("📁 Log files archive containing %d files:", len(logFiles))),
@@ -146,7 +154,11 @@ func (h *SlashHandler) handleLogLatest(s *discordgo.Session, i *discordgo.Intera
 
 	// Create a temporary file with the content
 	tempPath := filepath.Join(os.TempDir(), fmt.Sprintf("gamerpal_latest_%s.txt", time.Now().Format("2006-01-02_15-04-05")))
-	defer os.Remove(tempPath) // Clean up after sending
+	defer func() {
+		if err := os.Remove(tempPath); err != nil {
+			h.config.Logger.Warnf("could not remove temp log file %s: %v", tempPath, err)
+		}
+	}() // Clean up after sending
 
 	err = os.WriteFile(tempPath, []byte(strings.Join(lines, "\n")), 0644)
 	if err != nil {
@@ -162,7 +174,11 @@ func (h *SlashHandler) handleLogLatest(s *discordgo.Session, i *discordgo.Intera
 		h.sendErrorFollowup(s, i, "❌ Error opening log file.")
 		return
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			h.config.Logger.Warnf("error closing temp log file: %v", err)
+		}
+	}()
 
 	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(fmt.Sprintf("📄 Latest %d lines from %s:", len(lines), filepath.Base(latestLogFile))),
@@ -226,10 +242,18 @@ func (h *SlashHandler) createLogZip(logFiles []string, zipPath string) error {
 	if err != nil {
 		return err
 	}
-	defer zipFile.Close()
+	defer func() {
+		if err := zipFile.Close(); err != nil {
+			h.config.Logger.Warnf("error closing zip writer file: %v", err)
+		}
+	}()
 
 	zipWriter := zip.NewWriter(zipFile)
-	defer zipWriter.Close()
+	defer func() {
+		if err := zipWriter.Close(); err != nil {
+			h.config.Logger.Warnf("error closing zip writer: %v", err)
+		}
+	}()
 
 	for _, logFile := range logFiles {
 		err := h.addFileToZip(zipWriter, logFile)
@@ -247,7 +271,11 @@ func (h *SlashHandler) addFileToZip(zipWriter *zip.Writer, filePath string) erro
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			h.config.Logger.Warnf("error closing log file during zip: %v", err)
+		}
+	}()
 
 	// Get file info for the header
 	fileInfo, err := file.Stat()
@@ -282,7 +310,11 @@ func (h *SlashHandler) getLastNLines(filePath string, n int) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+		h.config.Logger.Warnf("error closing file while tailing: %v", err)
+		}
+	}()
 
 	var lines []string
 	scanner := bufio.NewScanner(file)

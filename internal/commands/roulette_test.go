@@ -12,13 +12,13 @@ import (
 func TestRouletteDatabase(t *testing.T) {
 	// Create a temporary database
 	dbPath := "test_roulette.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	guildID := "123456789"
 	userID1 := "user1"
@@ -117,13 +117,13 @@ func TestPairingAlgorithm(t *testing.T) {
 
 	// Create a temporary database
 	dbPath := "test_pairing.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create pairing service (session can be nil for this test)
 	pairingService := pairing.NewPairingService(nil, cfg, db)
@@ -193,13 +193,13 @@ func TestCommonGames(t *testing.T) {
 
 	// Create a temporary database
 	dbPath := "test_common_games.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	db, err := database.NewDB(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create pairing service (session can be nil for this test)
 	pairingService := pairing.NewPairingService(nil, cfg, db)

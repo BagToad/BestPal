@@ -663,7 +663,9 @@ func (s *PairingService) LogPairingResults(guildID string, result *PairingResult
 		}
 
 		// Send as file attachment
-		s.session.ChannelFileSend(modLogChannelID, "roulette_pairing_report.txt", strings.NewReader(report.String()))
+		if _, err := s.session.ChannelFileSend(modLogChannelID, "roulette_pairing_report.txt", strings.NewReader(report.String())); err != nil {
+			s.config.Logger.Errorf("error sending pairing report file: %v", err)
+		}
 		return
 	}
 

@@ -107,7 +107,7 @@ func (c *Config) RotateAndPruneLogs() error {
 	// First rotate the log file
 	newLogFile, err := newLogFile(c.v.GetString("log_dir"))
 	if err != nil {
-		return fmt.Errorf("Failed to rotate and create new log file: %w", err)
+		return fmt.Errorf("failed to rotate and create new log file: %w", err)
 	}
 
 	w := io.MultiWriter(os.Stderr, newLogFile)
@@ -116,7 +116,7 @@ func (c *Config) RotateAndPruneLogs() error {
 	// After rotating, we can prune old log files
 	err = pruneOldLogFiles(c.v.GetString("log_dir"))
 	if err != nil {
-		return fmt.Errorf("Failed to prune old log files: %w", err)
+		return fmt.Errorf("failed to prune old log files: %w", err)
 	}
 
 	c.Logger.Info("Log file rotated and old logs pruned successfully")

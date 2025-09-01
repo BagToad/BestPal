@@ -78,7 +78,9 @@ func (c *Config) GetLogDir() string {
 
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
-	c.v.WriteConfig()
+	if err := c.v.WriteConfig(); err != nil {
+		c.Logger.Warnf("failed to write config for key %s: %v", key, err)
+	}
 }
 
 // GetString returns the string value for a given config key

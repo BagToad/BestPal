@@ -260,11 +260,14 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		return nil, fmt.Errorf("error looking up game %s: %w", displayName, err)
 	}
 
+	h.config.Logger.Debugf("%+v", igdbSearchResult)
+
 	// No exact match on game title.
 	// The only thing we can do now is show suggestions including:
 	// - any existing partial match threads
 	// - any not-exact game names returned from IGDB
 	if igdbSearchResult != nil && igdbSearchResult.ExactMatch == nil {
+		h.config.Logger.Infof("LFG: no exact IGDB match for '%s'", displayName)
 		return nil, lfgThreadSuggestionsResponseErr(&cacheRes, igdbSearchResult, forumID)
 	}
 
@@ -272,6 +275,7 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	// At this point, there wasn't already a thread for this game, so we will
 	// create it.
 	if igdbSearchResult != nil && igdbSearchResult.ExactMatch != nil {
+		h.config.Logger.Infof("LFG: creating new thread for exact match '%s'", displayName)
 		// This logic prepares the thread post content with some game metadata.
 
 		exact := igdbSearchResult.ExactMatch

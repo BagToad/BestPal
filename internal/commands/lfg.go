@@ -100,12 +100,30 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 	}
 
 	var gameName string
-	for _, c := range i.ModalSubmitData().Components {
-		for _, inner := range c.(discordgo.ActionsRow).Components {
+	// Safely extract text input value; handle both value and pointer forms of ActionsRow to avoid panics.
+	for _, comp := range i.ModalSubmitData().Components {
+		var row *discordgo.ActionsRow
+		switch v := comp.(type) {
+		case discordgo.ActionsRow:
+			row = &v
+		case *discordgo.ActionsRow:
+			row = v
+		default:
+			continue
+		}
+		for _, inner := range row.Components {
 			if ti, ok := inner.(*discordgo.TextInput); ok && ti.CustomID == lfgModalInputCustomID {
 				gameName = ti.Value
+				break
 			}
 		}
+		if gameName != "" { // found
+			break
+		}
+	}
+	if gameName == "" {
+		// Log for diagnostics in case modal structure changes unexpectedly
+		h.config.Logger.Warnf("LFG modal submit: game name input not found in components; customID=%s", i.ModalSubmitData().CustomID)
 	}
 	gameName = strings.TrimSpace(gameName)
 	if gameName == "" {

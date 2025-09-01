@@ -11,7 +11,7 @@ import (
 // handleUserStats handles the usercount slash command
 func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
@@ -24,7 +24,7 @@ func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.Intera
 	// Get guild members
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
 		})
 		return
@@ -189,7 +189,7 @@ func (h *SlashHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.In
 	}
 
 	// Send the response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
@@ -237,11 +237,12 @@ func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.Inter
 
 		// Format the day display
 		var dayDisplay string
-		if i == 0 {
+		switch i {
+		case 0:
 			dayDisplay = "Today"
-		} else if i == 1 {
+		case 1:
 			dayDisplay = "Yesterday"
-		} else {
+		default:
 			dayDisplay = day.Format("Mon, Jan 2")
 		}
 
@@ -270,7 +271,7 @@ func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	// Send the response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }

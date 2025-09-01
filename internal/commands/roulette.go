@@ -14,7 +14,7 @@ func (h *SlashHandler) handleRoulette(s *discordgo.Session, i *discordgo.Interac
 	// Get the subcommand
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Please specify a subcommand. Use `/roulette help` for detailed information.",
@@ -37,7 +37,7 @@ func (h *SlashHandler) handleRoulette(s *discordgo.Session, i *discordgo.Interac
 	case "games-remove":
 		h.handleRouletteGamesRemove(s, i, subcommand.Options)
 	default:
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Unknown subcommand",
@@ -91,7 +91,7 @@ func (h *SlashHandler) handleRouletteHelp(s *discordgo.Session, i *discordgo.Int
 		},
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},
@@ -108,7 +108,7 @@ func (h *SlashHandler) handleRouletteSignup(s *discordgo.Session, i *discordgo.I
 	// Check if already signed up
 	isSignedUp, err := h.DB.IsUserSignedUp(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error checking signup status: " + err.Error(),
@@ -119,7 +119,7 @@ func (h *SlashHandler) handleRouletteSignup(s *discordgo.Session, i *discordgo.I
 	}
 
 	if isSignedUp {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "🎰 You're already signed up for roulette pairing!",
@@ -132,7 +132,7 @@ func (h *SlashHandler) handleRouletteSignup(s *discordgo.Session, i *discordgo.I
 	// Add the signup
 	err = h.DB.AddRouletteSignup(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error signing up for roulette: " + err.Error(),
@@ -142,7 +142,7 @@ func (h *SlashHandler) handleRouletteSignup(s *discordgo.Session, i *discordgo.I
 		return
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "✅ Successfully signed up for roulette pairing! Use `/roulette games` to add games you want to play.",
@@ -159,7 +159,7 @@ func (h *SlashHandler) handleRouletteNah(s *discordgo.Session, i *discordgo.Inte
 	// Check if signed up
 	isSignedUp, err := h.DB.IsUserSignedUp(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error checking signup status: " + err.Error(),
@@ -170,7 +170,7 @@ func (h *SlashHandler) handleRouletteNah(s *discordgo.Session, i *discordgo.Inte
 	}
 
 	if !isSignedUp {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "🤷 You're not signed up for roulette pairing.",
@@ -183,7 +183,7 @@ func (h *SlashHandler) handleRouletteNah(s *discordgo.Session, i *discordgo.Inte
 	// Remove the signup and all games
 	err = h.DB.RemoveRouletteSignup(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error removing signup: " + err.Error(),
@@ -193,7 +193,7 @@ func (h *SlashHandler) handleRouletteNah(s *discordgo.Session, i *discordgo.Inte
 		return
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "✅ Successfully removed from roulette pairing.",
@@ -210,7 +210,7 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	// Check if user is signed up
 	isSignedUp, err := h.DB.IsUserSignedUp(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error checking signup status: " + err.Error(),
@@ -221,7 +221,7 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	}
 
 	if !isSignedUp {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You need to sign up for roulette first using `/roulette signup`",
@@ -232,7 +232,7 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	}
 
 	if len(options) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Please provide a game name or comma-separated list of games.",
@@ -243,7 +243,7 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 	}
 
 	// Defer the response since IGDB lookup may take time
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -379,7 +379,7 @@ func (h *SlashHandler) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response.String()),
 	})
 }
@@ -392,7 +392,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 	// Check if user is signed up
 	isSignedUp, err := h.DB.IsUserSignedUp(userID, guildID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Error checking signup status: " + err.Error(),
@@ -403,7 +403,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 	}
 
 	if !isSignedUp {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You need to sign up for roulette first using `/roulette signup`",
@@ -414,7 +414,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 	}
 
 	if len(options) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Please provide a game name or comma-separated list of games.",
@@ -425,7 +425,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 	}
 
 	// Defer the response
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -439,7 +439,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 	// Get current games list to match against
 	currentGames, err := h.DB.GetRouletteGames(userID, guildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Error getting current games list: " + err.Error()),
 		})
 		return
@@ -524,7 +524,7 @@ func (h *SlashHandler) handleRouletteGamesRemove(s *discordgo.Session, i *discor
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response.String()),
 	})
 }

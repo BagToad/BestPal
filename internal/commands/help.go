@@ -84,7 +84,7 @@ func (h *SlashHandler) handleHelp(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	// Respond immediately with the embed
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},

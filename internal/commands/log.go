@@ -20,7 +20,7 @@ import (
 // Only accessible to super admins in DM context
 func (h *SlashHandler) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, h.config) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You do not have permission to use this command.",
@@ -31,7 +31,7 @@ func (h *SlashHandler) handleLog(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	// Defer to show thinking
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -306,7 +306,7 @@ func (h *SlashHandler) getLastNLines(filePath string, n int) ([]string, error) {
 
 // sendErrorFollowup sends an error message as a followup
 func (h *SlashHandler) sendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(message),
 	})
 }

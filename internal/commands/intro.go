@@ -13,7 +13,7 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	// Get the introductions forum channel ID from config
 	introsChannelID := h.config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Introductions forum channel is not configured.",
@@ -33,14 +33,14 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	// Acknowledge the interaction immediately as this might take time
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
 	// Get all active threads from the forum channel
 	threads, err := getAllActiveThreads(s, introsChannelID, i.GuildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing introductions forum: %v", err)),
 		})
 		return
@@ -55,7 +55,7 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	if len(userThreads) == 0 {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
 		})
 		return
@@ -74,7 +74,7 @@ func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.Interactio
 	postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, latestThread.ID)
 
 	// Respond with just the link as requested
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(postURL),
 	})
 }
@@ -112,9 +112,7 @@ func getAllActiveThreads(s *discordgo.Session, channelID string, guildID string)
 	// Try to get archived threads if available
 	publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
 	if err == nil && publicArchived != nil {
-		for _, thread := range publicArchived.Threads {
-			allThreads = append(allThreads, thread)
-		}
+		allThreads = append(allThreads, publicArchived.Threads...)
 	}
 
 	return allThreads, nil

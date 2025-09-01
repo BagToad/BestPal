@@ -403,7 +403,7 @@ func lfgThreadSuggestionsResponseErr(cacheResponse *LFGCacheSearchResult, gameSe
 		}
 	}
 
-	return nil
+	return fmt.Errorf("%s", errString.String())
 }
 
 func threadLink(ch *discordgo.Channel) string {

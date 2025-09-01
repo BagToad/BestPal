@@ -224,24 +224,23 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	lfgThreadCache.RLock()
 	cacheRes, ok := LFGCacheSearch(normalized)
 	lfgThreadCache.RUnlock()
-	// Cache hit on exact or partial match
-	if ok {
-		if cacheRes.ExactThreadID != "" {
-			// Validate it still exists
-			ch, err := s.Channel(cacheRes.ExactThreadID)
-			if err == nil && ch != nil && ch.ParentID == forumID { // still valid
-				return ch, nil
-			}
 
-			// That exact hit is invalid/no longer exists, so remove invalid cache entry
-			lfgThreadCache.Lock()
-			delete(lfgThreadCache.nameToThreadID, normalized)
-			lfgThreadCache.Unlock()
-
-			// Continue onwards. We'll need to either create a new thread if
-			// we can get an exact game name match from IGDB, or return some
-			// suggestions.
+	if ok && cacheRes.ExactThreadID != "" {
+		// Validate exact thread still exists
+		h.config.Logger.Infof("LFG: cache hit exact for '%s' -> %s", displayName, cacheRes.ExactThreadID)
+		ch, err := s.Channel(cacheRes.ExactThreadID)
+		if err == nil && ch != nil && ch.ParentID == forumID { // still valid
+			return ch, nil
 		}
+
+		// That exact hit is invalid/no longer exists, so remove invalid cache entry
+		lfgThreadCache.Lock()
+		delete(lfgThreadCache.nameToThreadID, normalized)
+		lfgThreadCache.Unlock()
+
+		// Continue onwards. We'll need to either create a new thread if
+		// we can get an exact game name match from IGDB, or return some
+		// suggestions.
 	}
 
 	// Ensure IGDB client is available before continuing.

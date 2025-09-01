@@ -215,10 +215,10 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		if len(exact.Websites) > 0 {
 			if sites, err := h.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
 				var parts []string
-				// preserve order preference
+				// Use markdown links ([Label](URL)) so Discord doesn't unfurl rich embeds for each store page.
 				addSite := func(label, url string) {
 					if url != "" {
-						parts = append(parts, fmt.Sprintf("%s: %s", label, url))
+						parts = append(parts, fmt.Sprintf("[%s](%s)", label, url))
 					}
 				}
 				var official, steam, gog string
@@ -245,7 +245,7 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 				addSite("Official", official)
 				addSite("GOG", gog)
 				if len(parts) > 0 {
-					linksLine = "Links: " + strings.Join(parts, " | ")
+					linksLine = "Links: " + strings.Join(parts, " | ") + "\n_(Links formatted to avoid embed spam.)_"
 				}
 			}
 		}

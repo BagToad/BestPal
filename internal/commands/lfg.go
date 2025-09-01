@@ -173,19 +173,34 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	// For simplicity, attempt to find by name using cached threads from forum's available tags (not provided) => fallback create.
 	// We attempt to create; if name conflict Discord will allow duplicates; improvement: prefetch threads on startup.
 
-	// Validate game exists using IGDB (exact or search fallback)
+	// Validate game exists using IGDB: fetch up to 10 candidates, pick exact (case-insensitive) or return suggestions.
 	if h.igdbClient != nil {
-		games, err := h.igdbClient.Games.Index(igdb.SetFilter("name", igdb.OpEquals, displayName), igdb.SetLimit(1), igdb.SetFields("name"))
+		inputName := displayName
+		games, err := h.igdbClient.Games.Search(displayName,
+			igdb.SetFields("id", "name"),
+			igdb.SetLimit(10),
+		)
 		if err != nil || len(games) == 0 {
-			games, err = h.igdbClient.Games.Search(displayName, igdb.SetLimit(1), igdb.SetFields("name"))
-			if err != nil || len(games) == 0 {
-				// Graceful fallback: log and allow thread creation instead of failing interaction entirely
-				h.config.Logger.Warnf("LFG: IGDB validation failed for '%s': %v -- allowing thread creation", displayName, err)
+			return nil, fmt.Errorf("could not find game %s", inputName)
+		}
+		var exact *igdb.Game
+		suggestions := make([]string, 0, len(games))
+		for _, g := range games {
+			if g == nil || g.Name == "" {
+				continue
+			}
+			suggestions = append(suggestions, g.Name)
+			if strings.EqualFold(g.Name, inputName) {
+				exact = g
 			}
 		}
-		if len(games) > 0 {
-			displayName = games[0].Name
+		if exact == nil { // no exact match; return suggestions
+			if len(suggestions) > 0 {
+				return nil, fmt.Errorf("could not find game %s. Did you mean: %s?", inputName, strings.Join(suggestions, ", "))
+			}
+			return nil, fmt.Errorf("could not find game %s", inputName)
 		}
+		displayName = exact.Name
 	}
 
 	// Create a new forum thread (forum post) with required initial message.

@@ -83,7 +83,9 @@ func (h *SlashHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.Int
 			},
 		},
 	}
-	_ = s.InteractionRespond(i.Interaction, modal)
+	if err := s.InteractionRespond(i.Interaction, modal); err != nil {
+		h.config.Logger.Errorf("LFG: failed to open modal: %v", err)
+	}
 }
 
 // Handle modal submission: look up / create thread then reply ephemerally with link.
@@ -114,7 +116,10 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 	normalized := strings.ToLower(gameName)
 
 	// Defer ephemeral response while we work
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}}); err != nil {
+		h.config.Logger.Errorf("LFG: failed to defer modal submit: %v", err)
+		return
+	}
 
 	threadChannel, err := h.ensureLFGThread(s, forumID, gameName, normalized)
 	if err != nil {
@@ -156,10 +161,10 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		if err != nil || len(games) == 0 {
 			games, err = h.igdbClient.Games.Search(displayName, igdb.SetLimit(1), igdb.SetFields("name"))
 			if err != nil || len(games) == 0 {
-				return nil, fmt.Errorf("game not found: %s", displayName)
+				// Graceful fallback: log and allow thread creation instead of failing interaction entirely
+				h.config.Logger.Warnf("LFG: IGDB validation failed for '%s': %v -- allowing thread creation", displayName, err)
 			}
 		}
-		// Use canonical name from IGDB (first result) to set thread title for consistency
 		if len(games) > 0 {
 			displayName = games[0].Name
 		}
@@ -169,7 +174,14 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	params := &discordgo.ThreadStart{Type: discordgo.ChannelTypeGuildPublicThread, Name: displayName}
 	thread, err := s.ThreadStartComplex(forumID, params)
 	if err != nil {
+		h.config.Logger.Errorf("LFG: failed creating thread '%s' in forum %s: %v", displayName, forumID, err)
 		return nil, fmt.Errorf("failed creating thread: %w", err)
+	}
+
+	// Send initial message to the thread
+	_, err = s.ChannelMessageSend(thread.ID, fmt.Sprintf("LFG thread for %s. Use the panel to get a link any time!", displayName))
+	if err != nil {
+		h.config.Logger.Warnf("LFG: failed sending initial message to thread '%s': %v", displayName, err)
 	}
 	lfgThreadCache.Lock()
 	lfgThreadCache.m[normalized] = thread.ID

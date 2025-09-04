@@ -149,7 +149,13 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 	}
 	forumID := h.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ LFG forum channel ID not configured.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 
@@ -205,158 +211,155 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 		return
 	}
 
-	threadChannel, err := h.ensureLFGThread(s, forumID, gameName, normalized)
-	if err != nil {
+	if h.igdbClient == nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: fmtPtr(fmt.Sprintf("❌ %v", err)),
+			Content: fmtPtr("❌ IGDB client is not initialized. Admin intervention required"),
 		})
 		return
 	}
 
-	link := threadLink(threadChannel)
-	msg := fmt.Sprintf("✅ LFG thread for **%s**: %s", gameName, link)
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+	// 1. Attempt to find existing thread from cache (validated)
+	exactThreadChannel, _ := h.findCachedExactThread(s, forumID, normalized)
+
+	// 2. Perform search (exact + suggestions)
+	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, gameName)
+	if err != nil {
+		h.config.Logger.Errorf("LFG: failed to search IGDB for '%s': %v", gameName, err)
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: fmtPtr(fmt.Sprintf("❌ error looking up game _\"%s\"_", gameName)),
+		})
+		return
+	}
+	if searchRes == nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ unexpected empty search result")})
+		return
+	}
+
+	// 3. Create thread if needed (exact match found but no existing thread)
+	var createdNew bool
+	if exactThreadChannel == nil && searchRes.ExactMatch != nil {
+		ch, err := h.createLFGThreadFromExactMatch(s, forumID, normalized, searchRes.ExactMatch)
+		if err != nil {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ failed creating thread")})
+			return
+		}
+		exactThreadChannel = ch
+		createdNew = true
+	}
+
+	// 4. Gather thread + title suggestions
+	threadSuggestions := gatherThreadSuggestions(s, forumID, normalized, idOrEmpty(exactThreadChannel))
+	titleSuggestions := titleSuggestionsFromSearch(searchRes, 3)
+
+	// 5. Build response message
+	final := buildLFGResponse(gameName, exactThreadChannel, threadSuggestions, titleSuggestions)
+	if createdNew && exactThreadChannel != nil {
+		h.config.Logger.Infof("LFG: created new thread for '%s'", exactThreadChannel.Name)
+	}
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &final})
 }
 
-// ensureLFGThread returns existing valid thread or creates a new one.
-func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayName, normalized string) (*discordgo.Channel, error) {
-	// First check cache
+// findCachedExactThread validates and returns a cached exact thread channel if still valid.
+func (h *SlashHandler) findCachedExactThread(s *discordgo.Session, forumID, normalized string) (*discordgo.Channel, bool) {
 	lfgThreadCache.RLock()
-	cacheRes, ok := LFGCacheSearch(normalized)
+	cacheRes, cacheHit := LFGCacheSearch(normalized)
 	lfgThreadCache.RUnlock()
-
-	if ok && cacheRes.ExactThreadID != "" {
-		// Validate exact thread still exists
-		h.config.Logger.Infof("LFG: cache hit exact for '%s' -> %s", displayName, cacheRes.ExactThreadID)
-		ch, err := s.Channel(cacheRes.ExactThreadID)
-		if err == nil && ch != nil && ch.ParentID == forumID { // still valid
-			return ch, nil
-		}
-
-		// That exact hit is invalid/no longer exists, so remove invalid cache entry
-		lfgThreadCache.Lock()
-		delete(lfgThreadCache.nameToThreadID, normalized)
-		lfgThreadCache.Unlock()
-
-		// Continue onwards. We'll need to either create a new thread if
-		// we can get an exact game name match from IGDB, or return some
-		// suggestions.
+	if !cacheHit || cacheRes.ExactThreadID == "" {
+		return nil, false
 	}
-
-	// Ensure IGDB client is available before continuing.
-	// We put this check here so that the cache logic above can continue
-	// even if IGDB is not linked.
-	if h.igdbClient == nil {
-		return nil, fmt.Errorf("IGDB client is not initialized. Admin intervention required")
+	ch, err := s.Channel(cacheRes.ExactThreadID)
+	if err == nil && ch != nil && ch.ParentID == forumID {
+		return ch, true
 	}
+	// stale entry
+	lfgThreadCache.Lock()
+	delete(lfgThreadCache.nameToThreadID, normalized)
+	lfgThreadCache.Unlock()
+	return nil, false
+}
 
-	// Validate game exists using IGDB: fetch up to 10 candidates, pick exact (case-insensitive) or return suggestions.
+// createLFGThreadFromExactMatch builds metadata + creates the forum thread for an exact IGDB match.
+func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forumID, normalized string, exact *igdb.Game) (*discordgo.Channel, error) {
+	if exact == nil {
+		return nil, fmt.Errorf("nil exact game")
+	}
+	displayName := exact.Name
 	var gameSummary string
 	var playerLine string
 	var linksLine string
 
-	igdbSearchResult, err := games.ExactMatchWithSuggestions(h.igdbClient, displayName)
-	if err != nil {
-		h.config.Logger.Errorf("LFG: failed to search IGDB for '%s': %v", displayName, err)
-		return nil, fmt.Errorf("error looking up game _\"%s\"_", displayName)
+	if exact.Summary != "" {
+		gameSummary = exact.Summary
+		if len(gameSummary) > 400 {
+			gameSummary = gameSummary[:397] + "..."
+		}
 	}
 
-	h.config.Logger.Debugf("%+v", igdbSearchResult)
-
-	// No exact match on game title.
-	// The only thing we can do now is show suggestions including:
-	// - any existing partial match threads
-	// - any not-exact game names returned from IGDB
-	if igdbSearchResult != nil && igdbSearchResult.ExactMatch == nil {
-		h.config.Logger.Infof("LFG: no exact IGDB match for '%s'", displayName)
-		return nil, lfgThreadSuggestionsResponseErr(s, &cacheRes, igdbSearchResult, forumID)
+	if len(exact.Websites) > 0 {
+		if sites, err := h.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
+			var parts []string
+			addSite := func(label, url string) {
+				if url != "" {
+					parts = append(parts, fmt.Sprintf("[%s](%s)", label, url))
+				}
+			}
+			var official, steam, gog string
+			for _, w := range sites {
+				if w == nil || w.URL == "" {
+					continue
+				}
+				switch w.Category {
+				case igdb.WebsiteSteam:
+					if steam == "" {
+						steam = w.URL
+					}
+				case igdb.WebsiteOfficial:
+					if official == "" {
+						official = w.URL
+					}
+				case 17: // GOG
+					if gog == "" {
+						gog = w.URL
+					}
+				}
+			}
+			addSite("Steam", steam)
+			addSite("Official", official)
+			addSite("GOG", gog)
+			if len(parts) > 0 {
+				linksLine = strings.Join(parts, " | ")
+			}
+		}
 	}
 
-	// We have an exact match on game title, so assume that's what the user wants.
-	// At this point, there wasn't already a thread for this game, so we will
-	// create it.
-	if igdbSearchResult != nil && igdbSearchResult.ExactMatch != nil {
-		h.config.Logger.Infof("LFG: creating new thread for exact match '%s'", displayName)
-		// This logic prepares the thread post content with some game metadata.
-
-		exact := igdbSearchResult.ExactMatch
-		displayName = exact.Name
-		// Prepare summary (description)
-		if exact.Summary != "" {
-			gameSummary = exact.Summary
-			if len(gameSummary) > 400 { // trim to keep message under limit
-				gameSummary = gameSummary[:397] + "..."
-			}
-		}
-		// Fetch websites for links (Steam, Official, GOG)
-		if len(exact.Websites) > 0 {
-			if sites, err := h.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
-				var parts []string
-				addSite := func(label, url string) {
-					if url != "" {
-						parts = append(parts, fmt.Sprintf("[%s](%s)", label, url))
-					}
+	if len(exact.MultiplayerModes) > 0 {
+		if modes, err := h.igdbClient.MultiplayerModes.List(exact.MultiplayerModes, igdb.SetFields("*")); err == nil {
+			var onlineMax, coopMax int
+			for _, m := range modes {
+				if m == nil {
+					continue
 				}
-				var official, steam, gog string
-				for _, w := range sites {
-					if w == nil || w.URL == "" {
-						continue
-					}
-					switch w.Category {
-					case igdb.WebsiteSteam:
-						if steam == "" {
-							steam = w.URL
-						}
-					case igdb.WebsiteOfficial:
-						if official == "" {
-							official = w.URL
-						}
-					case 17: // GOG
-						if gog == "" {
-							gog = w.URL
-						}
-					}
+				if m.Onlinemax > onlineMax {
+					onlineMax = m.Onlinemax
 				}
-				addSite("Steam", steam)
-				addSite("Official", official)
-				addSite("GOG", gog)
-				if len(parts) > 0 {
-					linksLine = strings.Join(parts, " | ")
+				if m.Onlinecoopmax > coopMax {
+					coopMax = m.Onlinecoopmax
 				}
 			}
-		}
-		// Multiplayer modes (online player counts)
-		if len(exact.MultiplayerModes) > 0 {
-			if modes, err := h.igdbClient.MultiplayerModes.List(exact.MultiplayerModes, igdb.SetFields("*")); err == nil {
-				var onlineMax, coopMax int
-				for _, m := range modes {
-					if m == nil {
-						continue
-					}
-					if m.Onlinemax > onlineMax {
-						onlineMax = m.Onlinemax
-					}
-					if m.Onlinecoopmax > coopMax {
-						coopMax = m.Onlinecoopmax
-					}
+			if onlineMax > 0 || coopMax > 0 {
+				if onlineMax > 0 {
+					playerLine = fmt.Sprintf("Players: up to %d online", onlineMax)
 				}
-				if onlineMax > 0 || coopMax > 0 {
-					if onlineMax > 0 {
-						playerLine = fmt.Sprintf("Players: up to %d online", onlineMax)
+				if coopMax > 0 {
+					if playerLine != "" {
+						playerLine += "; "
 					}
-					if coopMax > 0 {
-						if playerLine != "" {
-							playerLine += "; "
-						}
-						playerLine += fmt.Sprintf("co-op up to %d", coopMax)
-					}
+					playerLine += fmt.Sprintf("co-op up to %d", coopMax)
 				}
 			}
 		}
 	}
 
-	// Create a new forum thread (forum post) with required initial message.
-	// Build initial thread message with optional extra info.
 	initialParts := []string{fmt.Sprintf("This is the LFG thread for _%s_! Use the LFG panel anytime to get a link.", displayName)}
 	if gameSummary != "" {
 		initialParts = append(initialParts, "_"+gameSummary+"_")
@@ -368,14 +371,14 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 		initialParts = append(initialParts, linksLine)
 	}
 	initialContent := strings.Join(initialParts, "\n\n")
-	if len(initialContent) > 1800 { // safety truncation
+	if len(initialContent) > 1800 {
 		initialContent = initialContent[:1797] + "..."
 	}
-	// Use 4320 (3 days) auto-archive duration – acceptable standard value; adjust if needed.
+
 	thread, err := s.ForumThreadStart(forumID, displayName, 4320, initialContent)
 	if err != nil {
 		h.config.Logger.Errorf("LFG: failed creating forum thread '%s' in forum %s: %v", displayName, forumID, err)
-		return nil, fmt.Errorf("failed creating thread: %w", err)
+		return nil, err
 	}
 	lfgThreadCache.Lock()
 	lfgThreadCache.nameToThreadID[normalized] = thread.ID
@@ -383,43 +386,109 @@ func (h *SlashHandler) ensureLFGThread(s *discordgo.Session, forumID, displayNam
 	return thread, nil
 }
 
-func lfgThreadSuggestionsResponseErr(s *discordgo.Session, cacheResponse *LFGCacheSearchResult, gameSearchResponse *games.GameSearchResult, forumID string) error {
-	errString := strings.Builder{}
-
-	haveSomethingToSay := len(cacheResponse.PartialThreadIDs) > 0 && len(gameSearchResponse.Suggestions) > 0
-	if !haveSomethingToSay {
-		errString.WriteString("I couldn't find any matches, sorry! Please try again\n")
-		return fmt.Errorf("%s", errString.String())
-	}
-
-	errString.WriteString("I couldn't find exact matches, but maybe one of these will do?\n")
-
-	// If we have partial match thread IDs from cache,
-	// that means we have some channels to link as suggestions.
-	if len(cacheResponse.PartialThreadIDs) > 0 {
-		errString.WriteString("\nExisting threads:\n")
-		for _, id := range cacheResponse.PartialThreadIDs {
-			// Ensure the channel exists and is a child of the forum
+// gatherThreadSuggestions scans cached names for partial matches (excluding exact thread) and returns up to 3 links.
+func gatherThreadSuggestions(s *discordgo.Session, forumID, normalized, excludeThreadID string) []string {
+	var links []string
+	lfgThreadCache.RLock()
+	for k, id := range lfgThreadCache.nameToThreadID {
+		if strings.Contains(strings.ToLower(k), normalized) {
+			if excludeThreadID != "" && id == excludeThreadID {
+				continue
+			}
 			ch, err := s.Channel(id)
 			if err == nil && ch != nil && ch.ParentID == forumID {
-				errString.WriteString(threadLink(ch) + "\n")
+				links = append(links, threadLink(ch))
+				if len(links) >= 3 {
+					break
+				}
 			}
 		}
 	}
+	lfgThreadCache.RUnlock()
+	return links
+}
 
-	// If we have suggestions in our gameSearchResponse, let's add those too.
-	if len(gameSearchResponse.Suggestions) > 0 {
-		errString.WriteString("\nSuggested game titles:\n")
-		for i, suggestion := range gameSearchResponse.Suggestions {
-			// Let's only show three title suggestions.
-			if i >= 3 {
-				break
-			}
-			errString.WriteString(fmt.Sprintf("- \"_%s_\"\n", suggestion.Name))
+// titleSuggestionsFromSearch returns up to 'limit' game names from suggestions.
+func titleSuggestionsFromSearch(res *games.GameSearchResult, limit int) []string {
+	if res == nil || limit <= 0 {
+		return nil
+	}
+	var out []string
+	for i, g := range res.Suggestions {
+		if i >= limit {
+			break
+		}
+		if g != nil && g.Name != "" {
+			out = append(out, g.Name)
 		}
 	}
+	return out
+}
 
-	return fmt.Errorf("%s", errString.String())
+// buildLFGResponse constructs the final ephemeral response content.
+func buildLFGResponse(originalQuery string, exactThread *discordgo.Channel, threadSuggestions, titleSuggestions []string) string {
+	var b strings.Builder
+	if exactThread != nil {
+		b.WriteString(threadLink(exactThread))
+		b.WriteString("\n\n")
+		if len(threadSuggestions) > 0 {
+			b.WriteString("Not what you're looking for? Here's some other existing threads:\n\n")
+			for _, l := range threadSuggestions {
+				b.WriteString("- ")
+				b.WriteString(l)
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
+		if len(titleSuggestions) > 0 {
+			if len(threadSuggestions) == 0 {
+				b.WriteString("Maybe you meant one of these titles:\n\n")
+			} else {
+				b.WriteString("Still not what you're looking for? Maybe you meant one of these titles:\n\n")
+			}
+			for _, t := range titleSuggestions {
+				b.WriteString("- ")
+				b.WriteString(t)
+				b.WriteString("\n")
+			}
+		}
+		return b.String()
+	}
+
+	// No exact thread
+	b.WriteString(fmt.Sprintf("I couldn't find %s :(\n\n", originalQuery))
+	if len(threadSuggestions) > 0 {
+		b.WriteString("Here's some other existing threads:\n\n")
+		for _, l := range threadSuggestions {
+			b.WriteString("- ")
+			b.WriteString(l)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(titleSuggestions) > 0 {
+		if len(threadSuggestions) > 0 {
+			b.WriteString("Still not what you're looking for? Maybe you meant one of these titles:\n\n")
+		} else {
+			b.WriteString("Maybe you meant one of these titles:\n\n")
+		}
+		for _, t := range titleSuggestions {
+			b.WriteString("- ")
+			b.WriteString(t)
+			b.WriteString("\n")
+		}
+	}
+	if len(threadSuggestions) == 0 && len(titleSuggestions) == 0 {
+		b.WriteString("Please try again with a more specific title.")
+	}
+	return b.String()
+}
+
+func idOrEmpty(ch *discordgo.Channel) string {
+	if ch == nil {
+		return ""
+	}
+	return ch.ID
 }
 
 func threadLink(ch *discordgo.Channel) string {

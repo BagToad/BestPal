@@ -64,6 +64,11 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		lfgNowEntries: make(map[string]map[string]*lfgNowEntry),
 	}
 
+	// Restore persisted Looking NOW panel channel if present
+	if chID := cfg.GetLFGNowPanelChannelID(); chID != "" {
+		h.lfgNowPanelChannel = chID
+	}
+
 	var adminPerms int64 = discordgo.PermissionAdministrator
 	var modPerms int64 = discordgo.PermissionBanMembers
 

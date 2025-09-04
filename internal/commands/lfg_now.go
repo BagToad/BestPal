@@ -145,7 +145,8 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 		}
 		var lines []string
 		for _, e := range users {
-			lines = append(lines, fmt.Sprintf("<@%s> [%s] (%d) - %s", e.UserID, e.Region, e.PlayerCount, e.Message))
+			expUnix := e.UpdatedAt.Add(ttl).Unix()
+			lines = append(lines, fmt.Sprintf("<@%s> [%s] (%d) - %s (expires <t:%d:R>)", e.UserID, e.Region, e.PlayerCount, e.Message, expUnix))
 		}
 		// stable order: user mention alphabetical
 		sort.Strings(lines)
@@ -157,6 +158,8 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 
 	// Split into multiple embeds if >25 fields or size risk
 	var embeds []*discordgo.MessageEmbed
+	refreshInterval := 5 * time.Minute // keep in sync with scheduler cadence
+	nextRefreshUnix := time.Now().Add(refreshInterval).Unix()
 	current := &discordgo.MessageEmbed{Title: "Looking NOW", Color: utils.Colors.Fancy()}
 	for _, sec := range sections {
 		value := strings.Join(sec.Lines, "\n")
@@ -172,6 +175,11 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 	}
 	if len(current.Fields) > 0 || len(embeds) == 0 {
 		embeds = append(embeds, current)
+	}
+
+	// Add footer with next refresh relative timestamp to each embed
+	for _, emb := range embeds {
+		emb.Footer = &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Next refresh <t:%d:R>", nextRefreshUnix)}
 	}
 
 	// If no sections, clear existing panel messages and reset state
@@ -207,9 +215,7 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 }
 
 // RefreshLFGNowPanel is an exported wrapper for background tasks.
-func (h *SlashHandler) RefreshLFGNowPanel(s *discordgo.Session) error {
-	return h.refreshLFGNowPanel(s)
-}
+func (h *SlashHandler) RefreshLFGNowPanel(s *discordgo.Session) error { return h.refreshLFGNowPanel(s) }
 
 // handleLFGSetupLookingNow sets up the panel in the current channel
 func (h *SlashHandler) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -224,6 +230,7 @@ func (h *SlashHandler) handleLFGSetupLookingNow(s *discordgo.Session, i *discord
 	}
 	h.lfgNowPanelChannel = chID
 	h.lfgNowPanelMessages = nil
+	h.config.Set("gamerpals_lfg_now_panel_channel_id", chID)
 	h.lfgNowMu.Unlock()
 
 	_ = h.refreshLFGNowPanel(s) // will create empty (no messages yet)

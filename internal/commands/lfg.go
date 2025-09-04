@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"gamerpal/internal/games"
+	"gamerpal/internal/utils"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -247,16 +248,68 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 		createdNew = true
 	}
 
-	// 4. Gather thread + title suggestions
-	threadSuggestions := gatherThreadSuggestions(s, forumID, normalized, idOrEmpty(exactThreadChannel))
-	titleSuggestions := titleSuggestionsFromSearch(searchRes, 3)
+	// 4. Gather partial thread suggestions (cache partial matches) up to 3
+	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
-	// 5. Build response message
-	final := buildLFGResponse(gameName, exactThreadChannel, threadSuggestions, titleSuggestions)
+	// 5. Gather IGDB title suggestions (excluding duplicates & exact). Up to 3.
+	var igdbSuggestionSections []suggestionSection
+	if searchRes.Suggestions != nil {
+		for _, g := range searchRes.Suggestions {
+			if g == nil || g.Name == "" {
+				continue
+			}
+			if exactThreadChannel != nil && strings.EqualFold(g.Name, exactThreadChannel.Name) {
+				continue
+			}
+			dup := false
+			for _, pts := range partialThreadSuggestions {
+				if strings.EqualFold(pts.Title, g.Name) {
+					dup = true
+					break
+				}
+			}
+			if dup {
+				continue
+			}
+			igdbSuggestionSections = append(igdbSuggestionSections, buildSuggestionSectionFromName(s, forumID, g.Name))
+			if len(igdbSuggestionSections) >= 3 {
+				break
+			}
+		}
+	}
+
+	// 6. Build embed fields list: exact (if any), then partial thread suggestions, then IGDB suggestions.
+	var fields []*discordgo.MessageEmbedField
+	if exactThreadChannel != nil {
+		status := "existing thread"
+		if createdNew {
+			status = "created thread"
+		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  fmt.Sprintf("%s (exact match, %s)", exactThreadChannel.Name, status),
+			Value: fmt.Sprintf("- %s", threadLink(exactThreadChannel)),
+		})
+	}
+	for _, sec := range partialThreadSuggestions {
+		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("%s (suggestion)", sec.Title), Value: sec.Value})
+	}
+	for _, sec := range igdbSuggestionSections {
+		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("%s (suggestion)", sec.Title), Value: sec.Value})
+	}
+	if len(fields) == 0 { // fallback when nothing at all
+		fields = append(fields, &discordgo.MessageEmbedField{Name: "No Results", Value: "Try a more specific title."})
+	}
+
+	embed := &discordgo.MessageEmbed{
+		Title:  "LFG Thread Lookup",
+		Color:  utils.Colors.Fancy(),
+		Fields: fields,
+	}
 	if createdNew && exactThreadChannel != nil {
 		h.config.Logger.Infof("LFG: created new thread for '%s'", exactThreadChannel.Name)
 	}
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &final})
+	embedSlice := []*discordgo.MessageEmbed{embed}
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice})
 }
 
 // findCachedExactThread validates and returns a cached exact thread channel if still valid.
@@ -387,8 +440,15 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 }
 
 // gatherThreadSuggestions scans cached names for partial matches (excluding exact thread) and returns up to 3 links.
-func gatherThreadSuggestions(s *discordgo.Session, forumID, normalized, excludeThreadID string) []string {
-	var links []string
+// suggestionSection represents info needed to render an embed field for a suggestion.
+type suggestionSection struct {
+	Title string
+	Value string
+}
+
+// gatherPartialThreadSuggestionsDetailed returns up to 'limit' partial match existing thread suggestions.
+func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, normalized, excludeThreadID string, limit int) []suggestionSection {
+	var out []suggestionSection
 	lfgThreadCache.RLock()
 	for k, id := range lfgThreadCache.nameToThreadID {
 		if strings.Contains(strings.ToLower(k), normalized) {
@@ -397,91 +457,30 @@ func gatherThreadSuggestions(s *discordgo.Session, forumID, normalized, excludeT
 			}
 			ch, err := s.Channel(id)
 			if err == nil && ch != nil && ch.ParentID == forumID {
-				links = append(links, threadLink(ch))
-				if len(links) >= 3 {
+				out = append(out, suggestionSection{Title: ch.Name, Value: fmt.Sprintf("- %s", threadLink(ch))})
+				if len(out) >= limit {
 					break
 				}
 			}
 		}
 	}
 	lfgThreadCache.RUnlock()
-	return links
-}
-
-// titleSuggestionsFromSearch returns up to 'limit' game names from suggestions.
-func titleSuggestionsFromSearch(res *games.GameSearchResult, limit int) []string {
-	if res == nil || limit <= 0 {
-		return nil
-	}
-	var out []string
-	for i, g := range res.Suggestions {
-		if i >= limit {
-			break
-		}
-		if g != nil && g.Name != "" {
-			out = append(out, g.Name)
-		}
-	}
 	return out
 }
 
-// buildLFGResponse constructs the final ephemeral response content.
-func buildLFGResponse(originalQuery string, exactThread *discordgo.Channel, threadSuggestions, titleSuggestions []string) string {
-	var b strings.Builder
-	if exactThread != nil {
-		b.WriteString(threadLink(exactThread))
-		b.WriteString("\n\n")
-		if len(threadSuggestions) > 0 {
-			b.WriteString("Not what you're looking for? Here's some other existing threads:\n\n")
-			for _, l := range threadSuggestions {
-				b.WriteString("- ")
-				b.WriteString(l)
-				b.WriteString("\n")
-			}
-			b.WriteString("\n")
-		}
-		if len(titleSuggestions) > 0 {
-			if len(threadSuggestions) == 0 {
-				b.WriteString("Maybe you meant one of these titles:\n\n")
-			} else {
-				b.WriteString("Still not what you're looking for? Maybe you meant one of these titles:\n\n")
-			}
-			for _, t := range titleSuggestions {
-				b.WriteString("- ")
-				b.WriteString(t)
-				b.WriteString("\n")
-			}
-		}
-		return b.String()
-	}
-
-	// No exact thread
-	b.WriteString(fmt.Sprintf("I couldn't find %s :(\n\n", originalQuery))
-	if len(threadSuggestions) > 0 {
-		b.WriteString("Here's some other existing threads:\n\n")
-		for _, l := range threadSuggestions {
-			b.WriteString("- ")
-			b.WriteString(l)
-			b.WriteString("\n")
-		}
-		b.WriteString("\n")
-	}
-	if len(titleSuggestions) > 0 {
-		if len(threadSuggestions) > 0 {
-			b.WriteString("Still not what you're looking for? Maybe you meant one of these titles:\n\n")
-		} else {
-			b.WriteString("Maybe you meant one of these titles:\n\n")
-		}
-		for _, t := range titleSuggestions {
-			b.WriteString("- ")
-			b.WriteString(t)
-			b.WriteString("\n")
+// buildSuggestionSectionFromName checks for existing thread of a given title; if absent returns placeholder.
+func buildSuggestionSectionFromName(s *discordgo.Session, forumID, gameTitle string) suggestionSection {
+	norm := strings.ToLower(gameTitle)
+	lfgThreadCache.RLock()
+	threadID, ok := lfgThreadCache.nameToThreadID[norm]
+	lfgThreadCache.RUnlock()
+	if ok {
+		ch, err := s.Channel(threadID)
+		if err == nil && ch != nil && ch.ParentID == forumID {
+			return suggestionSection{Title: gameTitle, Value: fmt.Sprintf("- %s", threadLink(ch))}
 		}
 	}
-	if len(threadSuggestions) == 0 && len(titleSuggestions) == 0 {
-		b.WriteString("Please try again with a more specific title.")
-	}
-	return b.String()
+	return suggestionSection{Title: gameTitle, Value: fmt.Sprintf("- No thread created yet. Lookup this `%s` exactly to create one.", gameTitle)}
 }
 
 func idOrEmpty(ch *discordgo.Channel) string {

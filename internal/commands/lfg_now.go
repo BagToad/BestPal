@@ -158,8 +158,6 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 
 	// Split into multiple embeds if >25 fields or size risk
 	var embeds []*discordgo.MessageEmbed
-	refreshInterval := 5 * time.Minute // keep in sync with scheduler cadence
-	nextRefreshUnix := time.Now().Add(refreshInterval).Unix()
 	current := &discordgo.MessageEmbed{Title: "Looking NOW", Color: utils.Colors.Fancy()}
 	for _, sec := range sections {
 		value := strings.Join(sec.Lines, "\n")
@@ -177,9 +175,9 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 		embeds = append(embeds, current)
 	}
 
-	// Add footer with next refresh relative timestamp to each embed
-	for _, emb := range embeds {
-		emb.Footer = &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Next refresh <t:%d:R>", nextRefreshUnix)}
+	// Add a footer to the last embed
+	if len(embeds) > 0 {
+		embeds[len(embeds)-1].Footer = &discordgo.MessageEmbedFooter{Text: "Run `/lfg now` in any game thread"}
 	}
 
 	// If no sections, clear existing panel messages and reset state

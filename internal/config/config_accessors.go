@@ -42,6 +42,15 @@ func (c *Config) GetGamerPalsLFGForumChannelID() string {
 	return c.v.GetString("gamerpals_lfg_forum_channel_id")
 }
 
+// LFG "looking now" TTL (default 1h if not set or zero)
+func (c *Config) GetLFGNowTTLDuration() time.Duration {
+	d := c.v.GetDuration("gamerpals_lfg_now_ttl")
+	if d <= 0 {
+		return time.Hour
+	}
+	return d
+}
+
 // New Pals systems
 // -----
 func (c *Config) GetNewPalsSystemEnabled() bool {

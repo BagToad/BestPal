@@ -111,8 +111,12 @@ func (h *SlashHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionC
 
 	sub := i.ApplicationCommandData().Options[0]
 	switch sub.Name {
-	case "setup":
+	case "setup-find-a-thread":
 		h.handleLFGSetup(s, i)
+	case "setup-looking-now":
+		h.handleLFGSetupLookingNow(s, i)
+	case "now":
+		h.handleLFGNow(s, i)
 	default:
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Unknown subcommand"}})
 	}
@@ -131,7 +135,7 @@ func (h *SlashHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.Interac
 		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			&discordgo.Button{
 				Style:    discordgo.PrimaryButton,
-				Label:    "LFG Thread",
+				Label:    "Find a thread",
 				CustomID: lfgPanelCustomID,
 			},
 		}},

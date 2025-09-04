@@ -4,10 +4,23 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
+	"sync"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
+
+// Global accessor registration for scheduler cross-package refresh without circular dependency
+var (
+	globalSlashHandler     *SlashHandler
+	globalSlashHandlerOnce sync.Once
+)
+
+func RegisterGlobalSlashHandler(h *SlashHandler) {
+	globalSlashHandlerOnce.Do(func() { globalSlashHandler = h })
+}
+
+func GetGlobalSlashHandler() *SlashHandler { return globalSlashHandler }
 
 // Command represents a Discord application command with its handler
 type Command struct {
@@ -23,6 +36,12 @@ type SlashHandler struct {
 	config         *config.Config
 	DB             *database.DB
 	PairingService *pairing.PairingService
+
+	// Looking Now panel state
+	lfgNowMu            sync.RWMutex
+	lfgNowEntries       map[string]map[string]*lfgNowEntry // threadID -> userID -> entry
+	lfgNowPanelChannel  string                             // channel ID where panel lives
+	lfgNowPanelMessages []string                           // message IDs of current panel embeds
 }
 
 // NewSlashHandler creates a new command handler
@@ -38,10 +57,11 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 	}
 
 	h := &SlashHandler{
-		igdbClient: igdbClient,
-		Commands:   make(map[string]*Command),
-		config:     cfg,
-		DB:         db,
+		igdbClient:    igdbClient,
+		Commands:      make(map[string]*Command),
+		config:        cfg,
+		DB:            db,
+		lfgNowEntries: make(map[string]map[string]*lfgNowEntry),
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -57,8 +77,23 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
-						Name:        "setup",
-						Description: "Set up the LFG panel in this channel",
+						Name:        "setup-find-a-thread",
+						Description: "Set up the LFG find-a-thread panel in this channel",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup-looking-now",
+						Description: "Set up the 'Looking NOW' panel in this channel",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "now",
+						Description: "Mark yourself as looking now inside an LFG thread",
+						Options: []*discordgo.ApplicationCommandOption{
+							{Type: discordgo.ApplicationCommandOptionString, Name: "region", Description: "Region (NA, EU, ASIA, SA, OCE)", Required: true, Choices: []*discordgo.ApplicationCommandOptionChoice{{Name: "NA", Value: "NA"}, {Name: "EU", Value: "EU"}, {Name: "ASIA", Value: "ASIA"}, {Name: "SA", Value: "SA"}, {Name: "OCE", Value: "OCE"}}},
+							{Type: discordgo.ApplicationCommandOptionString, Name: "message", Description: "Short message", Required: true},
+							{Type: discordgo.ApplicationCommandOptionInteger, Name: "player_count", Description: "Desired player count", Required: true, MinValue: &[]float64{1}[0], MaxValue: 99},
+						},
 					},
 				},
 			},

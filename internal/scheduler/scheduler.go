@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"gamerpal/internal/commands"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
@@ -12,15 +13,16 @@ import (
 
 // Scheduler handles periodic execution of scheduled tasks
 type Scheduler struct {
-	session        *discordgo.Session
-	config         *config.Config
-	db             *database.DB
-	pairingService *pairing.PairingService
-	welcomeService *welcome.WelcomeService
-	minuteTicker   *time.Ticker
-	hourTicker     *time.Ticker
-	minuteStopCh   chan struct{}
-	hourStopCh     chan struct{}
+	session           *discordgo.Session
+	config            *config.Config
+	db                *database.DB
+	pairingService    *pairing.PairingService
+	welcomeService    *welcome.WelcomeService
+	minuteTicker      *time.Ticker
+	hourTicker        *time.Ticker
+	minuteStopCh      chan struct{}
+	hourStopCh        chan struct{}
+	lastLFGNowRefresh time.Time
 }
 
 // NewScheduler creates a new scheduler instance
@@ -52,6 +54,14 @@ func (s *Scheduler) StartMinuteScheduler() {
 					s.welcomeService.CheckAndWelcomeNewPals()
 				}()
 				s.checkAndExecuteScheduledPairings()
+				// LFG "Looking NOW" periodic refresh (every ~5 minutes)
+				if time.Since(s.lastLFGNowRefresh) >= 5*time.Minute {
+					s.lastLFGNowRefresh = time.Now()
+					h := commands.GetGlobalSlashHandler()
+					if h != nil {
+						_ = h.RefreshLFGNowPanel(s.session)
+					}
+				}
 			case <-s.minuteStopCh:
 				s.config.Logger.Info("Minute scheduler stopping")
 				return

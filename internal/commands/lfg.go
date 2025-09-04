@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"gamerpal/internal/games"
 	"gamerpal/internal/utils"
@@ -61,10 +62,40 @@ func LFGCacheSearch(name string) (LFGCacheSearchResult, bool) {
 }
 
 const (
-	lfgPanelCustomID      = "lfg_panel_open_modal"
-	lfgModalCustomID      = "lfg_game_modal"
-	lfgModalInputCustomID = "lfg_game_name"
+	lfgPanelCustomID          = "lfg_panel_open_modal"
+	lfgModalCustomID          = "lfg_game_modal"
+	lfgModalInputCustomID     = "lfg_game_name"
+	lfgMoreSuggestionsPrefix  = "lfg_more_suggestions"  // lfg_more_suggestions::<normalizedQuery>
+	lfgCreateSuggestionPrefix = "lfg_create_suggestion" // lfg_create_suggestion::<id>
 )
+
+// in-memory mapping for suggestion button IDs -> game title
+var lfgSuggestionMap = struct {
+	sync.RWMutex
+	idToTitle map[string]string
+}{idToTitle: make(map[string]string)}
+
+var lfgSuggestionIDCounter uint64
+
+func newSuggestionID() string {
+	v := atomic.AddUint64(&lfgSuggestionIDCounter, 1)
+	return fmt.Sprintf("%x", v)
+}
+
+func storeSuggestionTitle(title string) string {
+	id := newSuggestionID()
+	lfgSuggestionMap.Lock()
+	lfgSuggestionMap.idToTitle[id] = title
+	lfgSuggestionMap.Unlock()
+	return id
+}
+
+func fetchSuggestionTitle(id string) (string, bool) {
+	lfgSuggestionMap.RLock()
+	t, ok := lfgSuggestionMap.idToTitle[id]
+	lfgSuggestionMap.RUnlock()
+	return t, ok
+}
 
 // handleLFG processes /lfg commands (currently only setup)
 func (h *SlashHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -112,34 +143,40 @@ func (h *SlashHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.Interac
 
 // Handle component interactions (button press -> show modal)
 func (h *SlashHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Only one button currently
-	if i.MessageComponentData().CustomID != lfgPanelCustomID {
-		return
-	}
-	// Show modal to gather game name
-	modal := &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseModal,
-		Data: &discordgo.InteractionResponseData{
-			CustomID: lfgModalCustomID,
-			Title:    "Find/Create LFG Thread",
-			Components: []discordgo.MessageComponent{
-				discordgo.ActionsRow{
-					Components: []discordgo.MessageComponent{
-						&discordgo.TextInput{
-							CustomID:    lfgModalInputCustomID,
-							Label:       "Game Name",
-							Style:       discordgo.TextInputShort,
-							Placeholder: "Enter game name",
-							Required:    true,
-							MaxLength:   100,
+	cid := i.MessageComponentData().CustomID
+	switch {
+	case cid == lfgPanelCustomID:
+		// Show modal to gather game name
+		modal := &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseModal,
+			Data: &discordgo.InteractionResponseData{
+				CustomID: lfgModalCustomID,
+				Title:    "Find/Create LFG Thread",
+				Components: []discordgo.MessageComponent{
+					discordgo.ActionsRow{
+						Components: []discordgo.MessageComponent{
+							&discordgo.TextInput{
+								CustomID:    lfgModalInputCustomID,
+								Label:       "Game Name",
+								Style:       discordgo.TextInputShort,
+								Placeholder: "Enter game name",
+								Required:    true,
+								MaxLength:   100,
+							},
 						},
 					},
 				},
 			},
-		},
-	}
-	if err := s.InteractionRespond(i.Interaction, modal); err != nil {
-		h.config.Logger.Errorf("LFG: failed to open modal: %v", err)
+		}
+		if err := s.InteractionRespond(i.Interaction, modal); err != nil {
+			h.config.Logger.Errorf("LFG: failed to open modal: %v", err)
+		}
+	case strings.HasPrefix(cid, lfgMoreSuggestionsPrefix+"::"):
+		h.handleMoreSuggestions(s, i)
+	case strings.HasPrefix(cid, lfgCreateSuggestionPrefix+"::"):
+		h.handleCreateSuggestionThread(s, i)
+	default:
+		// ignore
 	}
 }
 
@@ -248,37 +285,9 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 		createdNew = true
 	}
 
-	// 4. Gather partial thread suggestions (cache partial matches) up to 3
+	// 4. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
 	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
-	// 5. Gather IGDB title suggestions (excluding duplicates & exact). Up to 3.
-	var igdbSuggestionSections []suggestionSection
-	if searchRes.Suggestions != nil {
-		for _, g := range searchRes.Suggestions {
-			if g == nil || g.Name == "" {
-				continue
-			}
-			if exactThreadChannel != nil && strings.EqualFold(g.Name, exactThreadChannel.Name) {
-				continue
-			}
-			dup := false
-			for _, pts := range partialThreadSuggestions {
-				if strings.EqualFold(pts.Title, g.Name) {
-					dup = true
-					break
-				}
-			}
-			if dup {
-				continue
-			}
-			igdbSuggestionSections = append(igdbSuggestionSections, buildSuggestionSectionFromName(s, forumID, g.Name))
-			if len(igdbSuggestionSections) >= 3 {
-				break
-			}
-		}
-	}
-
-	// 6. Build embed fields list: exact (if any), then partial thread suggestions, then IGDB suggestions.
 	var fields []*discordgo.MessageEmbedField
 	if exactThreadChannel != nil {
 		status := "existing thread"
@@ -293,23 +302,26 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 	for _, sec := range partialThreadSuggestions {
 		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("%s (suggestion)", sec.Title), Value: sec.Value})
 	}
-	for _, sec := range igdbSuggestionSections {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("%s (suggestion)", sec.Title), Value: sec.Value})
-	}
-	if len(fields) == 0 { // fallback when nothing at all
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "No Results", Value: "Try a more specific title."})
+	if len(fields) == 0 {
+		fields = append(fields, &discordgo.MessageEmbedField{Name: "No Results", Value: "Try a more specific title or click 'Show more suggestions'."})
 	}
 
-	embed := &discordgo.MessageEmbed{
-		Title:  "LFG Thread Lookup",
-		Color:  utils.Colors.Fancy(),
-		Fields: fields,
+	// Add Show More Suggestions button if we likely have more IGDB suggestions (searchRes.Suggestions length > 0 after filtering duplicates/exact)
+	var components []discordgo.MessageComponent
+	if len(searchRes.Suggestions) > 0 {
+		components = []discordgo.MessageComponent{
+			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, normalized)},
+			}},
+		}
 	}
+
+	embed := &discordgo.MessageEmbed{Title: "LFG Thread Lookup", Color: utils.Colors.Fancy(), Fields: fields}
 	if createdNew && exactThreadChannel != nil {
 		h.config.Logger.Infof("LFG: created new thread for '%s'", exactThreadChannel.Name)
 	}
 	embedSlice := []*discordgo.MessageEmbed{embed}
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice})
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice, Components: &components})
 }
 
 // findCachedExactThread validates and returns a cached exact thread channel if still valid.
@@ -468,19 +480,139 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, norma
 	return out
 }
 
-// buildSuggestionSectionFromName checks for existing thread of a given title; if absent returns placeholder.
-func buildSuggestionSectionFromName(s *discordgo.Session, forumID, gameTitle string) suggestionSection {
-	norm := strings.ToLower(gameTitle)
-	lfgThreadCache.RLock()
-	threadID, ok := lfgThreadCache.nameToThreadID[norm]
-	lfgThreadCache.RUnlock()
-	if ok {
-		ch, err := s.Channel(threadID)
-		if err == nil && ch != nil && ch.ParentID == forumID {
-			return suggestionSection{Title: gameTitle, Value: fmt.Sprintf("- %s", threadLink(ch))}
+// (previous helper buildSuggestionSectionFromName removed as suggestions now only show existing threads initially; creation via buttons runs a new exact search.)
+
+// ---- More Suggestions Flow ----
+
+// handleMoreSuggestions builds an embed with up to 9 IGDB title suggestions and buttons (1-5) to create threads.
+func (h *SlashHandler) handleMoreSuggestions(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if h.igdbClient == nil {
+		return
+	}
+	cid := i.MessageComponentData().CustomID
+	parts := strings.SplitN(cid, "::", 2)
+	if len(parts) != 2 {
+		return
+	}
+	queryNorm := parts[1]
+	// Re-run search for suggestions
+	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, queryNorm)
+	if err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("❌ error fetching suggestions: %v", err)}})
+		return
+	}
+	if searchRes == nil || len(searchRes.Suggestions) == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "No further suggestions available."}})
+		return
+	}
+
+	// Collect up to 9 suggestion names (unique by lowercase)
+	seen := make(map[string]struct{})
+	var names []string
+	for _, g := range searchRes.Suggestions {
+		if g == nil || g.Name == "" {
+			continue
+		}
+		low := strings.ToLower(g.Name)
+		if _, ok := seen[low]; ok {
+			continue
+		}
+		seen[low] = struct{}{}
+		names = append(names, g.Name)
+		if len(names) >= 9 {
+			break
 		}
 	}
-	return suggestionSection{Title: gameTitle, Value: fmt.Sprintf("- No thread created yet. Lookup this `%s` exactly to create one.", gameTitle)}
+	if len(names) == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "No further suggestions available."}})
+		return
+	}
+
+	// Prepare button mappings for first 5
+	var btns []discordgo.MessageComponent
+	for idx := 0; idx < len(names) && idx < 5; idx++ {
+		id := storeSuggestionTitle(names[idx])
+		btns = append(btns, &discordgo.Button{Style: discordgo.PrimaryButton, Label: fmt.Sprintf("%d", idx+1), CustomID: fmt.Sprintf("%s::%s", lfgCreateSuggestionPrefix, id)})
+	}
+	components := []discordgo.MessageComponent{}
+	if len(btns) > 0 {
+		components = append(components, discordgo.ActionsRow{Components: btns})
+	}
+
+	// Build suggestion list text
+	var listBuilder strings.Builder
+	for i, name := range names {
+		listBuilder.WriteString(fmt.Sprintf("%d. %s\n", i+1, name))
+	}
+	listBuilder.WriteString("\nClick a numbered button (1-5) below to create a thread for that game.")
+
+	embed := &discordgo.MessageEmbed{
+		Title:  "More LFG Suggestions",
+		Color:  utils.Colors.Fancy(),
+		Fields: []*discordgo.MessageEmbedField{{Name: "Suggestions", Value: listBuilder.String()}},
+	}
+	embedSlice := []*discordgo.MessageEmbed{embed}
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice, Components: components}})
+}
+
+// handleCreateSuggestionThread creates a thread for selected suggestion and updates message with final embed.
+func (h *SlashHandler) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if h.igdbClient == nil {
+		return
+	}
+	cid := i.MessageComponentData().CustomID
+	parts := strings.SplitN(cid, "::", 2)
+	if len(parts) != 2 {
+		return
+	}
+	id := parts[1]
+	title, ok := fetchSuggestionTitle(id)
+	if !ok || title == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unknown suggestion."}})
+		return
+	}
+	forumID := h.config.GetGamerPalsLFGForumChannelID()
+	if forumID == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured."}})
+		return
+	}
+
+	norm := strings.ToLower(title)
+	// Reuse existing if present
+	if ch, exists := h.findCachedExactThread(s, forumID, norm); exists {
+		finalizeSuggestionThreadResponse(s, i, ch, false)
+		return
+	}
+
+	// Search exact for this title
+	res, err := games.ExactMatchWithSuggestions(h.igdbClient, title)
+	if err != nil || res == nil || res.ExactMatch == nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to create thread (no exact match)."}})
+		return
+	}
+
+	ch, err := h.createLFGThreadFromExactMatch(s, forumID, norm, res.ExactMatch)
+	if err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
+		return
+	}
+	finalizeSuggestionThreadResponse(s, i, ch, true)
+}
+
+func finalizeSuggestionThreadResponse(s *discordgo.Session, i *discordgo.InteractionCreate, ch *discordgo.Channel, created bool) {
+	status := "existing thread"
+	if created {
+		status = "created thread"
+	}
+	embed := &discordgo.MessageEmbed{
+		Title: "Thread Created",
+		Color: utils.Colors.Fancy(),
+		Fields: []*discordgo.MessageEmbedField{
+			{Name: fmt.Sprintf("%s (%s)", ch.Name, status), Value: fmt.Sprintf("- %s", threadLink(ch))},
+		},
+	}
+	embedSlice := []*discordgo.MessageEmbed{embed}
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice}})
 }
 
 func idOrEmpty(ch *discordgo.Channel) string {

@@ -1,7 +1,12 @@
 package commands
 
 import (
+	"bytes"
 	"fmt"
+	"io"
+	"net/http"
+	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -460,10 +465,39 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 		initialContent = initialContent[:1797] + "..."
 	}
 
-	thread, err := s.ForumThreadStart(forumID, displayName, 4320, initialContent)
-	if err != nil {
-		h.config.Logger.Errorf("LFG: failed creating forum thread '%s' in forum %s: %v", displayName, forumID, err)
-		return nil, err
+	var thread *discordgo.Channel
+	var err error
+
+	// If we have a cover image URL, try to download and attach it so the forum preview shows the image.
+	if coverURL != "" {
+		imgBytes, fileName, dlErr := downloadCoverImage(coverURL)
+		if dlErr == nil && len(imgBytes) > 0 {
+			thread, err = s.ForumThreadStartComplex(
+				forumID,
+				&discordgo.ThreadStart{ // basic thread metadata
+					Name:                displayName,
+					AutoArchiveDuration: 4320,
+				},
+				&discordgo.MessageSend{
+					Content: initialContent,
+					Files:   []*discordgo.File{{Name: fileName, ContentType: "image/jpeg", Reader: bytes.NewReader(imgBytes)}},
+				},
+			)
+			if err != nil {
+				h.config.Logger.Warnf("LFG: cover attach failed for '%s' (%v); falling back to no-image thread", displayName, err)
+				thread = nil // force fallback below
+			}
+		} else if dlErr != nil {
+			h.config.Logger.Debugf("LFG: failed downloading cover image for '%s': %v", displayName, dlErr)
+		}
+	}
+
+	if thread == nil { // fallback simple creation
+		thread, err = s.ForumThreadStart(forumID, displayName, 4320, initialContent)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed creating forum thread '%s' in forum %s: %v", displayName, forumID, err)
+			return nil, err
+		}
 	}
 	lfgThreadCache.Lock()
 	lfgThreadCache.nameToThreadID[normalized] = thread.ID
@@ -648,6 +682,37 @@ func threadLink(ch *discordgo.Channel) string {
 }
 
 func fmtPtr(s string) *string { return &s }
+
+// downloadCoverImage fetches the cover image bytes and returns data, suggested filename, error.
+// Discord requires an attachment for forum preview; we keep it simple and assume JPEG.
+func downloadCoverImage(url string) ([]byte, string, error) {
+	resp, err := http.Get(url) // #nosec G107 (trusted IGDB CDN URL built earlier)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Derive filename from URL path's last segment (strip query) and enforce .jpg
+	base := path.Base(strings.Split(url, "?")[0])
+	// IGDB cover URLs like t_cover_big/<image_id>.jpg
+	jpgRe := regexp.MustCompile(`(?i)\.jpe?g$`)
+	if !jpgRe.MatchString(base) {
+		base = base + ".jpg"
+	}
+	if len(base) > 64 { // keep it short
+		base = base[:64]
+	}
+	return data, base, nil
+}
 
 // Public wrappers used by bot interaction router
 

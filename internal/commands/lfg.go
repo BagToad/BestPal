@@ -352,6 +352,7 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 	var gameSummary string
 	var playerLine string
 	var linksLine string
+	var coverURL string
 
 	if exact.Summary != "" {
 		gameSummary = exact.Summary
@@ -397,6 +398,20 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 		}
 	}
 
+	// Fetch cover art (used by Discord as forum thread preview if placed first in initial message)
+	// We intentionally keep this lightweight; a cache could be added later if needed.
+	// IGDB Game struct's Cover field is an ID referencing a cover resource containing image_id.
+	if exact.Cover > 0 { // Cover is present
+		if covers, err := h.igdbClient.Covers.List([]int{exact.Cover}, igdb.SetFields("image_id")); err == nil {
+			if len(covers) > 0 && covers[0] != nil && covers[0].ImageID != "" {
+				// Use a medium/large preset; can adjust size variant if needed (t_cover_big, t_1080p, etc.)
+				coverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", covers[0].ImageID)
+			}
+		} else {
+			h.config.Logger.Debugf("LFG: failed fetching cover for '%s': %v", displayName, err)
+		}
+	}
+
 	if len(exact.MultiplayerModes) > 0 {
 		if modes, err := h.igdbClient.MultiplayerModes.List(exact.MultiplayerModes, igdb.SetFields("*")); err == nil {
 			var onlineMax, coopMax int
@@ -425,7 +440,12 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 		}
 	}
 
-	initialParts := []string{fmt.Sprintf("This is the LFG thread for _%s_! Use the LFG panel anytime to get a link.", displayName)}
+	initialParts := []string{}
+	// Place cover URL first so forum preview picks it up
+	if coverURL != "" {
+		initialParts = append(initialParts, coverURL)
+	}
+	initialParts = append(initialParts, fmt.Sprintf("This is the LFG thread for _%s_! Use the LFG panel anytime to get a link.", displayName))
 	if gameSummary != "" {
 		initialParts = append(initialParts, "_"+gameSummary+"_")
 	}
@@ -479,8 +499,6 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, norma
 	lfgThreadCache.RUnlock()
 	return out
 }
-
-// (previous helper buildSuggestionSectionFromName removed as suggestions now only show existing threads initially; creation via buttons runs a new exact search.)
 
 // ---- More Suggestions Flow ----
 

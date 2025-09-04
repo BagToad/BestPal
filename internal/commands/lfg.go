@@ -446,10 +446,6 @@ func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forum
 	}
 
 	initialParts := []string{}
-	// Place cover URL first so forum preview picks it up
-	if coverURL != "" {
-		initialParts = append(initialParts, coverURL)
-	}
 	initialParts = append(initialParts, fmt.Sprintf("This is the LFG thread for _%s_! Use the LFG panel anytime to get a link.", displayName))
 	if gameSummary != "" {
 		initialParts = append(initialParts, "_"+gameSummary+"_")

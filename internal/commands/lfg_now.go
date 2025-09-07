@@ -220,5 +220,3 @@ func (h *SlashCommandHandler) handleLFGSetupLookingNow(s *discordgo.Session, i *
 	_ = h.refreshLFGNowPanel(s) // will create empty (no messages yet)
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Looking NOW panel initialized. It will populate as users use /lfg now in threads.")})
 }
-
-// rename original setup -> find-a-thread; adjust routing in handleLFG

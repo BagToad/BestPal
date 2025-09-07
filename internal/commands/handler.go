@@ -10,18 +10,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Global accessor registration for scheduler cross-package refresh without circular dependency
-var (
-	globalSlashHandler     *SlashCommandHandler
-	globalSlashHandlerOnce sync.Once
-)
-
-func RegisterGlobalSlashHandler(h *SlashCommandHandler) {
-	globalSlashHandlerOnce.Do(func() { globalSlashHandler = h })
-}
-
-func GetGlobalSlashHandler() *SlashCommandHandler { return globalSlashHandler }
-
 // Command represents a Discord application command with its handler
 type Command struct {
 	ApplicationCommand *discordgo.ApplicationCommand

@@ -37,23 +37,29 @@ func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.D
 	}
 }
 
+// RegisterNewMinuteFunc registers a new function to be called every minute.
+// returned errors get bubbled up to the log channel and the log file
 func (s *Scheduler) RegisterNewMinuteFunc(fn func() error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.minuteFuncs = append(s.minuteFuncs, fn)
 }
 
+// RegisterNewHourFunc registers a new function to be called every hour.
+// returned errors get bubbled up to the log channel and the log file
 func (s *Scheduler) RegisterNewHourFunc(fn func() error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.hourFuncs = append(s.hourFuncs, fn)
 }
 
+// Start starts the scheduler
 func (s *Scheduler) Start() {
 	s.startMinuteScheduler()
 	s.startHourScheduler()
 }
 
+// Stop stops the scheduler
 func (s *Scheduler) Stop() {
 	s.stopMinuteScheduler()
 	s.stopHourScheduler()

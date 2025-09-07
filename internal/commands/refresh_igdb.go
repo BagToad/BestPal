@@ -50,7 +50,7 @@ func (h *SlashHandler) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Inte
 	// Recreate IGDB client with new token so subsequent calls use it
 	h.igdbClient = igdb.NewClient(clientID, token, nil)
 
-	msg := fmt.Sprintf("✅ IGDB token refreshed. Stored value updated.\nExpires In: %v", time.Duration(expiresIn).Hours())
+	msg := fmt.Sprintf("✅ IGDB token refreshed. Stored value updated.\nExpires In: %.2f hours", (time.Duration(expiresIn) * time.Second).Hours())
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(msg)})
 }
 

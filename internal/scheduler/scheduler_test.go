@@ -3,7 +3,6 @@ package scheduler
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/pairing"
 	"os"
 	"testing"
 	"time"
@@ -36,12 +35,11 @@ func TestScheduler(t *testing.T) {
 		"database_path":     dbPath,
 	})
 
-	// Create mock session and pairing service
+	// Create mock session
 	session := &discordgo.Session{}
-	pairingService := pairing.NewPairingService(session, cfg, db)
 
 	// Create scheduler
-	scheduler := NewScheduler(session, cfg, db, pairingService)
+	scheduler := NewScheduler(session, cfg, db)
 
 	// Test that scheduler can be created
 	if scheduler == nil {
@@ -49,12 +47,12 @@ func TestScheduler(t *testing.T) {
 	}
 
 	// Test starting and stopping scheduler
-	scheduler.StartMinuteScheduler()
+	scheduler.startMinuteScheduler()
 
 	// Let it run briefly
 	time.Sleep(100 * time.Millisecond)
 
-	scheduler.StopMinuteScheduler()
+	scheduler.stopMinuteScheduler()
 
 	// Test that we can get scheduled pairings (should be empty)
 	scheduledPairings, err := db.GetScheduledPairings()

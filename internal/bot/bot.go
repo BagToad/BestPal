@@ -14,7 +14,9 @@ import (
 	"gamerpal/internal/commands"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
+	"gamerpal/internal/pairing"
 	"gamerpal/internal/scheduler"
+	"gamerpal/internal/welcome"
 )
 
 // Bot represents the Discord bot
@@ -94,15 +96,34 @@ func (b *Bot) Start() error {
 	b.slashHandler.InitializePairingService(b.session)
 
 	// Create and initialize scheduler
-	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashHandler.GetDB(), b.slashHandler.PairingService)
+	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashHandler.GetDB())
 
-	// Start the scheduler
-	b.scheduler.StartMinuteScheduler()
-	defer b.scheduler.StopMinuteScheduler()
+	// Add services to scheduler
+	welcomeService := welcome.NewWelcomeService(b.session, b.config)
+	b.scheduler.RegisterNewMinuteFunc(func() error {
+		// TODO: These services should return errors
+		welcomeService.CleanNewPalsRoleFromOldMembers()
+		welcomeService.CheckAndWelcomeNewPals()
+		return nil
+	})
 
-	// Start the hourly scheduler
-	b.scheduler.StartHourScheduler()
-	defer b.scheduler.StopHourScheduler()
+	pairingService := pairing.NewPairingService(b.session, b.config, b.slashHandler.GetDB())
+	b.scheduler.RegisterNewMinuteFunc(func() error {
+		// TODO: These services should return errors
+		pairingService.CheckAndExecuteScheduledPairings()
+		return nil
+	})
+
+	b.scheduler.RegisterNewMinuteFunc(func() error {
+		return b.slashHandler.RefreshLFGNowPanel(b.session)
+	})
+
+	b.scheduler.RegisterNewHourFunc(func() error {
+		return b.config.RotateAndPruneLogs()
+	})
+
+	b.scheduler.Start()
+	defer b.scheduler.Stop()
 
 	// Update status to indicate the bot is awake
 	if err := b.session.UpdateGameStatus(0, "OK OK I'm awake!"); err != nil {

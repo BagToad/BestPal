@@ -106,6 +106,7 @@ func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		{"new_pals_time_between_welcome_messages", true},   // Duration setting
 		{"database_path", true},                            // File path
 		{"log_dir", true},                                  // Directory path
+		{"gamerpals_log_channel_id", true},                 // Harmless ID
 	}
 
 	// Format the keys into a readable list

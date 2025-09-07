@@ -34,6 +34,10 @@ func (c *Config) GetGamerPalsModActionLogChannelID() string {
 	return c.v.GetString("gamerpals_mod_action_log_channel_id")
 }
 
+func (c *Config) GetGamerpalsLogChannelID() string {
+	return c.v.GetString("gamerpals_log_channel_id")
+}
+
 func (c *Config) GetGamerPalsPairingCategoryID() string {
 	return c.v.GetString("gamerpals_pairing_category_id")
 }

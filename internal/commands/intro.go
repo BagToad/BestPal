@@ -9,7 +9,7 @@ import (
 )
 
 // handleIntro handles the intro slash command
-func (h *SlashHandler) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get the introductions forum channel ID from config
 	introsChannelID := h.config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {

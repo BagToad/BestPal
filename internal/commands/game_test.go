@@ -14,7 +14,7 @@ import (
 )
 
 // newTestHandler creates a handler for testing
-func newTestHandler(t *testing.T) *SlashHandler {
+func newTestHandler(t *testing.T) *SlashCommandHandler {
 	t.Helper()
 	cfg := newTestConfig(t)
 

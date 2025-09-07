@@ -18,7 +18,7 @@ import (
 
 // handleLog processes the /log command with subcommands for downloading logs
 // Only accessible to super admins in DM context
-func (h *SlashHandler) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, h.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -54,7 +54,7 @@ func (h *SlashHandler) handleLog(s *discordgo.Session, i *discordgo.InteractionC
 	}
 }
 
-func (h *SlashHandler) handleLogDownload(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLogDownload(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	logDir := h.config.GetLogDir()
 	if logDir == "" {
 		h.sendErrorFollowup(s, i, "❌ Log directory is not configured.")
@@ -124,7 +124,7 @@ func (h *SlashHandler) handleLogDownload(s *discordgo.Session, i *discordgo.Inte
 	}
 }
 
-func (h *SlashHandler) handleLogLatest(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLogLatest(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	logDir := h.config.GetLogDir()
 	if logDir == "" {
 		h.sendErrorFollowup(s, i, "❌ Log directory is not configured.")
@@ -197,7 +197,7 @@ func (h *SlashHandler) handleLogLatest(s *discordgo.Session, i *discordgo.Intera
 }
 
 // getLogFiles returns a sorted list of log files in the directory
-func (h *SlashHandler) getLogFiles(logDir string) ([]string, error) {
+func (h *SlashCommandHandler) getLogFiles(logDir string) ([]string, error) {
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		return nil, err
@@ -222,7 +222,7 @@ func (h *SlashHandler) getLogFiles(logDir string) ([]string, error) {
 }
 
 // getLatestLogFile returns the path to the most recent log file
-func (h *SlashHandler) getLatestLogFile(logDir string) (string, error) {
+func (h *SlashCommandHandler) getLatestLogFile(logDir string) (string, error) {
 	logFiles, err := h.getLogFiles(logDir)
 	if err != nil {
 		return "", err
@@ -237,7 +237,7 @@ func (h *SlashHandler) getLatestLogFile(logDir string) (string, error) {
 }
 
 // createLogZip creates a zip archive containing all the log files
-func (h *SlashHandler) createLogZip(logFiles []string, zipPath string) error {
+func (h *SlashCommandHandler) createLogZip(logFiles []string, zipPath string) error {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return err
@@ -266,7 +266,7 @@ func (h *SlashHandler) createLogZip(logFiles []string, zipPath string) error {
 }
 
 // addFileToZip adds a single file to the zip archive
-func (h *SlashHandler) addFileToZip(zipWriter *zip.Writer, filePath string) error {
+func (h *SlashCommandHandler) addFileToZip(zipWriter *zip.Writer, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -305,7 +305,7 @@ func (h *SlashHandler) addFileToZip(zipWriter *zip.Writer, filePath string) erro
 }
 
 // getLastNLines reads the last N lines from a file
-func (h *SlashHandler) getLastNLines(filePath string, n int) ([]string, error) {
+func (h *SlashCommandHandler) getLastNLines(filePath string, n int) ([]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -337,7 +337,7 @@ func (h *SlashHandler) getLastNLines(filePath string, n int) ([]string, error) {
 }
 
 // sendErrorFollowup sends an error message as a followup
-func (h *SlashHandler) sendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
+func (h *SlashCommandHandler) sendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(message),
 	})

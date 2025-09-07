@@ -13,7 +13,7 @@ import (
 const maxInactiveUsersDisplay = 20
 
 // handlePruneInactive handles the prune-inactive slash command
-func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has administrator permissions
 	if !utils.HasAdminPermissions(s, i) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -157,7 +157,7 @@ func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.In
 
 // handlePruneForum scans a forum channel for threads whose starter was deleted.
 // Dry run by default; when execute:true, deletes flagged threads.
-func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Admin guard
 	if !utils.HasAdminPermissions(s, i) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

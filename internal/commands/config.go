@@ -8,7 +8,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, h.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

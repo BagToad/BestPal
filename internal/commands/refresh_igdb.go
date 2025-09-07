@@ -16,7 +16,7 @@ import (
 
 // handleRefreshIGDB refreshes the IGDB access token using the stored client ID and client secret.
 // Only usable in bot DM context by super admins.
-func (h *SlashHandler) handleRefreshIGDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRefreshIGDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, h.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

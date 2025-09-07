@@ -35,7 +35,7 @@ func isAllowedRegion(r string) bool {
 }
 
 // handleLFGNow handles /lfg now subcommand
-func (h *SlashHandler) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer reply
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
 
@@ -105,7 +105,7 @@ func (h *SlashHandler) handleLFGNow(s *discordgo.Session, i *discordgo.Interacti
 }
 
 // refreshLFGNowPanel rebuilds and edits/reposts the panel.
-func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
+func (h *SlashCommandHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 	h.lfgNowMu.Lock()
 	defer h.lfgNowMu.Unlock()
 
@@ -213,10 +213,12 @@ func (h *SlashHandler) refreshLFGNowPanel(s *discordgo.Session) error {
 }
 
 // RefreshLFGNowPanel is an exported wrapper for background tasks.
-func (h *SlashHandler) RefreshLFGNowPanel(s *discordgo.Session) error { return h.refreshLFGNowPanel(s) }
+func (h *SlashCommandHandler) RefreshLFGNowPanel(s *discordgo.Session) error {
+	return h.refreshLFGNowPanel(s)
+}
 
 // handleLFGSetupLookingNow sets up the panel in the current channel
-func (h *SlashHandler) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource})
 	chID := i.ChannelID
 	// Clean out any previous panel messages (best effort)

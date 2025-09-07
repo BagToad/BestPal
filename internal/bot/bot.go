@@ -21,10 +21,10 @@ import (
 
 // Bot represents the Discord bot
 type Bot struct {
-	session      *discordgo.Session
-	config       *config.Config
-	slashHandler *commands.SlashHandler
-	scheduler    *scheduler.Scheduler
+	session             *discordgo.Session
+	config              *config.Config
+	slashCommandHandler *commands.SlashCommandHandler
+	scheduler           *scheduler.Scheduler
 }
 
 // New creates a new Bot instance
@@ -40,9 +40,9 @@ func New(cfg *config.Config) (*Bot, error) {
 	commands.RegisterGlobalSlashHandler(handler)
 
 	bot := &Bot{
-		session:      session,
-		config:       cfg,
-		slashHandler: handler,
+		session:             session,
+		config:              cfg,
+		slashCommandHandler: handler,
 	}
 
 	// Set intents - we need guild, member, message, and message content intents
@@ -88,15 +88,15 @@ func (b *Bot) Start() error {
 	}
 
 	// Register slash commands
-	if err := b.slashHandler.RegisterCommands(b.session); err != nil {
+	if err := b.slashCommandHandler.RegisterCommands(b.session); err != nil {
 		return fmt.Errorf("error registering commands: %w", err)
 	}
 
 	// Initialize pairing service with session
-	b.slashHandler.InitializePairingService(b.session)
+	b.slashCommandHandler.InitializePairingService(b.session)
 
 	// Create and initialize scheduler
-	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashHandler.GetDB())
+	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashCommandHandler.GetDB())
 
 	// Add services to scheduler
 	welcomeService := welcome.NewWelcomeService(b.session, b.config)
@@ -107,7 +107,7 @@ func (b *Bot) Start() error {
 		return nil
 	})
 
-	pairingService := pairing.NewPairingService(b.session, b.config, b.slashHandler.GetDB())
+	pairingService := pairing.NewPairingService(b.session, b.config, b.slashCommandHandler.GetDB())
 	b.scheduler.RegisterNewMinuteFunc(func() error {
 		// TODO: These services should return errors
 		pairingService.CheckAndExecuteScheduledPairings()
@@ -115,7 +115,7 @@ func (b *Bot) Start() error {
 	})
 
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		return b.slashHandler.RefreshLFGNowPanel(b.session)
+		return b.slashCommandHandler.RefreshLFGNowPanel(b.session)
 	})
 
 	b.scheduler.RegisterNewHourFunc(func() error {
@@ -139,7 +139,7 @@ func (b *Bot) Start() error {
 
 	// Cleanup: Unregister commands, optionally
 	if os.Getenv("UNREGISTER_COMMANDS") == "true" {
-		b.slashHandler.UnregisterCommands(b.session)
+		b.slashCommandHandler.UnregisterCommands(b.session)
 	}
 
 	return nil
@@ -205,19 +205,19 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	// Slash commands
 	if i.Type == discordgo.InteractionApplicationCommand {
 		if i.ApplicationCommandData().Name != "" {
-			b.slashHandler.HandleInteraction(s, i)
+			b.slashCommandHandler.HandleInteraction(s, i)
 		}
 		return
 	}
 	// Component interactions
 	if i.Type == discordgo.InteractionMessageComponent {
 		// Delegate to LFG handler (currently only component using)
-		b.slashHandler.HandleLFGComponent(s, i)
+		b.slashCommandHandler.HandleLFGComponent(s, i)
 		return
 	}
 	// Modal submit
 	if i.Type == discordgo.InteractionModalSubmit {
-		b.slashHandler.HandleLFGModalSubmit(s, i)
+		b.slashCommandHandler.HandleLFGModalSubmit(s, i)
 		return
 	}
 }

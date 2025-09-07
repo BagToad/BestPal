@@ -9,7 +9,7 @@ import (
 )
 
 // handleUserStats handles the usercount slash command
-func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -39,7 +39,7 @@ func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.Intera
 }
 
 // handleOverviewStats handles the overview statistics display
-func (h *SlashHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (h *SlashCommandHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Count user types
 	userCount := 0
 	botCount := 0
@@ -195,7 +195,7 @@ func (h *SlashHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.In
 }
 
 // handleDailyStats handles the daily statistics display for the last 7 days
-func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (h *SlashCommandHandler) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Create a map to count joins by day for the last 7 days
 	dailyCounts := make(map[string]int)
 	now := time.Now()

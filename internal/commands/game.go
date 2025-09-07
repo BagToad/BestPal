@@ -11,7 +11,7 @@ import (
 )
 
 // handleGame handles the game lookup slash command
-func (h *SlashHandler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -171,7 +171,7 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 }
 
 // searchGame searches for a game using IGDB API and returns an embed
-func searchGame(h *SlashHandler, gameName string) (*igdb.Game, error) {
+func searchGame(h *SlashCommandHandler, gameName string) (*igdb.Game, error) {
 	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 	// Get an exact match first
@@ -196,7 +196,7 @@ func searchGame(h *SlashHandler, gameName string) (*igdb.Game, error) {
 	return games[0], nil
 }
 
-func newGameEmbedOptionsFromGame(h *SlashHandler, game *igdb.Game) gameEmbedOptions {
+func newGameEmbedOptionsFromGame(h *SlashCommandHandler, game *igdb.Game) gameEmbedOptions {
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,

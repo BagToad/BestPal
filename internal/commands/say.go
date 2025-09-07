@@ -8,7 +8,7 @@ import (
 )
 
 // handleSay handles the say slash command
-func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Parse command options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 2 {

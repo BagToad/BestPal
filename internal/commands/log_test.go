@@ -33,7 +33,7 @@ func TestLogCommands(t *testing.T) {
 		"log_dir": tempDir,
 	})
 
-	handler := &SlashHandler{
+	handler := &SlashCommandHandler{
 		config: cfg,
 	}
 

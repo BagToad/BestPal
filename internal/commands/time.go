@@ -9,7 +9,7 @@ import (
 )
 
 // handleTime handles the /time command
-func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -20,7 +20,7 @@ func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.Interaction
 }
 
 // handleTimeParse handles the time parse logic
-func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Missing Parameter",

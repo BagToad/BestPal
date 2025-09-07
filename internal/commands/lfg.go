@@ -103,7 +103,7 @@ func fetchSuggestionTitle(id string) (string, bool) {
 }
 
 // handleLFG processes /lfg commands (currently only setup)
-func (h *SlashHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if len(i.ApplicationCommandData().Options) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Missing subcommand"}})
 		return
@@ -123,7 +123,7 @@ func (h *SlashHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionC
 }
 
 // handleLFGSetup posts (or replaces) the LFG panel in the current channel.
-func (h *SlashHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := h.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
@@ -151,7 +151,7 @@ func (h *SlashHandler) handleLFGSetup(s *discordgo.Session, i *discordgo.Interac
 }
 
 // Handle component interactions (button press -> show modal)
-func (h *SlashHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cid := i.MessageComponentData().CustomID
 	switch {
 	case cid == lfgPanelCustomID:
@@ -190,7 +190,7 @@ func (h *SlashHandler) handleLFGComponent(s *discordgo.Session, i *discordgo.Int
 }
 
 // Handle modal submission: look up / create thread then reply ephemerally with link.
-func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ModalSubmitData().CustomID != lfgModalCustomID {
 		return
 	}
@@ -334,7 +334,7 @@ func (h *SlashHandler) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.I
 }
 
 // findCachedExactThread validates and returns a cached exact thread channel if still valid.
-func (h *SlashHandler) findCachedExactThread(s *discordgo.Session, forumID, normalized string) (*discordgo.Channel, bool) {
+func (h *SlashCommandHandler) findCachedExactThread(s *discordgo.Session, forumID, normalized string) (*discordgo.Channel, bool) {
 	lfgThreadCache.RLock()
 	cacheRes, cacheHit := LFGCacheSearch(normalized)
 	lfgThreadCache.RUnlock()
@@ -353,7 +353,7 @@ func (h *SlashHandler) findCachedExactThread(s *discordgo.Session, forumID, norm
 }
 
 // createLFGThreadFromExactMatch builds metadata + creates the forum thread for an exact IGDB match.
-func (h *SlashHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forumID, normalized string, exact *igdb.Game) (*discordgo.Channel, error) {
+func (h *SlashCommandHandler) createLFGThreadFromExactMatch(s *discordgo.Session, forumID, normalized string, exact *igdb.Game) (*discordgo.Channel, error) {
 	if exact == nil {
 		return nil, fmt.Errorf("nil exact game")
 	}
@@ -537,7 +537,7 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, norma
 // ---- More Suggestions Flow ----
 
 // handleMoreSuggestions builds an embed with up to 9 IGDB title suggestions and buttons (1-5) to create threads.
-func (h *SlashHandler) handleMoreSuggestions(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if h.igdbClient == nil {
 		return
 	}
@@ -608,7 +608,7 @@ func (h *SlashHandler) handleMoreSuggestions(s *discordgo.Session, i *discordgo.
 }
 
 // handleCreateSuggestionThread creates a thread for selected suggestion and updates message with final embed.
-func (h *SlashHandler) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if h.igdbClient == nil {
 		return
 	}
@@ -717,11 +717,11 @@ func downloadCoverImage(url string) ([]byte, string, error) {
 // Public wrappers used by bot interaction router
 
 // HandleLFGComponent handles the LFG component interactions.
-func (h *SlashHandler) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	h.handleLFGComponent(s, i)
 }
 
 // HandleLFGModalSubmit handles the submission of the LFG modal.
-func (h *SlashHandler) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	h.handleLFGModalSubmit(s, i)
 }

@@ -10,7 +10,7 @@ import (
 
 func LogToChannel(cfg *config.Config, s *discordgo.Session, m string) error {
 	logEmbed := &discordgo.MessageEmbed{
-		Title:       "Scheduler Message",
+		Title:       "Best Pal Message",
 		Description: m,
 		Color:       Colors.Info(),
 		Timestamp:   time.Now().Format(time.RFC3339),

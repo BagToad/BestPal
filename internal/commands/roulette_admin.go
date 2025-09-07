@@ -10,7 +10,7 @@ import (
 )
 
 // handleRouletteAdmin handles the roulette-admin command and its subcommands
-func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has admin permissions
 	if !utils.HasAdminPermissions(s, i) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -62,7 +62,7 @@ func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.In
 }
 
 // handleRouletteAdminHelp shows detailed help for roulette admin commands
-func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🚀 Roulette Admin Commands - Help",
 		Description: "Administrative commands for managing the roulette pairing system",
@@ -119,7 +119,7 @@ func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordg
 }
 
 // handleRouletteAdminDebug shows debug information about the roulette system
-func (h *SlashHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Defer response since this might take a moment
@@ -190,7 +190,7 @@ func (h *SlashHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discord
 }
 
 // handleRouletteAdminPair handles the pairing command
-func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	guildID := i.GuildID
 
 	// Parse options
@@ -245,7 +245,7 @@ func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordg
 }
 
 // schedulePairing schedules a pairing for later
-func (h *SlashHandler) schedulePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, pairTime time.Time, dryRun bool) {
+func (h *SlashCommandHandler) schedulePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, pairTime time.Time, dryRun bool) {
 	if !dryRun {
 		err := h.DB.SetRouletteSchedule(guildID, pairTime)
 		if err != nil {
@@ -267,7 +267,7 @@ func (h *SlashHandler) schedulePairing(s *discordgo.Session, i *discordgo.Intera
 }
 
 // executePairing executes the pairing algorithm
-func (h *SlashHandler) executePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, dryRun bool) {
+func (h *SlashCommandHandler) executePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, dryRun bool) {
 	// Execute pairing using the pairing service
 	result, err := h.PairingService.ExecutePairing(guildID, dryRun)
 	if err != nil {
@@ -340,7 +340,7 @@ func (h *SlashHandler) executePairing(s *discordgo.Session, i *discordgo.Interac
 }
 
 // handleRouletteAdminReset handles the reset subcommand
-func (h *SlashHandler) handleRouletteAdminReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Respond with thinking message
@@ -397,7 +397,7 @@ func (h *SlashHandler) handleRouletteAdminReset(s *discordgo.Session, i *discord
 }
 
 // handleRouletteAdminDeleteSchedule handles removing a scheduled pairing
-func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Defer response
@@ -461,7 +461,7 @@ func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i
 }
 
 // handleRouletteAdminSimulatePairing handles the simulate-pairing subcommand
-func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	guildID := i.GuildID
 
 	// Parse options

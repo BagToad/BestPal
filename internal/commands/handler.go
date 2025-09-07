@@ -12,15 +12,15 @@ import (
 
 // Global accessor registration for scheduler cross-package refresh without circular dependency
 var (
-	globalSlashHandler     *SlashHandler
+	globalSlashHandler     *SlashCommandHandler
 	globalSlashHandlerOnce sync.Once
 )
 
-func RegisterGlobalSlashHandler(h *SlashHandler) {
+func RegisterGlobalSlashHandler(h *SlashCommandHandler) {
 	globalSlashHandlerOnce.Do(func() { globalSlashHandler = h })
 }
 
-func GetGlobalSlashHandler() *SlashHandler { return globalSlashHandler }
+func GetGlobalSlashHandler() *SlashCommandHandler { return globalSlashHandler }
 
 // Command represents a Discord application command with its handler
 type Command struct {
@@ -29,8 +29,8 @@ type Command struct {
 	Development        bool
 }
 
-// SlashHandler handles command processing
-type SlashHandler struct {
+// SlashCommandHandler handles command processing
+type SlashCommandHandler struct {
 	igdbClient     *igdb.Client
 	Commands       map[string]*Command
 	config         *config.Config
@@ -45,7 +45,7 @@ type SlashHandler struct {
 }
 
 // NewSlashHandler creates a new command handler
-func NewSlashHandler(cfg *config.Config) *SlashHandler {
+func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
@@ -56,7 +56,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		// Continue without database for now
 	}
 
-	h := &SlashHandler{
+	h := &SlashCommandHandler{
 		igdbClient:    igdbClient,
 		Commands:      make(map[string]*Command),
 		config:        cfg,
@@ -493,17 +493,17 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 }
 
 // GetDB returns the database instance (used by scheduler)
-func (h *SlashHandler) GetDB() *database.DB {
+func (h *SlashCommandHandler) GetDB() *database.DB {
 	return h.DB
 }
 
 // InitializePairingService initializes the pairing service with a Discord session
-func (h *SlashHandler) InitializePairingService(session *discordgo.Session) {
+func (h *SlashCommandHandler) InitializePairingService(session *discordgo.Session) {
 	h.PairingService = pairing.NewPairingService(session, h.config, h.DB)
 }
 
 // RegisterCommands registers all slash commands with Discord
-func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
+func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
@@ -543,7 +543,7 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 }
 
 // HandleInteraction routes slash command interactions
-func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ApplicationCommandData().Name == "" {
 		return
 	}
@@ -555,7 +555,7 @@ func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.Inte
 }
 
 // UnregisterCommands removes all registered commands (useful for cleanup)
-func (h *SlashHandler) UnregisterCommands(s *discordgo.Session) {
+func (h *SlashCommandHandler) UnregisterCommands(s *discordgo.Session) {
 	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {

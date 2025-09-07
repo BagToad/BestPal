@@ -22,18 +22,6 @@ type lfgNowEntry struct {
 	UpdatedAt   time.Time
 }
 
-var allowedRegions = []string{"NA", "EU", "ASIA", "SA", "OCE"}
-
-func isAllowedRegion(r string) bool {
-	r = strings.ToUpper(strings.TrimSpace(r))
-	for _, ar := range allowedRegions {
-		if r == ar {
-			return true
-		}
-	}
-	return false
-}
-
 // handleLFGNow handles /lfg now subcommand
 func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer reply
@@ -67,10 +55,6 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 		}
 	}
 
-	if !isAllowedRegion(region) {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Invalid region. Valid: NA, EU, ASIA, SA, OCE")})
-		return
-	}
 	if playerCount <= 0 || playerCount > 99 {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ player_count must be 1-99")})
 		return

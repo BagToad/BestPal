@@ -3,8 +3,8 @@ package commands
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/lfgpanel"
 	"gamerpal/internal/pairing"
-	"sync"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -25,11 +25,8 @@ type SlashCommandHandler struct {
 	DB             *database.DB
 	PairingService *pairing.PairingService
 
-	// Looking Now panel state
-	lfgNowMu            sync.RWMutex
-	lfgNowEntries       map[string]map[string]*lfgNowEntry // threadID -> userID -> entry
-	lfgNowPanelChannel  string                             // channel ID where panel lives
-	lfgNowPanelMessages []string                           // message IDs of current panel embeds
+	// LFG Now panel service (extracted state)
+	lfgNowSvc *lfgpanel.InMemoryService
 }
 
 // NewSlashHandler creates a new command handler
@@ -44,17 +41,18 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 		// Continue without database for now
 	}
 
-	h := &SlashCommandHandler{
-		igdbClient:    igdbClient,
-		Commands:      make(map[string]*Command),
-		config:        cfg,
-		DB:            db,
-		lfgNowEntries: make(map[string]map[string]*lfgNowEntry),
-	}
+	// initialize lfg now panel service (self-loads stored panel channel ID)
+	lfgSvc := lfgpanel.NewLFGPanelService(cfg).WithLogger(
+		func(msg string, args ...any) { cfg.Logger.Infof(msg, args...) },
+		func(msg string, args ...any) { cfg.Logger.Warnf(msg, args...) },
+	)
 
-	// Restore persisted Looking NOW panel channel if present
-	if chID := cfg.GetLFGNowPanelChannelID(); chID != "" {
-		h.lfgNowPanelChannel = chID
+	h := &SlashCommandHandler{
+		igdbClient: igdbClient,
+		Commands:   make(map[string]*Command),
+		config:     cfg,
+		DB:         db,
+		lfgNowSvc:  lfgSvc,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator

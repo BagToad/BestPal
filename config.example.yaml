@@ -6,6 +6,7 @@ bot_token: "your-discord-bot-token-here"
 
 # IGDB API Configuration
 igdb_client_id: "your-igdb-client-id-here"
+igdb_client_secret: "your-igdb-client-secret-here"
 igdb_client_token: "your-igdb-client-token-here"
 
 # For sort of random names in /say

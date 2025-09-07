@@ -178,6 +178,7 @@ func bindEnvs(v *viper.Viper) error {
 	}{
 		{"bot_token", "GAMERPAL_BOT_TOKEN"},
 		{"igdb_client_id", "GAMERPAL_IGDB_CLIENT_ID"},
+		{"igdb_client_secret", "GAMERPAL_IGDB_CLIENT_SECRET"},
 		{"igdb_client_token", "GAMERPAL_IGDB_CLIENT_TOKEN"},
 		{"log_dir", "GAMERPAL_LOG_DIR"},
 	}
@@ -198,6 +199,10 @@ func validateConfig(cfg *Config) error {
 
 	if cfg.v.GetString("igdb_client_id") == "" {
 		cfg.Logger.Warn("igdb_client_id is not set (set IGDB_CLIENT_ID or GAMERPAL_IGDB_CLIENT_ID environment variable)")
+	}
+
+	if cfg.v.GetString("igdb_client_secret") == "" {
+		cfg.Logger.Warn("igdb_client_secret is not set (set IGDB_CLIENT_SECRET or GAMERPAL_IGDB_CLIENT_SECRET environment variable)")
 	}
 
 	if cfg.v.GetString("igdb_client_token") == "" {

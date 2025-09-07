@@ -91,6 +91,7 @@ func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, 
 
 	configItems := []configItem{
 		{"igdb_client_id", false},                          // Token-like, don't show value
+		{"igdb_client_secret", false},                      // Token-like, don't show value
 		{"igdb_client_token", false},                       // Token, don't show value
 		{"github_models_token", false},                     // Token, don't show value
 		{"crypto_salt", false},                             // Sensitive, don't show value

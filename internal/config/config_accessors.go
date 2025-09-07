@@ -10,6 +10,10 @@ func (c *Config) GetIGDBClientID() string {
 	return c.v.GetString("igdb_client_id")
 }
 
+func (c *Config) GetIGDBClientSecret() string {
+	return c.v.GetString("igdb_client_secret")
+}
+
 func (c *Config) GetIGDBClientToken() string {
 	return c.v.GetString("igdb_client_token")
 }

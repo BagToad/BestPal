@@ -130,6 +130,14 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "refresh-igdb",
+				Description: "Refresh the IGDB client token using stored credentials (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+			},
+			HandlerFunc: h.handleRefreshIGDB,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "config",
 				Description: "View or modify the bot configuration (super-admin only)",
 				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},

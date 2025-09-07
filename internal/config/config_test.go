@@ -19,6 +19,7 @@ func TestLoad(t *testing.T) {
 	t.Run("new prefixed environment variables", func(t *testing.T) {
 		t.Setenv("GAMERPAL_BOT_TOKEN", "prefixed_token")
 		t.Setenv("GAMERPAL_IGDB_CLIENT_ID", "prefixed_id")
+		t.Setenv("GAMERPAL_IGDB_CLIENT_SECRET", "prefixed_secret")
 		t.Setenv("GAMERPAL_IGDB_CLIENT_TOKEN", "prefixed_token")
 
 		cfg, err := NewConfig()
@@ -26,20 +27,12 @@ func TestLoad(t *testing.T) {
 
 		require.Equal(t, "prefixed_token", cfg.GetBotToken())
 		require.Equal(t, "prefixed_id", cfg.GetIGDBClientID())
+		require.Equal(t, "prefixed_secret", cfg.GetIGDBClientSecret())
 		require.Equal(t, "prefixed_token", cfg.GetIGDBClientToken())
 	})
 
-	t.Run("partial configuration - missing igdb client id doesn't cause startup fail", func(t *testing.T) {
+	t.Run("partial configuration - missing igdb data doesn't cause startup fail", func(t *testing.T) {
 		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
-		t.Setenv("GAMERPAL_IGDB_CLIENT_TOKEN", "test_token")
-
-		_, err := NewConfig()
-		require.NoError(t, err)
-	})
-
-	t.Run("partial configuration - missing igdb client token doesn't cause startup fail", func(t *testing.T) {
-		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
-		t.Setenv("GAMERPAL_IGDB_CLIENT_ID", "test_id")
 
 		_, err := NewConfig()
 		require.NoError(t, err)

@@ -38,7 +38,7 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		if g == nil || g.Name == "" {
 			continue
 		}
-		if strings.EqualFold(g.Name, gameName) {
+		if strings.EqualFold(g.Name, gameName) && exact == nil {
 			exact = g
 		} else { // include non-exact as suggestion
 			suggestions = append(suggestions, g)

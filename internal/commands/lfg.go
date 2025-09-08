@@ -299,10 +299,10 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 			Name: suggestion.Mention(),
 		})
 	}
+
 	if len(fields) == 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  "No Results",
-			Value: "Try a more specific title or click 'Show more suggestions'.",
+			Name: "No Results",
 		})
 	}
 
@@ -314,14 +314,19 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, normalized)},
 			}},
 		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: "Click \"Show More Suggestions\" to find more options and create a thread!",
+		})
 	}
+
+	_ = utils.LogToChannel(h.config, s, fmt.Sprintf("Search result: %v", searchRes))
 
 	embed := &discordgo.MessageEmbed{
 		Title:  "Found LFG thread(s)",
 		Color:  utils.Colors.Fancy(),
 		Fields: fields,
 	}
-	
+
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice, Components: &components})
 }

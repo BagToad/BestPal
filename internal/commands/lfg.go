@@ -2,14 +2,16 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"time"
 
 	"gamerpal/internal/games"
 	"gamerpal/internal/utils"
@@ -73,34 +75,6 @@ const (
 	lfgMoreSuggestionsPrefix  = "lfg_more_suggestions"  // lfg_more_suggestions::<normalizedQuery>
 	lfgCreateSuggestionPrefix = "lfg_create_suggestion" // lfg_create_suggestion::<id>
 )
-
-// in-memory mapping for suggestion button IDs -> game title
-var lfgSuggestionMap = struct {
-	sync.RWMutex
-	idToTitle map[string]string
-}{idToTitle: make(map[string]string)}
-
-var lfgSuggestionIDCounter uint64
-
-func newSuggestionID() string {
-	v := atomic.AddUint64(&lfgSuggestionIDCounter, 1)
-	return fmt.Sprintf("%x", v)
-}
-
-func storeSuggestionTitle(title string) string {
-	id := newSuggestionID()
-	lfgSuggestionMap.Lock()
-	lfgSuggestionMap.idToTitle[id] = title
-	lfgSuggestionMap.Unlock()
-	return id
-}
-
-func fetchSuggestionTitle(id string) (string, bool) {
-	lfgSuggestionMap.RLock()
-	t, ok := lfgSuggestionMap.idToTitle[id]
-	lfgSuggestionMap.RUnlock()
-	return t, ok
-}
 
 // handleLFG processes /lfg commands (currently only setup)
 func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -299,20 +273,42 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 			Name: suggestion.Mention(),
 		})
 	}
+
 	if len(fields) == 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  "No Results",
-			Value: "Try a more specific title or click 'Show more suggestions'.",
+			Name: "No Results",
 		})
 	}
 
 	// Add Show More Suggestions button if we likely have more IGDB suggestions (searchRes.Suggestions length > 0 after filtering duplicates/exact)
 	var components []discordgo.MessageComponent
-	if len(searchRes.Suggestions) > 0 {
+	if len(searchRes.Suggestions) > 0 || searchRes.ExactMatch != nil {
 		components = []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, normalized)},
+				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
 			}},
+		}
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name: "Click \"Show More Suggestions\" to find more options and create a thread!",
+		})
+	}
+
+	// Dump full search result as indented JSON (may be large)
+	if b, err := json.MarshalIndent(searchRes, "", "  "); err == nil {
+		jsonStr := string(b)
+		userMention := "Member"
+		if i.Member != nil {
+			userMention = i.Member.Mention()
+		}
+
+		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n", userMention, gameName)
+		err = utils.LogToChannel(h.config, s, logMessage)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed to log search results: %v", err)
+		}
+		err = utils.LogToChannelWithFile(h.config, s, jsonStr)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed to log search results file: %v", err)
 		}
 	}
 
@@ -321,7 +317,7 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		Color:  utils.Colors.Fancy(),
 		Fields: fields,
 	}
-	
+
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice, Components: &components})
 }
@@ -532,64 +528,75 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 	if len(parts) != 2 {
 		return
 	}
-	queryNorm := parts[1]
+	gameName := parts[1]
 	// Re-run search for suggestions
-	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, queryNorm)
+	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, gameName)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("❌ error fetching suggestions: %v", err)}})
 		return
 	}
 
 	var gameSuggestions []*igdb.Game
-	if searchRes.ExactMatch != nil {
-		gameSuggestions = append(gameSuggestions, searchRes.ExactMatch)
-	}
-	if len(searchRes.Suggestions) > 0 {
-		gameSuggestions = append(gameSuggestions, searchRes.Suggestions...)
+	if searchRes != nil {
+		if searchRes.ExactMatch != nil {
+			gameSuggestions = append(gameSuggestions, searchRes.ExactMatch)
+		}
+		if len(searchRes.Suggestions) > 0 {
+			gameSuggestions = append(gameSuggestions, searchRes.Suggestions...)
+		}
 	}
 
-	if searchRes == nil || len(gameSuggestions) == 0 {
+	if len(gameSuggestions) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "No further suggestions available."}})
 		return
 	}
 
-	// Collect up to 5 suggestion names (unique by lowercase)
+	// Collect up to 5 suggestion games (with potential duplicate names distinguished by year)
+	var picked []*igdb.Game
 	seen := make(map[string]struct{})
-	var names []string
 	for _, g := range gameSuggestions {
 		if g == nil || g.Name == "" {
 			continue
 		}
-		low := strings.ToLower(g.Name)
-		if _, ok := seen[low]; ok {
-			continue
+		// Compute release year (0 if unknown) for dedupe key
+		year := 0
+		if g.FirstReleaseDate > 0 {
+			year = time.Unix(int64(g.FirstReleaseDate), 0).UTC().Year()
 		}
-		seen[low] = struct{}{}
-		names = append(names, g.Name)
-		if len(names) >= 5 {
+		key := strings.ToLower(g.Name) + "::" + strconv.Itoa(year)
+		if _, exists := seen[key]; exists {
+			continue // duplicate title+year, skip
+		}
+		seen[key] = struct{}{}
+		picked = append(picked, g)
+		if len(picked) >= 5 {
 			break
 		}
 	}
-	if len(names) == 0 {
+	if len(picked) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "No further suggestions available."}})
 		return
 	}
 
-	// Prepare button mappings for first 5
+	// Prepare button mappings using the real IGDB game ID so we can disambiguate identical titles.
 	var btns []discordgo.MessageComponent
-	for idx := 0; idx < len(names) && idx < 5; idx++ {
-		id := storeSuggestionTitle(names[idx])
-		btns = append(btns, &discordgo.Button{Style: discordgo.PrimaryButton, Label: fmt.Sprintf("%d", idx+1), CustomID: fmt.Sprintf("%s::%s", lfgCreateSuggestionPrefix, id)})
+	for idx, g := range picked {
+		btns = append(btns, &discordgo.Button{Style: discordgo.PrimaryButton, Label: fmt.Sprintf("%d", idx+1), CustomID: fmt.Sprintf("%s::%d", lfgCreateSuggestionPrefix, g.ID)})
 	}
 	components := []discordgo.MessageComponent{}
 	if len(btns) > 0 {
 		components = append(components, discordgo.ActionsRow{Components: btns})
 	}
 
-	// Build suggestion list text
+	// Build suggestion list text with year (from first_release_date) when available
 	var listBuilder strings.Builder
-	for i, name := range names {
-		listBuilder.WriteString(fmt.Sprintf("%d. %s\n", i+1, name))
+	for i, g := range picked {
+		yearStr := ""
+		if g.FirstReleaseDate > 0 { // epoch seconds
+			y := time.Unix(int64(g.FirstReleaseDate), 0).UTC().Year()
+			yearStr = fmt.Sprintf(" (%d)", y)
+		}
+		listBuilder.WriteString(fmt.Sprintf("%d. %s%s\n", i+1, g.Name, yearStr))
 	}
 	listBuilder.WriteString("\nClick a numbered button (1-5) below to create a thread for that game.")
 
@@ -612,10 +619,10 @@ func (h *SlashCommandHandler) handleCreateSuggestionThread(s *discordgo.Session,
 	if len(parts) != 2 {
 		return
 	}
-	id := parts[1]
-	title, ok := fetchSuggestionTitle(id)
-	if !ok || title == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unknown suggestion."}})
+	gameIDStr := parts[1]
+	gameID, err := strconv.Atoi(gameIDStr)
+	if err != nil || gameID <= 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Invalid suggestion."}})
 		return
 	}
 	forumID := h.config.GetGamerPalsLFGForumChannelID()
@@ -624,21 +631,41 @@ func (h *SlashCommandHandler) handleCreateSuggestionThread(s *discordgo.Session,
 		return
 	}
 
-	norm := strings.ToLower(title)
-	// Reuse existing if present
+	// Fetch the specific game by ID to ensure correctness when duplicate titles exist.
+	gamesList, err := h.igdbClient.Games.List([]int{gameID}, igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "first_release_date"))
+	if err != nil || len(gamesList) == 0 || gamesList[0] == nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to fetch game details."}})
+		return
+	}
+	game := gamesList[0]
+	if game.Name == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Game has no name."}})
+		return
+	}
+
+	norm := strings.ToLower(game.Name)
 	if ch, exists := h.findCachedExactThread(s, forumID, norm); exists {
 		finalizeSuggestionThreadResponse(s, i, ch, false)
 		return
 	}
 
-	// Search exact for this title
-	res, err := games.ExactMatchWithSuggestions(h.igdbClient, title)
-	if err != nil || res == nil || res.ExactMatch == nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to create thread (no exact match)."}})
-		return
+	// Log the selected game JSON for auditing
+	memberMention := "Member"
+	if i.Member != nil {
+		memberMention = i.Member.Mention()
+	}
+	if b, err := json.MarshalIndent(game, "", "  "); err == nil {
+		logMessage := fmt.Sprintf("%s selected game ID %d (\"%s\"):", memberMention, game.ID, game.Name)
+		if err := utils.LogToChannel(h.config, s, logMessage); err != nil {
+			h.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
+		}
+
+		if err := utils.LogToChannelWithFile(h.config, s, string(b)); err != nil {
+			h.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
+		}
 	}
 
-	ch, err := h.createLFGThreadFromExactMatch(s, forumID, norm, res.ExactMatch)
+	ch, err := h.createLFGThreadFromExactMatch(s, forumID, norm, game)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
 		return
@@ -677,6 +704,8 @@ func threadLink(ch *discordgo.Channel) string {
 }
 
 func fmtPtr(s string) *string { return &s }
+
+// truncate returns a string shortened to max characters with ellipsis if needed.
 
 // downloadCoverImage fetches the cover image bytes and returns data, suggested filename, error.
 // Discord requires an attachment for forum preview; we keep it simple and assume JPEG.

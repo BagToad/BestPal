@@ -25,7 +25,7 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 	}
 
 	games, err := igdbClient.Games.Search(gameName,
-		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover"),
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
 		igdb.SetLimit(10),
 	)
 	if err != nil {
@@ -38,11 +38,22 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		if g == nil || g.Name == "" {
 			continue
 		}
-		if strings.EqualFold(g.Name, gameName) {
+
+		// Case sensitive match - these are more important.
+		if g.Name == gameName {
 			exact = g
-		} else { // include non-exact as suggestion
-			suggestions = append(suggestions, g)
+			continue
 		}
+
+		// Case insensitive match - these are less important.
+		// Use only when no case sensitive match is found.
+		if strings.EqualFold(g.Name, gameName) && exact == nil {
+			exact = g
+			continue
+		}
+
+		// The rest are not exacts, add to suggestions
+		suggestions = append(suggestions, g)
 	}
 
 	if exact == nil && len(suggestions) == 0 {

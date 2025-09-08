@@ -322,18 +322,13 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 
 	// Dump full search result as indented JSON (may be large)
 	if b, err := json.MarshalIndent(searchRes, "", "  "); err == nil {
-		// Discord hard limit 2000 chars; soft trim if needed
 		jsonStr := string(b)
-		if len(jsonStr) > 1900 { // leave room for fencing
-			jsonStr = jsonStr[:1897] + "..."
+		userMention := "Member"
+		if i.Member != nil {
+			userMention = i.Member.Mention()
 		}
 
-		userMention := "User"
-		if i.User != nil {
-			userMention = i.User.Mention()
-		}
-
-		logMessage := fmt.Sprintf("%s searched for %s, and here are the results:\n```json\n%s\n```", userMention, gameName, jsonStr)
+		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n```json\n%s\n```", userMention, gameName, jsonStr)
 
 		err = utils.LogToChannelWithFile(h.config, s, logMessage)
 		if err != nil {

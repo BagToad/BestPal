@@ -282,21 +282,30 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		return
 	}
 
-	// 4. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
+	// 3. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
 	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
+
+
+	// Print exact match threads first
 	var fields []*discordgo.MessageEmbedField
 	if exactThreadChannel != nil {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  fmt.Sprintf("%s (exact match)", exactThreadChannel.Mention()),
-			Value: fmt.Sprintf("- %s", exactThreadChannel.Mention()),
+			Name: exactThreadChannel.Mention(),
 		})
 	}
-	for _, sec := range partialThreadSuggestions {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: fmt.Sprintf("%s (suggestion)", sec.Title), Value: sec.Value})
+
+	// Print partial match threads next
+	for _, suggestion := range partialThreadSuggestions {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  suggestion.Mention(),
+		})
 	}
 	if len(fields) == 0 {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "No Results", Value: "Try a more specific title or click 'Show more suggestions'."})
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:  "No Results",
+			Value: "Try a more specific title or click 'Show more suggestions'.",
+		})
 	}
 
 	// Add Show More Suggestions button if we likely have more IGDB suggestions (searchRes.Suggestions length > 0 after filtering duplicates/exact)
@@ -486,16 +495,9 @@ func (h *SlashCommandHandler) createLFGThreadFromExactMatch(s *discordgo.Session
 	return thread, nil
 }
 
-// gatherThreadSuggestions scans cached names for partial matches (excluding exact thread) and returns up to 3 links.
-// suggestionSection represents info needed to render an embed field for a suggestion.
-type suggestionSection struct {
-	Title string
-	Value string
-}
-
 // gatherPartialThreadSuggestionsDetailed returns up to 'limit' partial match existing thread suggestions.
-func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, normalized, excludeThreadID string, limit int) []suggestionSection {
-	var out []suggestionSection
+func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, normalized, excludeThreadID string, limit int) []discordgo.Channel {
+	var out []discordgo.Channel
 	lfgThreadCache.RLock()
 	for k, id := range lfgThreadCache.nameToThreadID {
 		if strings.Contains(strings.ToLower(k), normalized) {
@@ -504,7 +506,7 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, norma
 			}
 			ch, err := s.Channel(id)
 			if err == nil && ch != nil && ch.ParentID == forumID {
-				out = append(out, suggestionSection{Title: ch.Name, Value: fmt.Sprintf("- %s", threadLink(ch))})
+				out = append(out, *ch)
 				if len(out) >= limit {
 					break
 				}

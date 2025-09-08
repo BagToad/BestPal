@@ -68,16 +68,6 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:        discordgo.ApplicationCommandOptionSubCommand,
-						Name:        "setup-find-a-thread",
-						Description: "Set up the LFG find-a-thread panel in this channel",
-					},
-					{
-						Type:        discordgo.ApplicationCommandOptionSubCommand,
-						Name:        "setup-looking-now",
-						Description: "Set up the 'Looking NOW' panel in this channel",
-					},
-					{
-						Type:        discordgo.ApplicationCommandOptionSubCommand,
 						Name:        "now",
 						Description: "Mark yourself as looking now inside an LFG thread",
 						Options: []*discordgo.ApplicationCommandOption{
@@ -111,6 +101,27 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 						},
 					},
 				},
+			},
+			HandlerFunc: h.handleLFG,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "lfg-admin",
+				Description: "LFG admin commands",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup-find-a-thread",
+						Description: "Set up the LFG find-a-thread panel in this channel",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup-looking-now",
+						Description: "Set up the 'Looking NOW' panel in this channel",
+					},
+				},
+				DefaultMemberPermissions: &adminPerms,
+				Contexts: &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			},
 			HandlerFunc: h.handleLFG,
 		},

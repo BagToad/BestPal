@@ -40,7 +40,7 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		}
 
 		// Case sensitive match - these are more important.
-		if g.Name == gameName {
+		if g.Name == gameName && exact == nil {
 			exact = g
 			continue
 		}

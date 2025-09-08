@@ -25,7 +25,7 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 	}
 
 	games, err := igdbClient.Games.Search(gameName,
-		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates"),
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
 		igdb.SetLimit(10),
 	)
 	if err != nil {

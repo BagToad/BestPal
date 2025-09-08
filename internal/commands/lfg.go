@@ -552,7 +552,7 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 		}
 		seen[low] = struct{}{}
 		names = append(names, g.Name)
-		if len(names) >= 9 {
+		if len(names) >= 5 {
 			break
 		}
 	}

@@ -552,9 +552,9 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 	if len(parts) != 2 {
 		return
 	}
-	queryNorm := parts[1]
+	gameName := parts[1]
 	// Re-run search for suggestions
-	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, queryNorm)
+	searchRes, err := games.ExactMatchWithSuggestions(h.igdbClient, gameName)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("❌ error fetching suggestions: %v", err)}})
 		return
@@ -660,7 +660,25 @@ func (h *SlashCommandHandler) handleCreateSuggestionThread(s *discordgo.Session,
 		return
 	}
 
-	ch, err := h.createLFGThreadFromExactMatch(s, forumID, norm, res.ExactMatch)
+	// Log
+	memberMention := "Member"
+	if i.Member != nil {
+		memberMention = i.Member.Mention()
+	}
+
+	// Dump full search result as indented JSON (may be large)
+	if b, err := json.MarshalIndent(res, "", "  "); err == nil {
+		jsonStr := string(b)
+
+		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n```json\n%s\n```", memberMention, title, jsonStr)
+
+		err = utils.LogToChannelWithFile(h.config, s, logMessage)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed to log search results: %v", err)
+		}
+	}
+
+	ch, err := h.createLFGThreadFromExactMatch(s, forumID, title, res.ExactMatch)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
 		return

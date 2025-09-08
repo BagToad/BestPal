@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // In-memory cache of game name (normalized lowercase) -> thread channel ID
@@ -320,7 +320,15 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		})
 	}
 
-	_ = utils.LogToChannel(h.config, s, spew.Sprintf("search results:\n%v", searchRes))
+	// Dump full search result as indented JSON (may be large)
+	if b, err := json.MarshalIndent(searchRes, "", "  "); err == nil {
+		// Discord hard limit 2000 chars; soft trim if needed
+		jsonStr := string(b)
+		if len(jsonStr) > 1900 { // leave room for fencing
+			jsonStr = jsonStr[:1897] + "..."
+		}
+		_ = utils.LogToChannel(h.config, s, "search results:\n```json\n"+jsonStr+"\n```")
+	}
 
 	embed := &discordgo.MessageEmbed{
 		Title:  "Found LFG thread(s)",
@@ -685,6 +693,8 @@ func threadLink(ch *discordgo.Channel) string {
 }
 
 func fmtPtr(s string) *string { return &s }
+
+// truncate returns a string shortened to max characters with ellipsis if needed.
 
 // downloadCoverImage fetches the cover image bytes and returns data, suggested filename, error.
 // Discord requires an attachment for forum preview; we keep it simple and assume JPEG.

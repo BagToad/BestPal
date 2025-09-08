@@ -41,7 +41,7 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 		// Continue without database for now
 	}
 
-	// initialize lfg now panel service (self-loads stored panel channel ID)
+	// initialize lfg now panel service
 	lfgSvc := lfgpanel.NewLFGPanelService(cfg).WithLogger(
 		func(msg string, args ...any) { cfg.Logger.Infof(msg, args...) },
 		func(msg string, args ...any) { cfg.Logger.Warnf(msg, args...) },

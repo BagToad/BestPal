@@ -104,7 +104,13 @@ func TestPruneExpired(t *testing.T) {
 	if err := svc.RefreshPanel(sess, time.Hour); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if len(sess.messages) != 0 {
-		t.Fatalf("expected no panel messages after prune, got %d", len(sess.messages))
+	if len(sess.messages) != 1 { // empty-state embed should remain
+			t.Fatalf("expected one empty-state panel message after prune, got %d", len(sess.messages))
+	}
+	// Optional: validate embed content
+	for _, m := range sess.messages {
+		if len(m.Embeds) == 0 || m.Embeds[0].Description == "" {
+			t.Fatalf("expected empty-state embed description to be set")
+		}
 	}
 }

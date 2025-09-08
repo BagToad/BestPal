@@ -45,9 +45,6 @@ func LogToChannelWithFile(cfg *config.Config, s *discordgo.Session, fileContent 
 	if _, err := file.WriteString(fileContent); err != nil {
 		return err
 	}
-	if err := file.Close(); err != nil {
-		return err
-	}
 
 	// Send the usual embed indicating it's a bestpal log.
 	embed := &discordgo.MessageEmbed{

@@ -558,19 +558,21 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 		return
 	}
 
-	// Collect up to 5 suggestion names (unique by lowercase)
+	// Collect up to 5 suggestion names
 	seen := make(map[string]struct{})
 	var names []string
 	for _, g := range gameSuggestions {
 		if g == nil || g.Name == "" {
 			continue
 		}
-		low := strings.ToLower(g.Name)
-		if _, ok := seen[low]; ok {
+
+		if _, ok := seen[g.Name]; ok {
 			continue
 		}
-		seen[low] = struct{}{}
+
+		seen[g.Name] = struct{}{}
 		names = append(names, g.Name)
+		
 		if len(names) >= 5 {
 			break
 		}

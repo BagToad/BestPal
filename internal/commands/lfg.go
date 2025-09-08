@@ -309,10 +309,10 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 
 	// Add Show More Suggestions button if we likely have more IGDB suggestions (searchRes.Suggestions length > 0 after filtering duplicates/exact)
 	var components []discordgo.MessageComponent
-	if len(searchRes.Suggestions) > 0 {
+	if len(searchRes.Suggestions) > 0 || searchRes.ExactMatch != nil {
 		components = []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, normalized)},
+				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
 			}},
 		}
 		fields = append(fields, &discordgo.MessageEmbedField{
@@ -320,7 +320,7 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		})
 	}
 
-	_ = utils.LogToChannel(h.config, s, spew.Sprintf("search results:\n%+v", searchRes))
+	_ = utils.LogToChannel(h.config, s, spew.Sprintf("search results:\n%v", searchRes))
 
 	embed := &discordgo.MessageEmbed{
 		Title:  "Found LFG thread(s)",

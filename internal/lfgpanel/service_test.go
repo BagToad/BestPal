@@ -104,21 +104,7 @@ func TestPruneExpired(t *testing.T) {
 	if err := svc.RefreshPanel(sess, time.Hour); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	// With new empty-state behavior we expect exactly 1 panel message containing the placeholder embed.
-	if len(sess.messages) != 1 {
-			t.Fatalf("expected 1 empty-state panel message after prune, got %d", len(sess.messages))
-	}
-	for _, m := range sess.messages {
-		if len(m.Embeds) != 1 {
-			t.Fatalf("expected exactly 1 embed in empty-state message, got %d", len(m.Embeds))
-		}
-		e := m.Embeds[0]
-		if e.Title != "Looking NOW" {
-			t.Fatalf("unexpected empty-state title: %s", e.Title)
-		}
-		wantDesc := "Nobody is on right now :zzz:"
-		if e.Description != wantDesc {
-			t.Fatalf("unexpected empty-state description: %q", e.Description)
-		}
+	if len(sess.messages) != 0 {
+		t.Fatalf("expected no panel messages after prune, got %d", len(sess.messages))
 	}
 }

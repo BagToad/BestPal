@@ -328,7 +328,12 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 			jsonStr = jsonStr[:1897] + "..."
 		}
 
-		logMessage := fmt.Sprintf("%s searched for %s, and here are the results:\n```json\n%s\n```", i.User.Mention(), gameName, jsonStr)
+		userMention := "User"
+		if i.User != nil {
+			userMention = i.User.Mention()
+		}
+
+		logMessage := fmt.Sprintf("%s searched for %s, and here are the results:\n```json\n%s\n```", userMention, gameName, jsonStr)
 
 		err = utils.LogToChannelWithFile(h.config, s, logMessage)
 		if err != nil {

@@ -1,6 +1,7 @@
 package games
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -30,6 +31,12 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 	)
 	if err != nil {
 		return nil, fmt.Errorf("igdb search error: %w", err)
+	}
+
+	// DEBUG: Log the raw search results using unmarshalindent
+	if b, err := json.MarshalIndent(games, "", "  "); err == nil {
+		jsonStr := string(b)
+		fmt.Printf("LFG: search results for \"%s\":\n%s\n", gameName, jsonStr)
 	}
 
 	var exact *igdb.Game

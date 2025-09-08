@@ -327,7 +327,10 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		if len(jsonStr) > 1900 { // leave room for fencing
 			jsonStr = jsonStr[:1897] + "..."
 		}
-		_ = utils.LogToChannel(h.config, s, "search results:\n```json\n"+jsonStr+"\n```")
+
+		logMessage := fmt.Sprintf("%s searched for %s, and here are the results:\n```json\n%s\n```", i.User.Mention(), gameName, jsonStr)
+
+		_ = utils.LogToChannel(h.config, s, logMessage)
 	}
 
 	embed := &discordgo.MessageEmbed{

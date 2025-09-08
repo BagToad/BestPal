@@ -157,7 +157,11 @@ func (s *InMemoryService) RefreshPanel(sess discordSessionLike, ttl time.Duratio
 		var lines []string
 		for _, e := range users {
 			exp := e.UpdatedAt.Add(ttl).Unix()
-			lines = append(lines, fmt.Sprintf("<@%s> [%s] (%d) - %s (expires <t:%d:R>)", e.UserID, e.Region, e.PlayerCount, e.Message, exp))
+			playersDescriber := "pals"
+			if e.PlayerCount == 1 {
+				playersDescriber = "pal"
+			}
+			lines = append(lines, fmt.Sprintf("<@%s> [%s] (looking for %d %s) - %s (expires <t:%d:R>)", e.UserID, e.Region, e.PlayerCount, playersDescriber, e.Message, exp))
 		}
 		sort.Strings(lines)
 		secs = append(secs, section{Name: ch.Name, Lines: lines})
@@ -182,11 +186,27 @@ func (s *InMemoryService) RefreshPanel(sess discordSessionLike, ttl time.Duratio
 	if len(embeds) > 0 {
 		embeds[len(embeds)-1].Footer = &discordgo.MessageEmbedFooter{Text: "Run `/lfg now` in any game thread"}
 	}
-	if len(secs) == 0 { // clear
-		for _, mid := range s.panelMessageIDs {
-			_ = sess.ChannelMessageDelete(s.panelChannelID, mid)
+	if len(secs) == 0 { // show empty state embed instead of clearing everything
+		emptyEmbed := &discordgo.MessageEmbed{
+			Title:       "Looking NOW",
+			Description: "Nobody is on right now :zzz:",
+			Footer:      &discordgo.MessageEmbedFooter{Text: "Run `/lfg now` in any game thread"},
 		}
-		s.panelMessageIDs = nil
+		if len(s.panelMessageIDs) > 0 {
+			first := s.panelMessageIDs[0]
+			_, _ = sess.ChannelMessageEditComplex(&discordgo.MessageEdit{ID: first, Channel: s.panelChannelID, Embeds: &[]*discordgo.MessageEmbed{emptyEmbed}})
+			// delete any excess previous embeds
+			for _, mid := range s.panelMessageIDs[1:] {
+				_ = sess.ChannelMessageDelete(s.panelChannelID, mid)
+			}
+			// keep only the first ID
+			s.panelMessageIDs = s.panelMessageIDs[:1]
+		} else { // none existed previously, create new
+			msg, err := sess.ChannelMessageSendEmbeds(s.panelChannelID, []*discordgo.MessageEmbed{emptyEmbed})
+			if err == nil {
+				s.panelMessageIDs = []string{msg.ID}
+			}
+		}
 		return nil
 	}
 	if len(s.panelMessageIDs) == len(embeds) {

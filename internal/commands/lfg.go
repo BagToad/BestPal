@@ -285,8 +285,6 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 	// 3. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
 	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
-
-
 	// Print exact match threads first
 	var fields []*discordgo.MessageEmbedField
 	if exactThreadChannel != nil {
@@ -298,7 +296,7 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 	// Print partial match threads next
 	for _, suggestion := range partialThreadSuggestions {
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  suggestion.Mention(),
+			Name: suggestion.Mention(),
 		})
 	}
 	if len(fields) == 0 {
@@ -318,7 +316,12 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		}
 	}
 
-	embed := &discordgo.MessageEmbed{Title: "LFG Thread Lookup", Color: utils.Colors.Fancy(), Fields: fields}
+	embed := &discordgo.MessageEmbed{
+		Title:  "Found LFG thread(s)",
+		Color:  utils.Colors.Fancy(),
+		Fields: fields,
+	}
+	
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice, Components: &components})
 }

@@ -40,10 +40,6 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 		}
 	}
 
-	if playerCount <= 0 || playerCount > 99 {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ player_count must be 1-99")})
-		return
-	}
 	message = strings.TrimSpace(message)
 	if message == "" {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ message required")})

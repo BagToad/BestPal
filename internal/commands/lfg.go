@@ -16,6 +16,7 @@ import (
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // In-memory cache of game name (normalized lowercase) -> thread channel ID
@@ -319,7 +320,7 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		})
 	}
 
-	_ = utils.LogToChannel(h.config, s, fmt.Sprintf("Search result: %v", searchRes))
+	_ = utils.LogToChannel(h.config, s, spew.Sprintf("search results:\n%+v", searchRes))
 
 	embed := &discordgo.MessageEmbed{
 		Title:  "Found LFG thread(s)",
@@ -572,7 +573,7 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 
 		seen[g.Name] = struct{}{}
 		names = append(names, g.Name)
-		
+
 		if len(names) >= 5 {
 			break
 		}

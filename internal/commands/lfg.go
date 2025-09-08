@@ -594,7 +594,7 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 	listBuilder.WriteString("\nClick a numbered button (1-5) below to create a thread for that game.")
 
 	embed := &discordgo.MessageEmbed{
-		Title:  "More LFG Suggestions",
+		Title:  "Create a thread suggestions",
 		Color:  utils.Colors.Fancy(),
 		Fields: []*discordgo.MessageEmbedField{{Name: "Suggestions", Value: listBuilder.String()}},
 	}

@@ -330,7 +330,10 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 
 		logMessage := fmt.Sprintf("%s searched for %s, and here are the results:\n```json\n%s\n```", i.User.Mention(), gameName, jsonStr)
 
-		_ = utils.LogToChannel(h.config, s, logMessage)
+		err = utils.LogToChannelWithFile(h.config, s, logMessage)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed to log search results: %v", err)
+		}
 	}
 
 	embed := &discordgo.MessageEmbed{

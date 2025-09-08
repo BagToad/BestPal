@@ -301,11 +301,14 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 			userMention = i.Member.Mention()
 		}
 
-		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n```json\n%s\n```", userMention, gameName, jsonStr)
-
-		err = utils.LogToChannelWithFile(h.config, s, logMessage)
+		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n", userMention, gameName)
+		err = utils.LogToChannel(h.config, s, logMessage)
 		if err != nil {
 			h.config.Logger.Errorf("LFG: failed to log search results: %v", err)
+		}
+		err = utils.LogToChannelWithFile(h.config, s, jsonStr)
+		if err != nil {
+			h.config.Logger.Errorf("LFG: failed to log search results file: %v", err)
 		}
 	}
 
@@ -652,9 +655,13 @@ func (h *SlashCommandHandler) handleCreateSuggestionThread(s *discordgo.Session,
 		memberMention = i.Member.Mention()
 	}
 	if b, err := json.MarshalIndent(game, "", "  "); err == nil {
-		logMessage := fmt.Sprintf("%s selected game ID %d (\"%s\"):\n```json\n%s\n```", memberMention, game.ID, game.Name, string(b))
-		if logErr := utils.LogToChannelWithFile(h.config, s, logMessage); logErr != nil {
-			h.config.Logger.Errorf("LFG: failed to log selected game: %v", logErr)
+		logMessage := fmt.Sprintf("%s selected game ID %d (\"%s\"):", memberMention, game.ID, game.Name)
+		if err := utils.LogToChannel(h.config, s, logMessage); err != nil {
+			h.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
+		}
+
+		if err := utils.LogToChannelWithFile(h.config, s, string(b)); err != nil {
+			h.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
 		}
 	}
 

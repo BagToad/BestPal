@@ -51,20 +51,7 @@ func LogToChannelWithFile(cfg *config.Config, s *discordgo.Session, fileContent 
 		return err
 	}
 
-	// Send the usual embed indicating it's a bestpal log.
-	embed := &discordgo.MessageEmbed{
-		Title:       "Best Pal Log",
-		Description: "Log file attached.",
-		Color:       Colors.Info(),
-		Timestamp:   time.Now().Format(time.RFC3339),
-	}
-
 	if id := cfg.GetGamerpalsLogChannelID(); id != "" {
-		_, err := s.ChannelMessageSendEmbed(id, embed)
-		if err != nil {
-			return fmt.Errorf("failed to send log embed: %v", err)
-		}
-
 		_, err = s.ChannelFileSend(id, "log.txt", file)
 		if err != nil {
 			return fmt.Errorf("failed to send log file: %v", err)

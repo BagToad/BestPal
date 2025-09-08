@@ -579,10 +579,21 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 
 	// Collect up to 5 suggestion games (with potential duplicate names distinguished by year)
 	var picked []*igdb.Game
+	seen := make(map[string]struct{})
 	for _, g := range gameSuggestions {
 		if g == nil || g.Name == "" {
 			continue
 		}
+		// Compute release year (0 if unknown) for dedupe key
+		year := 0
+		if g.FirstReleaseDate > 0 {
+			year = time.Unix(int64(g.FirstReleaseDate), 0).UTC().Year()
+		}
+		key := strings.ToLower(g.Name) + "::" + strconv.Itoa(year)
+		if _, exists := seen[key]; exists {
+			continue // duplicate title+year, skip
+		}
+		seen[key] = struct{}{}
 		picked = append(picked, g)
 		if len(picked) >= 5 {
 			break

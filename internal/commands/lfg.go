@@ -282,30 +282,14 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 		return
 	}
 
-	// 3. Create thread if needed (exact match found but no existing thread)
-	var createdNew bool
-	if exactThreadChannel == nil && searchRes.ExactMatch != nil {
-		ch, err := h.createLFGThreadFromExactMatch(s, forumID, normalized, searchRes.ExactMatch)
-		if err != nil {
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ failed creating thread")})
-			return
-		}
-		exactThreadChannel = ch
-		createdNew = true
-	}
-
 	// 4. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
 	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
 	var fields []*discordgo.MessageEmbedField
 	if exactThreadChannel != nil {
-		status := "existing thread"
-		if createdNew {
-			status = "created thread"
-		}
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:  fmt.Sprintf("%s (exact match, %s)", exactThreadChannel.Name, status),
-			Value: fmt.Sprintf("- %s", threadLink(exactThreadChannel)),
+			Name:  fmt.Sprintf("%s (exact match)", exactThreadChannel.Mention()),
+			Value: fmt.Sprintf("- %s", exactThreadChannel.Mention()),
 		})
 	}
 	for _, sec := range partialThreadSuggestions {
@@ -326,9 +310,6 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 	}
 
 	embed := &discordgo.MessageEmbed{Title: "LFG Thread Lookup", Color: utils.Colors.Fancy(), Fields: fields}
-	if createdNew && exactThreadChannel != nil {
-		h.config.Logger.Infof("LFG: created new thread for '%s'", exactThreadChannel.Name)
-	}
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice, Components: &components})
 }

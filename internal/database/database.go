@@ -140,7 +140,7 @@ func (db *DB) GetRouletteSignups(guildID string) ([]RouletteSignup, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get roulette signups: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var signups []RouletteSignup
 	for rows.Next() {
@@ -193,7 +193,7 @@ func (db *DB) GetRouletteGames(userID, guildID string) ([]RouletteGame, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get roulette games: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var games []RouletteGame
 	for rows.Next() {
@@ -290,7 +290,7 @@ func (db *DB) GetScheduledPairings() ([]RouletteSchedule, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scheduled pairings: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var schedules []RouletteSchedule
 	for rows.Next() {

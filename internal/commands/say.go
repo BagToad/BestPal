@@ -8,11 +8,11 @@ import (
 )
 
 // handleSay handles the say slash command
-func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Parse command options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 2 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Missing required parameters. Please specify both channel and message.",
@@ -37,7 +37,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 
 	// Validate inputs
 	if targetChannelID == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Invalid channel specified.",
@@ -48,7 +48,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	if messageContent == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Message content cannot be empty.",
@@ -61,7 +61,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	// Get the target channel to verify it exists and get its name
 	targetChannel, err := s.Channel(targetChannelID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Unable to access the specified channel. Make sure the bot has permission to view and send messages in that channel.",
@@ -74,7 +74,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	// Check if the bot has permission to send messages in the target channel
 	permissions, err := s.UserChannelPermissions(s.State.User.ID, targetChannelID)
 	if err != nil || permissions&discordgo.PermissionSendMessages == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: fmt.Sprintf("❌ I don't have permission to send messages in %s.", targetChannel.Mention()),
@@ -88,7 +88,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	// different admins anonymously.
 	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.config.GetCryptoSalt())
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Failed to obfuscate your ID. Please try again later.",
@@ -103,7 +103,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	// Send the message to the target channel
 	sentMessage, err := s.ChannelMessageSend(targetChannelID, messageContent)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: fmt.Sprintf("❌ Failed to send message to %s: %v", targetChannel.Mention(), err),
@@ -138,7 +138,7 @@ func (h *SlashHandler) handleSay(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	// Respond to the admin with confirmation (ephemeral)
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},

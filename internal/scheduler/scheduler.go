@@ -3,8 +3,8 @@ package scheduler
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/pairing"
-	"gamerpal/internal/welcome"
+	"gamerpal/internal/utils"
+	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,33 +12,61 @@ import (
 
 // Scheduler handles periodic execution of scheduled tasks
 type Scheduler struct {
-	session        *discordgo.Session
-	config         *config.Config
-	db             *database.DB
-	pairingService *pairing.PairingService
-	welcomeService *welcome.WelcomeService
-	minuteTicker   *time.Ticker
-	hourTicker     *time.Ticker
-	minuteStopCh   chan struct{}
-	hourStopCh     chan struct{}
+	session *discordgo.Session
+	config  *config.Config
+	db      *database.DB
+	mu      sync.RWMutex
+
+	minuteFuncs []func() error
+	hourFuncs   []func() error
+
+	minuteTicker *time.Ticker
+	hourTicker   *time.Ticker
+	minuteStopCh chan struct{}
+	hourStopCh   chan struct{}
 }
 
 // NewScheduler creates a new scheduler instance
-func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.DB, pairingService *pairing.PairingService) *Scheduler {
+func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.DB) *Scheduler {
 	return &Scheduler{
-		session:        session,
-		config:         cfg,
-		db:             db,
-		pairingService: pairingService,
-		welcomeService: welcome.NewWelcomeService(session, cfg),
-		minuteStopCh:   make(chan struct{}),
-		hourStopCh:     make(chan struct{}),
+		session:      session,
+		config:       cfg,
+		db:           db,
+		minuteStopCh: make(chan struct{}),
+		hourStopCh:   make(chan struct{}),
 	}
 }
 
-// StartMinuteScheduler starts a scheduler that runs every minute
-func (s *Scheduler) StartMinuteScheduler() {
-	// Check for scheduled pairings every minute
+// RegisterNewMinuteFunc registers a new function to be called every minute.
+// returned errors get bubbled up to the log channel and the log file
+func (s *Scheduler) RegisterNewMinuteFunc(fn func() error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.minuteFuncs = append(s.minuteFuncs, fn)
+}
+
+// RegisterNewHourFunc registers a new function to be called every hour.
+// returned errors get bubbled up to the log channel and the log file
+func (s *Scheduler) RegisterNewHourFunc(fn func() error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hourFuncs = append(s.hourFuncs, fn)
+}
+
+// Start starts the scheduler
+func (s *Scheduler) Start() {
+	s.startMinuteScheduler()
+	s.startHourScheduler()
+}
+
+// Stop stops the scheduler
+func (s *Scheduler) Stop() {
+	s.stopMinuteScheduler()
+	s.stopHourScheduler()
+}
+
+// startMinuteScheduler starts a scheduler that runs every minute
+func (s *Scheduler) startMinuteScheduler() {
 	s.minuteTicker = time.NewTicker(time.Minute)
 
 	go func() {
@@ -47,11 +75,20 @@ func (s *Scheduler) StartMinuteScheduler() {
 		for {
 			select {
 			case <-s.minuteTicker.C:
-				go func() {
-					s.welcomeService.CleanNewPalsRoleFromOldMembers()
-					s.welcomeService.CheckAndWelcomeNewPals()
-				}()
-				s.checkAndExecuteScheduledPairings()
+
+				for _, minuteFunc := range s.minuteFuncs {
+					go func() {
+						err := minuteFunc()
+						if err != nil {
+							s.config.Logger.Errorf("Error occurred executing minute func: %v", err)
+							err := utils.LogToChannel(s.config, s.session, err.Error())
+							if err != nil {
+								s.config.Logger.Errorf("Failed to log error to channel: %v", err)
+							}
+						}
+					}()
+				}
+
 			case <-s.minuteStopCh:
 				s.config.Logger.Info("Minute scheduler stopping")
 				return
@@ -60,16 +97,15 @@ func (s *Scheduler) StartMinuteScheduler() {
 	}()
 }
 
-// StopMinuteScheduler stops the scheduler
-func (s *Scheduler) StopMinuteScheduler() {
+// stopMinuteScheduler stops the scheduler
+func (s *Scheduler) stopMinuteScheduler() {
 	if s.minuteTicker != nil {
 		s.minuteTicker.Stop()
 	}
 	close(s.minuteStopCh)
 }
 
-func (s *Scheduler) StartHourScheduler() {
-	// Check for old log files every hour
+func (s *Scheduler) startHourScheduler() {
 	s.hourTicker = time.NewTicker(time.Hour)
 
 	go func() {
@@ -78,9 +114,20 @@ func (s *Scheduler) StartHourScheduler() {
 		for {
 			select {
 			case <-s.hourTicker.C:
-				if err := s.config.RotateAndPruneLogs(); err != nil {
-					s.config.Logger.Errorf("Scheduler failed handling log files: %v", err)
+
+				for _, hourFunc := range s.hourFuncs {
+					go func() {
+						err := hourFunc()
+						if err != nil {
+							s.config.Logger.Errorf("Error occurred executing hour func: %v", err)
+							err := utils.LogToChannel(s.config, s.session, err.Error())
+							if err != nil {
+								s.config.Logger.Errorf("Failed to log error to channel: %v", err)
+							}
+						}
+					}()
 				}
+
 			case <-s.hourStopCh:
 				s.config.Logger.Info("Hourly scheduler stopping")
 				return
@@ -89,8 +136,8 @@ func (s *Scheduler) StartHourScheduler() {
 	}()
 }
 
-// StopHourScheduler stops the hourly scheduler
-func (s *Scheduler) StopHourScheduler() {
+// stopHourScheduler stops the hourly scheduler
+func (s *Scheduler) stopHourScheduler() {
 	if s.hourTicker != nil {
 		s.hourTicker.Stop()
 	}

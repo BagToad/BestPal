@@ -10,10 +10,10 @@ import (
 )
 
 // handleRouletteAdmin handles the roulette-admin command and its subcommands
-func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has admin permissions
 	if !utils.HasAdminPermissions(s, i) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You need administrator permissions to use this command.",
@@ -26,7 +26,7 @@ func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.In
 	// Get the subcommand
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Please specify a subcommand. Use `/roulette-admin help` for detailed information.",
@@ -51,7 +51,7 @@ func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.In
 	case "simulate-pairing":
 		h.handleRouletteAdminSimulatePairing(s, i, subcommand.Options)
 	default:
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Unknown subcommand",
@@ -62,7 +62,7 @@ func (h *SlashHandler) handleRouletteAdmin(s *discordgo.Session, i *discordgo.In
 }
 
 // handleRouletteAdminHelp shows detailed help for roulette admin commands
-func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🚀 Roulette Admin Commands - Help",
 		Description: "Administrative commands for managing the roulette pairing system",
@@ -109,7 +109,7 @@ func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordg
 		},
 	}
 
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},
@@ -119,11 +119,11 @@ func (h *SlashHandler) handleRouletteAdminHelp(s *discordgo.Session, i *discordg
 }
 
 // handleRouletteAdminDebug shows debug information about the roulette system
-func (h *SlashHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Defer response since this might take a moment
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -159,6 +159,10 @@ func (h *SlashHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discord
 
 				// Get user's games
 				games, err := h.DB.GetRouletteGames(signup.UserID, guildID)
+				if err != nil {
+					h.config.Logger.Error("Error getting games for %s: %v", username, err)
+					continue
+				}
 
 				var gameNames []string
 				for _, game := range games {
@@ -180,13 +184,13 @@ func (h *SlashHandler) handleRouletteAdminDebug(s *discordgo.Session, i *discord
 	response.WriteString(fmt.Sprintf("• Pairing Category ID: %s\n", pairingCategoryID))
 	response.WriteString(fmt.Sprintf("• Mod Log Channel ID: %s\n", modLogChannelID))
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response.String()),
 	})
 }
 
 // handleRouletteAdminPair handles the pairing command
-func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	guildID := i.GuildID
 
 	// Parse options
@@ -199,7 +203,7 @@ func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordg
 		case "time":
 			t, err := utils.ResolveDateToUnixTimestamp(option.StringValue())
 			if err != nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "❌ Unable to parse pair time.",
@@ -220,7 +224,7 @@ func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordg
 	}
 
 	// Defer response since pairing might take time
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -234,18 +238,18 @@ func (h *SlashHandler) handleRouletteAdminPair(s *discordgo.Session, i *discordg
 		// Schedule pairing
 		h.schedulePairing(s, i, guildID, *pairTime, dryRun)
 	} else {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ You must specify either a pair time or set immediate-pair-bool to true."),
 		})
 	}
 }
 
 // schedulePairing schedules a pairing for later
-func (h *SlashHandler) schedulePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, pairTime time.Time, dryRun bool) {
+func (h *SlashCommandHandler) schedulePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, pairTime time.Time, dryRun bool) {
 	if !dryRun {
 		err := h.DB.SetRouletteSchedule(guildID, pairTime)
 		if err != nil {
-			s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 				Content: utils.StringPtr(fmt.Sprintf("❌ Error scheduling pairing: %v", err)),
 			})
 			return
@@ -257,17 +261,17 @@ func (h *SlashHandler) schedulePairing(s *discordgo.Session, i *discordgo.Intera
 		dryRunText = " (DRY RUN - not actually scheduled)"
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(fmt.Sprintf("✅ Pairing scheduled for <t:%d:F>%s", pairTime.Unix(), dryRunText)),
 	})
 }
 
 // executePairing executes the pairing algorithm
-func (h *SlashHandler) executePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, dryRun bool) {
+func (h *SlashCommandHandler) executePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, dryRun bool) {
 	// Execute pairing using the pairing service
 	result, err := h.PairingService.ExecutePairing(guildID, dryRun)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing pairing: %v", err)),
 		})
 		return
@@ -330,17 +334,17 @@ func (h *SlashHandler) executePairing(s *discordgo.Session, i *discordgo.Interac
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response.String()),
 	})
 }
 
 // handleRouletteAdminReset handles the reset subcommand
-func (h *SlashHandler) handleRouletteAdminReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Respond with thinking message
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -387,17 +391,17 @@ func (h *SlashHandler) handleRouletteAdminReset(s *discordgo.Session, i *discord
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response.String()),
 	})
 }
 
 // handleRouletteAdminDeleteSchedule handles removing a scheduled pairing
-func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 
 	// Defer response
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -407,14 +411,14 @@ func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i
 	// Check if there's a scheduled pairing first
 	schedule, err := h.DB.GetRouletteSchedule(guildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error checking schedule: %v", err)),
 		})
 		return
 	}
 
 	if schedule == nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ No scheduled pairing found to delete."),
 		})
 		return
@@ -426,7 +430,7 @@ func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i
 	// Delete the schedule
 	err = h.DB.ClearRouletteSchedule(guildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error deleting schedule: %v", err)),
 		})
 		return
@@ -451,13 +455,13 @@ func (h *SlashHandler) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i
 		}
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(response),
 	})
 }
 
 // handleRouletteAdminSimulatePairing handles the simulate-pairing subcommand
-func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	guildID := i.GuildID
 
 	// Parse options
@@ -475,7 +479,7 @@ func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, 
 
 	// Validate user count
 	if userCount < 4 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ User count must be at least 4 for simulation.",
@@ -486,7 +490,7 @@ func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, 
 	}
 
 	if userCount > 50 {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ User count cannot exceed 50 for simulation.",
@@ -497,7 +501,7 @@ func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, 
 	}
 
 	// Defer response since simulation might take time
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Flags: discordgo.MessageFlagsEphemeral,
@@ -507,7 +511,7 @@ func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, 
 	// Execute simulation using the pairing service
 	result, err := h.PairingService.SimulatePairing(guildID, userCount, createChannels)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing simulation: %v", err)),
 		})
 		return
@@ -586,7 +590,7 @@ func (h *SlashHandler) handleRouletteAdminSimulatePairing(s *discordgo.Session, 
 	filename := fmt.Sprintf("roulette_simulation_%s.txt", timestamp)
 
 	// Send as file attachment
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(fmt.Sprintf("🧪 **Roulette Pairing Simulation Complete**\n\nResults saved to file. %d users simulated with %.1f%% pairing efficiency.",
 			userCount,
 			func() float64 {

@@ -11,16 +11,16 @@ import (
 )
 
 // handleGame handles the game lookup slash command
-func (h *SlashHandler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
 	// Get the game name from the command commandOptions
 	commandOptions := i.ApplicationCommandData().Options
 	if len(commandOptions) == 0 {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Please provide a game name to search for."),
 		})
 		return
@@ -28,7 +28,7 @@ func (h *SlashHandler) handleGame(s *discordgo.Session, i *discordgo.Interaction
 
 	gameName := commandOptions[0].StringValue()
 	if gameName == "" {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Please provide a valid game name to search for."),
 		})
 		return
@@ -37,13 +37,13 @@ func (h *SlashHandler) handleGame(s *discordgo.Session, i *discordgo.Interaction
 	// Search for the game using IGDB
 	game, err := searchGame(h, gameName)
 	if err != nil && !strings.Contains(err.Error(), "results are empty") {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{utils.NewErrorEmbed(fmt.Sprintf("Encountered an error while searching for game: `%s`", gameName), err)},
 		})
 		return
 	}
 	if game == nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{utils.NewNoResultsEmbed(fmt.Sprintf("No games found matching: **%s**", gameName))},
 		})
 		return
@@ -55,7 +55,7 @@ func (h *SlashHandler) handleGame(s *discordgo.Session, i *discordgo.Interaction
 	// Create the actual embed
 	embed := newGameEmbed(embedOptions)
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
@@ -171,7 +171,7 @@ func newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 }
 
 // searchGame searches for a game using IGDB API and returns an embed
-func searchGame(h *SlashHandler, gameName string) (*igdb.Game, error) {
+func searchGame(h *SlashCommandHandler, gameName string) (*igdb.Game, error) {
 	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 	// Get an exact match first
@@ -196,7 +196,7 @@ func searchGame(h *SlashHandler, gameName string) (*igdb.Game, error) {
 	return games[0], nil
 }
 
-func newGameEmbedOptionsFromGame(h *SlashHandler, game *igdb.Game) gameEmbedOptions {
+func newGameEmbedOptionsFromGame(h *SlashCommandHandler, game *igdb.Game) gameEmbedOptions {
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,

@@ -9,9 +9,9 @@ import (
 )
 
 // handleUserStats handles the usercount slash command
-func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
@@ -24,7 +24,7 @@ func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.Intera
 	// Get guild members
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
 		})
 		return
@@ -39,7 +39,7 @@ func (h *SlashHandler) handleUserStats(s *discordgo.Session, i *discordgo.Intera
 }
 
 // handleOverviewStats handles the overview statistics display
-func (h *SlashHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (h *SlashCommandHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Count user types
 	userCount := 0
 	botCount := 0
@@ -189,13 +189,13 @@ func (h *SlashHandler) handleOverviewStats(s *discordgo.Session, i *discordgo.In
 	}
 
 	// Send the response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
 
 // handleDailyStats handles the daily statistics display for the last 7 days
-func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (h *SlashCommandHandler) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Create a map to count joins by day for the last 7 days
 	dailyCounts := make(map[string]int)
 	now := time.Now()
@@ -237,11 +237,12 @@ func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.Inter
 
 		// Format the day display
 		var dayDisplay string
-		if i == 0 {
+		switch i {
+		case 0:
 			dayDisplay = "Today"
-		} else if i == 1 {
+		case 1:
 			dayDisplay = "Yesterday"
-		} else {
+		default:
 			dayDisplay = day.Format("Mon, Jan 2")
 		}
 
@@ -270,7 +271,7 @@ func (h *SlashHandler) handleDailyStats(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	// Send the response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }

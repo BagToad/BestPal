@@ -78,7 +78,7 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 	if err != nil {
 		return ""
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {

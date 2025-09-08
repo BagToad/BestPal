@@ -13,10 +13,10 @@ import (
 const maxInactiveUsersDisplay = 20
 
 // handlePruneInactive handles the prune-inactive slash command
-func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has administrator permissions
 	if !utils.HasAdminPermissions(s, i) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You need Administrator permissions to use this command.",
@@ -35,14 +35,14 @@ func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.In
 	}
 
 	// Defer the response since this might take a while
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
 	// Get all guild members
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
 		})
 		return
@@ -150,17 +150,17 @@ func (h *SlashHandler) handlePruneInactive(s *discordgo.Session, i *discordgo.In
 	}
 
 	// Send the response
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
 
 // handlePruneForum scans a forum channel for threads whose starter was deleted.
 // Dry run by default; when execute:true, deletes flagged threads.
-func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Admin guard
 	if !utils.HasAdminPermissions(s, i) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You need administrator permissions to run this command.",
@@ -177,7 +177,7 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 		if opt.Name == "forum" {
 			forumChannel = opt.ChannelValue(s)
 			if forumChannel == nil {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "❌ Unable to resolve the provided channel.",
@@ -189,7 +189,7 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 			forumID = forumChannel.ID
 			// Also runtime-validate it's a forum
 			if forumChannel.Type != discordgo.ChannelTypeGuildForum {
-				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
 					Data: &discordgo.InteractionResponseData{
 						Content: "❌ The selected channel is not a forum channel.",
@@ -205,7 +205,7 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	if forumID == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You must provide a forum channel to prune.",
@@ -216,14 +216,14 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	// Defer response
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
 	// Fetch threads under the forum
 	threads, err := getAllActiveThreads(s, forumID, i.GuildID)
 	if err != nil {
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing forum: %v", err)),
 		})
 		return
@@ -375,7 +375,7 @@ func (h *SlashHandler) handlePruneForum(s *discordgo.Session, i *discordgo.Inter
 		},
 	}
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{embed},
 	})
 }
@@ -386,10 +386,7 @@ func fetchMessagesLimited(s *discordgo.Session, channelID string, limitTotal int
 	var beforeID string
 	const page = 100
 
-	for {
-		if limitTotal > 0 && len(all) >= limitTotal {
-			break
-		}
+	for limitTotal <= 0 || len(all) < limitTotal {
 		fetch := page
 		if limitTotal > 0 && limitTotal-len(all) < page {
 			fetch = limitTotal - len(all)

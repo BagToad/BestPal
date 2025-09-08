@@ -10,6 +10,10 @@ func (c *Config) GetIGDBClientID() string {
 	return c.v.GetString("igdb_client_id")
 }
 
+func (c *Config) GetIGDBClientSecret() string {
+	return c.v.GetString("igdb_client_secret")
+}
+
 func (c *Config) GetIGDBClientToken() string {
 	return c.v.GetString("igdb_client_token")
 }
@@ -30,12 +34,34 @@ func (c *Config) GetGamerPalsModActionLogChannelID() string {
 	return c.v.GetString("gamerpals_mod_action_log_channel_id")
 }
 
+func (c *Config) GetGamerpalsLogChannelID() string {
+	return c.v.GetString("gamerpals_log_channel_id")
+}
+
 func (c *Config) GetGamerPalsPairingCategoryID() string {
 	return c.v.GetString("gamerpals_pairing_category_id")
 }
 
 func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 	return c.v.GetString("gamerpals_introductions_forum_channel_id")
+}
+
+func (c *Config) GetGamerPalsLFGForumChannelID() string {
+	return c.v.GetString("gamerpals_lfg_forum_channel_id")
+}
+
+// LFG Looking NOW panel channel ID (persisted so panel survives restarts)
+func (c *Config) GetLFGNowPanelChannelID() string {
+	return c.v.GetString("gamerpals_lfg_now_panel_channel_id")
+}
+
+// LFG "looking now" TTL (default 1h if not set or zero)
+func (c *Config) GetLFGNowTTLDuration() time.Duration {
+	d := c.v.GetDuration("gamerpals_lfg_now_ttl")
+	if d <= 0 {
+		return time.Hour
+	}
+	return d
 }
 
 // New Pals systems
@@ -78,7 +104,9 @@ func (c *Config) GetLogDir() string {
 
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
-	c.v.WriteConfig()
+	if err := c.v.WriteConfig(); err != nil {
+		c.Logger.Warnf("failed to write config for key %s: %v", key, err)
+	}
 }
 
 // GetString returns the string value for a given config key

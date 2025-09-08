@@ -9,9 +9,9 @@ import (
 )
 
 // handleTime handles the /time command
-func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
@@ -20,7 +20,7 @@ func (h *SlashHandler) handleTime(s *discordgo.Session, i *discordgo.Interaction
 }
 
 // handleTimeParse handles the time parse logic
-func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (h *SlashCommandHandler) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Missing Parameter",
@@ -30,7 +30,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 				Text: "GamerPal Bot",
 			},
 		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
@@ -46,7 +46,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 				Text: "GamerPal Bot",
 			},
 		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
@@ -79,7 +79,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 				Text: "GamerPal Bot",
 			},
 		}
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Embeds: &[]*discordgo.MessageEmbed{embed},
 		})
 		return
@@ -102,7 +102,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 			dateString,
 			discordTimestamps["Relative Time"],
 			discordTimestamps["Long Date/Time"])
-		s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(msgBody),
 		})
 		return
@@ -136,7 +136,7 @@ func (h *SlashHandler) handleTimeParse(s *discordgo.Session, i *discordgo.Intera
 		Inline: false,
 	})
 
-	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Embeds: &[]*discordgo.MessageEmbed{&embed},
 	})
 }

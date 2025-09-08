@@ -3,8 +3,8 @@ package commands
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/lfgpanel"
 	"gamerpal/internal/pairing"
-	"gamerpal/internal/utils"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -14,20 +14,23 @@ import (
 type Command struct {
 	ApplicationCommand *discordgo.ApplicationCommand
 	HandlerFunc        func(s *discordgo.Session, i *discordgo.InteractionCreate)
-	Disabled           bool
+	Development        bool
 }
 
-// SlashHandler handles command processing
-type SlashHandler struct {
+// SlashCommandHandler handles command processing
+type SlashCommandHandler struct {
 	igdbClient     *igdb.Client
 	Commands       map[string]*Command
 	config         *config.Config
 	DB             *database.DB
 	PairingService *pairing.PairingService
+
+	// LFG Now panel service (extracted state)
+	lfgNowSvc *lfgpanel.InMemoryService
 }
 
 // NewSlashHandler creates a new command handler
-func NewSlashHandler(cfg *config.Config) *SlashHandler {
+func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
@@ -38,11 +41,18 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		// Continue without database for now
 	}
 
-	h := &SlashHandler{
+	// initialize lfg now panel service
+	lfgSvc := lfgpanel.NewLFGPanelService(cfg).WithLogger(
+		func(msg string, args ...any) { cfg.Logger.Infof(msg, args...) },
+		func(msg string, args ...any) { cfg.Logger.Warnf(msg, args...) },
+	)
+
+	h := &SlashCommandHandler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
 		config:     cfg,
 		DB:         db,
+		lfgNowSvc:  lfgSvc,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -50,6 +60,79 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 
 	// Define all commands
 	commands := []*Command{
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "lfg",
+				Description: "LFG (Looking For Group) utilities",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "now",
+						Description: "Mark yourself as looking now inside an LFG thread",
+						Options: []*discordgo.ApplicationCommandOption{
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "region",
+								Description: "Region",
+								Required:    true,
+								Choices: []*discordgo.ApplicationCommandOptionChoice{
+									{Name: "North America", Value: "North America"},
+									{Name: "Europe", Value: "Europe"},
+									{Name: "Asia", Value: "Asia"},
+									{Name: "South America", Value: "South America"},
+									{Name: "Oceania", Value: "Oceania"},
+								},
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionString,
+								Name:        "message",
+								Description: "Short message",
+								Required:    true,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionInteger,
+								Name:        "player_count",
+								Description: "Desired player count",
+								Required:    true,
+								MinValue:    &[]float64{1}[0],
+								MaxValue:    99,
+							},
+						},
+					},
+				},
+			},
+			HandlerFunc: h.handleLFG,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "lfg-admin",
+				Description: "LFG admin commands",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup-find-a-thread",
+						Description: "Set up the LFG find-a-thread panel in this channel",
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "setup-looking-now",
+						Description: "Set up the 'Looking NOW' panel in this channel",
+					},
+				},
+				DefaultMemberPermissions: &adminPerms,
+				Contexts: &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			},
+			HandlerFunc: h.handleLFG,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:        "refresh-igdb",
+				Description: "Refresh the IGDB client token using stored credentials (super-admin only)",
+				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextBotDM},
+			},
+			HandlerFunc: h.handleRefreshIGDB,
+		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "config",
@@ -268,31 +351,6 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
-				Name:                     "welcome",
-				Description:              "Generate a welcome message for new members (admin only)",
-				DefaultMemberPermissions: &modPerms,
-				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
-				Options: []*discordgo.ApplicationCommandOption{
-					{
-						Type:        discordgo.ApplicationCommandOptionInteger,
-						Name:        "minutes",
-						Description: "How many minutes back to look for new members",
-						Required:    true,
-						MinValue:    utils.Float64Ptr(1),
-						MaxValue:    1440, // 24 hours
-					},
-					{
-						Type:        discordgo.ApplicationCommandOptionBoolean,
-						Name:        "execute",
-						Description: "Actually send the message (default: false for preview only)",
-						Required:    false,
-					},
-				},
-			},
-			HandlerFunc: h.handleWelcome,
-		},
-		{
-			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "roulette",
 				Description: "Sign up for a pairing or manage your game list",
 				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
@@ -341,7 +399,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRoulette,
-			Disabled:    true, // Disabled while in development
+			Development: true, // Disabled while in development
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
@@ -419,7 +477,7 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 				},
 			},
 			HandlerFunc: h.handleRouletteAdmin,
-			Disabled:    true, // Disabled while in development
+			Development: true, // Disabled while in development
 		},
 	}
 
@@ -432,17 +490,17 @@ func NewSlashHandler(cfg *config.Config) *SlashHandler {
 }
 
 // GetDB returns the database instance (used by scheduler)
-func (h *SlashHandler) GetDB() *database.DB {
+func (h *SlashCommandHandler) GetDB() *database.DB {
 	return h.DB
 }
 
 // InitializePairingService initializes the pairing service with a Discord session
-func (h *SlashHandler) InitializePairingService(session *discordgo.Session) {
+func (h *SlashCommandHandler) InitializePairingService(session *discordgo.Session) {
 	h.PairingService = pairing.NewPairingService(session, h.config, h.DB)
 }
 
 // RegisterCommands registers all slash commands with Discord
-func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
+func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
@@ -451,9 +509,9 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 	}
 
 	for _, c := range h.Commands {
-		// If a command is disabled, we're not only going to skip it, but we'll
-		// also unregister it if it exists
-		if c.Disabled {
+		// If a command is in development, we're not only going to skip it, but we'll
+		// also unregister it if it exists.
+		if c.Development {
 			for _, existingCmd := range existingCommands {
 				if existingCmd.Name == c.ApplicationCommand.Name {
 					err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
@@ -482,7 +540,7 @@ func (h *SlashHandler) RegisterCommands(s *discordgo.Session) error {
 }
 
 // HandleInteraction routes slash command interactions
-func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) HandleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ApplicationCommandData().Name == "" {
 		return
 	}
@@ -494,7 +552,7 @@ func (h *SlashHandler) HandleInteraction(s *discordgo.Session, i *discordgo.Inte
 }
 
 // UnregisterCommands removes all registered commands (useful for cleanup)
-func (h *SlashHandler) UnregisterCommands(s *discordgo.Session) {
+func (h *SlashCommandHandler) UnregisterCommands(s *discordgo.Session) {
 	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {

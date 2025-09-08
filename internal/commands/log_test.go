@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"gamerpal/internal/config"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLogCommands(t *testing.T) {
@@ -31,7 +33,7 @@ func TestLogCommands(t *testing.T) {
 		"log_dir": tempDir,
 	})
 
-	handler := &SlashHandler{
+	handler := &SlashCommandHandler{
 		config: cfg,
 	}
 
@@ -112,6 +114,6 @@ func TestLogCommands(t *testing.T) {
 		}
 
 		// Cleanup
-		os.Remove(zipPath)
+		require.NoError(t, os.Remove(zipPath))
 	})
 }

@@ -6,6 +6,7 @@ bot_token: "your-discord-bot-token-here"
 
 # IGDB API Configuration
 igdb_client_id: "your-igdb-client-id-here"
+igdb_client_secret: "your-igdb-client-secret-here"
 igdb_client_token: "your-igdb-client-token-here"
 
 # For sort of random names in /say
@@ -20,3 +21,4 @@ gamerpals_server_id: "your-server-id-here"
 gamerpals_mod_action_log_channel_id: "your-mod-log-channel-id-here"
 gamerpals_pairing_category_id: "your-pairing-category-id-here"
 gamerpals_introductions_forum_channel_id: "your-introductions-forum-channel-id-here"
+gamerpals_lfg_forum_channel_id: "your-lfg-forum-channel-id-here"

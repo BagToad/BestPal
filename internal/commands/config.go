@@ -8,9 +8,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (h *SlashCommandHandler) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, h.config) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You do not have permission to use this command.",
@@ -29,9 +29,10 @@ func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.Interacti
 			var key string
 			var value string
 			for _, subOption := range option.Options {
-				if subOption.Name == "key" {
+				switch subOption.Name {
+				case "key":
 					key = subOption.StringValue()
-				} else if subOption.Name == "value" {
+				case "value":
 					value = subOption.StringValue()
 				}
 			}
@@ -40,13 +41,11 @@ func (h *SlashHandler) handleConfig(s *discordgo.Session, i *discordgo.Interacti
 			handleConfigListKeys(s, i, h.config)
 		}
 	}
-
-	return
 }
 
 func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *config.Config, key, value string) {
 	if key == "" || value == "" {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Invalid key or value provided.",
@@ -58,7 +57,7 @@ func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *
 
 	forbiddenKeys := []string{"super_admins", "bot_token"}
 	if slices.Contains(forbiddenKeys, key) {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ You cannot modify this configuration key.",
@@ -72,7 +71,7 @@ func handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, cfg *
 	cfg.Set(key, value)
 
 	// Respond to the interaction
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "✅ Configuration updated successfully.",
@@ -92,6 +91,7 @@ func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, 
 
 	configItems := []configItem{
 		{"igdb_client_id", false},                          // Token-like, don't show value
+		{"igdb_client_secret", false},                      // Token-like, don't show value
 		{"igdb_client_token", false},                       // Token, don't show value
 		{"github_models_token", false},                     // Token, don't show value
 		{"crypto_salt", false},                             // Sensitive, don't show value
@@ -106,6 +106,7 @@ func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		{"new_pals_time_between_welcome_messages", true},   // Duration setting
 		{"database_path", true},                            // File path
 		{"log_dir", true},                                  // Directory path
+		{"gamerpals_log_channel_id", true},                 // Harmless ID
 	}
 
 	// Format the keys into a readable list
@@ -125,7 +126,7 @@ func handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate, 
 	content := "📋 **Available Configuration Keys:**\n\n" + keysList + "\n*Use `/config set <key> <value>` to modify any of these keys.*"
 
 	// Respond to the interaction
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: content,

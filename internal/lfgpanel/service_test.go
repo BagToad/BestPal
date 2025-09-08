@@ -105,7 +105,7 @@ func TestPruneExpired(t *testing.T) {
 		t.Fatalf("refresh: %v", err)
 	}
 	if len(sess.messages) != 1 { // empty-state embed should remain
-			t.Fatalf("expected one empty-state panel message after prune, got %d", len(sess.messages))
+		t.Fatalf("expected one empty-state panel message after prune, got %d", len(sess.messages))
 	}
 	// Optional: validate embed content
 	for _, m := range sess.messages {

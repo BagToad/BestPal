@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"gamerpal/internal/games"
@@ -76,34 +75,6 @@ const (
 	lfgMoreSuggestionsPrefix  = "lfg_more_suggestions"  // lfg_more_suggestions::<normalizedQuery>
 	lfgCreateSuggestionPrefix = "lfg_create_suggestion" // lfg_create_suggestion::<id>
 )
-
-// in-memory mapping for suggestion button IDs -> game title
-var lfgSuggestionMap = struct {
-	sync.RWMutex
-	idToTitle map[string]string
-}{idToTitle: make(map[string]string)}
-
-var lfgSuggestionIDCounter uint64
-
-func newSuggestionID() string {
-	v := atomic.AddUint64(&lfgSuggestionIDCounter, 1)
-	return fmt.Sprintf("%x", v)
-}
-
-func storeSuggestionTitle(title string) string {
-	id := newSuggestionID()
-	lfgSuggestionMap.Lock()
-	lfgSuggestionMap.idToTitle[id] = title
-	lfgSuggestionMap.Unlock()
-	return id
-}
-
-func fetchSuggestionTitle(id string) (string, bool) {
-	lfgSuggestionMap.RLock()
-	t, ok := lfgSuggestionMap.idToTitle[id]
-	lfgSuggestionMap.RUnlock()
-	return t, ok
-}
 
 // handleLFG processes /lfg commands (currently only setup)
 func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {

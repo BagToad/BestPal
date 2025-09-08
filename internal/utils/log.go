@@ -38,11 +38,16 @@ func LogToChannelWithFile(cfg *config.Config, s *discordgo.Session, fileContent 
 	}
 	defer func() {
 		if err := os.Remove(file.Name()); err != nil {
-			cfg.Logger.Error("failed to remove temp log file: %v", err)
+			cfg.Logger.Errorf("failed to remove temp log file: %v", err)
 		}
 	}()
 
 	if _, err := file.WriteString(fileContent); err != nil {
+		return err
+	}
+
+	// Rewind so the subsequent read for upload starts at beginning; otherwise empty file is sent.
+	if _, err := file.Seek(0, 0); err != nil {
 		return err
 	}
 

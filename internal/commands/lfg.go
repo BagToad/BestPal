@@ -539,15 +539,24 @@ func (h *SlashCommandHandler) handleMoreSuggestions(s *discordgo.Session, i *dis
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("❌ error fetching suggestions: %v", err)}})
 		return
 	}
-	if searchRes == nil || len(searchRes.Suggestions) == 0 {
+
+	var gameSuggestions []*igdb.Game
+	if searchRes.ExactMatch != nil {
+		gameSuggestions = append(gameSuggestions, searchRes.ExactMatch)
+	}
+	if len(searchRes.Suggestions) > 0 {
+		gameSuggestions = append(gameSuggestions, searchRes.Suggestions...)
+	}
+
+	if searchRes == nil || len(gameSuggestions) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "No further suggestions available."}})
 		return
 	}
 
-	// Collect up to 9 suggestion names (unique by lowercase)
+	// Collect up to 5 suggestion names (unique by lowercase)
 	seen := make(map[string]struct{})
 	var names []string
-	for _, g := range searchRes.Suggestions {
+	for _, g := range gameSuggestions {
 		if g == nil || g.Name == "" {
 			continue
 		}

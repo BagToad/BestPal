@@ -1,11 +1,12 @@
 package games
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/Henry-Sarabia/igdb/v2"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type GameSearchResult struct {
@@ -25,19 +26,30 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		return nil, fmt.Errorf("empty game name")
 	}
 
-	games, err := igdbClient.Games.Search(gameName,
+	var games []*igdb.Game
+
+	titleCaseName := cases.Title(language.English).String(gameName)
+	titleCaseExacts, _ := igdbClient.Games.Index(
 		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
-		igdb.SetLimit(10),
+		igdb.SetFilter("name", igdb.OpEquals, fmt.Sprintf(`"%s"`, titleCaseName)),
+	)
+	games = append(games, titleCaseExacts...)
+
+	inputCaseExacts, _ := igdbClient.Games.Index(
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+		igdb.SetFilter("name", igdb.OpEquals, fmt.Sprintf(`"%s"`, strings.ToLower(gameName))),
+	)
+	games = append(games, inputCaseExacts...)
+
+	searchGames, err := igdbClient.Games.Search(gameName,
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+		igdb.SetLimit(5),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("igdb search error: %w", err)
 	}
 
-	// DEBUG: Log the raw search results using unmarshalindent
-	if b, err := json.MarshalIndent(games, "", "  "); err == nil {
-		jsonStr := string(b)
-		fmt.Printf("LFG: search results for \"%s\":\n%s\n", gameName, jsonStr)
-	}
+	games = append(games, searchGames...)
 
 	var exact *igdb.Game
 	suggestions := make([]*igdb.Game, 0, len(games))

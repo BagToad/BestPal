@@ -58,10 +58,10 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 		return
 	}
 
-	publicContent := fmt.Sprintf("@here: + <@%s> is looking to play!\n\n_%s_", userID, message)
+	publicContent := fmt.Sprintf("@here: <@%s> is looking to play!\n\n_%s_", userID, message)
 	if _, err := s.ChannelMessageSend(ch.ID, publicContent); err != nil {
 		// Fall back to including the announcement in the ephemeral reply if sending fails
-		fallback := fmt.Sprintf("✅ Added to Looking NOW panel, but couldn't send public message.\n\n%s", publicContent)
+		fallback := fmt.Sprintf("✅ Added to Looking NOW panel, but couldn't send public message for some reason.\n\n%s", publicContent)
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fallback)})
 		return
 	}

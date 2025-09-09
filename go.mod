@@ -59,3 +59,5 @@ require (
 	golang.org/x/text v0.26.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/Henry-Sarabia/igdb/v2 => github.com/BagToad/igdb/v2 v2.0.0-20250909035334-53ad3a813c06

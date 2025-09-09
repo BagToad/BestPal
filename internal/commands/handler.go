@@ -82,6 +82,7 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 									{Name: "Asia", Value: "Asia"},
 									{Name: "South America", Value: "South America"},
 									{Name: "Oceania", Value: "Oceania"},
+									{Name: "Any Region", Value: "Any Region"},
 								},
 							},
 							{
@@ -121,7 +122,7 @@ func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
 					},
 				},
 				DefaultMemberPermissions: &adminPerms,
-				Contexts: &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			},
 			HandlerFunc: h.handleLFG,
 		},

@@ -24,13 +24,25 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		return nil, fmt.Errorf("empty game name")
 	}
 
-	games, err := igdbClient.Games.Search(gameName,
+	var games []*igdb.Game
+
+	exacts, _ := igdbClient.Games.Index(
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+		igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`"%s"`, gameName)),
+		igdb.SetLimit(10),
+	)
+	games = append(games, exacts...)
+
+	searchGames, err := igdbClient.Games.Search(gameName,
 		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
 		igdb.SetLimit(10),
+		igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`*"%s"*`, gameName)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("igdb search error: %w", err)
 	}
+
+	games = append(games, searchGames...)
 
 	var exact *igdb.Game
 	suggestions := make([]*igdb.Game, 0, len(games))
@@ -40,7 +52,7 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		}
 
 		// Case sensitive match - these are more important.
-		if g.Name == gameName {
+		if g.Name == gameName && exact == nil {
 			exact = g
 			continue
 		}

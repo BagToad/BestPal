@@ -26,18 +26,12 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 
 	var games []*igdb.Game
 
-	// titleCaseName := cases.Title(language.English).String(gameName)
-	// titleCaseExacts, _ := igdbClient.Games.Index(
-	// 	igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
-	// 	igdb.SetFilter("name", igdb.OpEquals, fmt.Sprintf(`"%s"`, titleCaseName)),
-	// )
-	// games = append(games, titleCaseExacts...)
-
-	// inputCaseExacts, _ := igdbClient.Games.Index(
-	// 	igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
-	// 	igdb.SetFilter("name", igdb.OpEquals, fmt.Sprintf(`"%s"`, strings.ToLower(gameName))),
-	// )
-	// games = append(games, inputCaseExacts...)
+	exacts, _ := igdbClient.Games.Index(
+		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+		igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`"%s"`, gameName)),
+		igdb.SetLimit(10),
+	)
+	games = append(games, exacts...)
 
 	searchGames, err := igdbClient.Games.Search(gameName,
 		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),

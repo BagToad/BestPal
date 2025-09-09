@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"gamerpal/internal/utils"
 	"strings"
 
@@ -53,6 +54,15 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 	_ = h.lfgNowSvc.Upsert(ch.ID, userID, region, message, playerCount)
 	if err := h.lfgNowSvc.RefreshPanel(s, h.config.GetLFGNowTTLDuration()); err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Added entry, but failed to refresh panel.")})
+		// Even if panel refresh fails, still attempt to post the public message below.
+		return
+	}
+
+	publicContent := fmt.Sprintf("@here: + <@%s> is looking to play!\n\n_%s_", userID, message)
+	if _, err := s.ChannelMessageSend(ch.ID, publicContent); err != nil {
+		// Fall back to including the announcement in the ephemeral reply if sending fails
+		fallback := fmt.Sprintf("✅ Added to Looking NOW panel, but couldn't send public message.\n\n%s", publicContent)
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fallback)})
 		return
 	}
 

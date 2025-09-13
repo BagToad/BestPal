@@ -18,7 +18,7 @@ func newTestHandler(t *testing.T) *SlashCommandHandler {
 	t.Helper()
 	cfg := newTestConfig(t)
 
-	return NewSlashHandler(cfg)
+	return NewSlashCommandHandler(cfg)
 }
 
 // newTestConfig creates a mock configuration for testing
@@ -350,7 +350,7 @@ func TestHandlerCreation(t *testing.T) {
 	t.Run("handler creation with valid config", func(t *testing.T) {
 		cfg := newTestConfig(t)
 
-		handler := NewSlashHandler(cfg)
+		handler := NewSlashCommandHandler(cfg)
 
 		assert.NotNil(t, handler)
 		assert.NotNil(t, handler.igdbClient)

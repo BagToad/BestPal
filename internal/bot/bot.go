@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -36,7 +35,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 
 	// Create command handler
-	handler := commands.NewSlashHandler(cfg)
+	handler := commands.NewSlashCommandHandler(cfg)
 
 	bot := &Bot{
 		session:             session,
@@ -154,22 +153,12 @@ func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 		if forumID == "" {
 			return
 		}
-		// Attempt to list active threads in forum parent (Discord provides list of active threads guild-wide)
-		threads, err := s.GuildThreadsActive(b.config.GetGamerPalsServerID())
-		if err != nil {
-			b.config.Logger.Warnf("LFG preload: failed to list active threads: %v", err)
-			return
+		// Use shared rebuild helper (includes archived threads)
+		if total, active, archived, err := commands.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
+			b.config.Logger.Warnf("LFG preload: %v", err)
+		} else {
+			b.config.Logger.Infof("LFG preload: cached %d threads (active=%d, archived=%d)", total, active, archived)
 		}
-		count := 0
-		for _, th := range threads.Threads {
-			if th.ParentID == forumID {
-				// Normalize name to lower for lookup (basic)
-				normalized := strings.ToLower(th.Name)
-				commands.LFGCacheSet(normalized, th.ID)
-				count++
-			}
-		}
-		b.config.Logger.Infof("LFG preload: cached %d existing threads", count)
 	}()
 
 	// Set bot status to something fresh every hour

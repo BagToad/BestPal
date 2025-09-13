@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,9 +92,106 @@ func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.Inter
 		h.handleLFGSetupLookingNow(s, i)
 	case "now":
 		h.handleLFGNow(s, i)
+	case "refresh-thread-cache":
+		h.handleLFGRefreshCache(s, i)
 	default:
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Unknown subcommand"}})
 	}
+}
+
+// handleLFGRefreshCache rebuilds the in-memory LFG thread cache (admin only command path).
+func (h *SlashCommandHandler) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	forumID := h.config.GetGamerPalsLFGForumChannelID()
+	if forumID == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
+		return
+	}
+
+	// Defer ephemeral response while refreshing.
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
+
+	cached, active, archived, err := rebuildLFGThreadCache(s, h.config.GetGamerPalsServerID(), forumID)
+	if err != nil {
+		h.config.Logger.Warnf("LFG cache refresh: %v", err)
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ Failed to refresh cache: " + err.Error())})
+		return
+	}
+
+	msg := fmt.Sprintf("✅ Refreshed LFG cache. Cached %d threads (active=%d, archived=%d).", cached, active, archived)
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+}
+
+// rebuildLFGThreadCache lists active + archived threads for the given forum and seeds the cache.
+func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total, activeCount, archivedCount int, err error) {
+	if forumID == "" || guildID == "" {
+		return 0, 0, 0, fmt.Errorf("missing guild or forum ID")
+	}
+
+	// Temporary local map to avoid partial results on failure.
+	temp := make(map[string]string)
+
+	// 1. Active threads (guild-wide endpoint, filter by parent)
+	active, aErr := s.GuildThreadsActive(guildID)
+	if aErr != nil {
+		return 0, 0, 0, fmt.Errorf("failed listing active threads: %w", aErr)
+	}
+	for _, th := range active.Threads {
+		if th.ParentID == forumID {
+			norm := strings.ToLower(th.Name)
+			temp[norm] = th.ID
+			activeCount++
+		}
+	}
+
+	// 2. Archived public threads (paginate until no more)
+	var before *time.Time
+	for {
+		archived, archErr := s.ThreadsArchived(forumID, before, 50)
+		if archErr != nil { // treat archived errors as non-fatal (still seed active entries)
+			break
+		}
+		if archived == nil || len(archived.Threads) == 0 {
+			break
+		}
+		for _, th := range archived.Threads {
+			norm := strings.ToLower(th.Name)
+			if _, exists := temp[norm]; !exists { // don't double count (if any)
+				temp[norm] = th.ID
+				archivedCount++
+			}
+		}
+		if !archived.HasMore { // discordgo exposes HasMore; if false we're done
+			break
+		}
+		// Prepare 'before' for next page using last thread's archive timestamp if available
+		// discordgo.ThreadsArchived returns Threads, but doesn't directly expose timestamps; rely on ID order.
+		last := archived.Threads[len(archived.Threads)-1]
+		// Convert snowflake ID to time (Discord epoch: 2015-01-01). Keep simple; we just need ordering.
+		if ts, tErr := discordgo.SnowflakeTimestamp(last.ID); tErr == nil {
+			t := ts
+			before = &t
+		} else {
+			break // can't paginate further reliably
+		}
+	}
+
+	// Replace global cache under lock
+	lfgThreadCache.Lock()
+	for k := range lfgThreadCache.nameToThreadID { // clear existing
+		delete(lfgThreadCache.nameToThreadID, k)
+	}
+	for k, v := range temp {
+		lfgThreadCache.nameToThreadID[k] = v
+	}
+	total = len(lfgThreadCache.nameToThreadID)
+	lfgThreadCache.Unlock()
+
+	return total, activeCount, archivedCount, nil
+}
+
+// RebuildLFGThreadCacheWrapper is an exported wrapper so other packages (bot) can trigger a rebuild.
+func RebuildLFGThreadCacheWrapper(s *discordgo.Session, guildID, forumID string) (int, int, int, error) {
+	return rebuildLFGThreadCache(s, guildID, forumID)
 }
 
 // handleLFGSetup posts (or replaces) the LFG panel in the current channel.
@@ -285,11 +383,11 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 	if len(searchRes.Suggestions) > 0 || searchRes.ExactMatch != nil {
 		components = []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
+				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Create a thread", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
 			}},
 		}
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "Click \"Show More Suggestions\" to find more options and create a thread!",
+			Name: "Click \"Create a thread\" to find more options and create a thread!",
 		})
 	}
 
@@ -495,25 +593,124 @@ func (h *SlashCommandHandler) createLFGThreadFromExactMatch(s *discordgo.Session
 }
 
 // gatherPartialThreadSuggestionsDetailed returns up to 'limit' partial match existing thread suggestions.
-func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, normalized, excludeThreadID string, limit int) []discordgo.Channel {
-	var out []discordgo.Channel
+func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
+	// Normalize input
+	searchTerm = strings.TrimSpace(strings.ToLower(searchTerm))
+	if searchTerm == "" || limit <= 0 {
+		return nil
+	}
+
+	// Tokenize search term into meaningful parts (length >= 2) to avoid noise.
+	rawParts := strings.Fields(searchTerm)
+	var searchParts []string
+	for _, p := range rawParts {
+		p = strings.TrimSpace(p)
+		if len(p) >= 2 { // skip 1-char tokens like 'a' / '2'
+			searchParts = append(searchParts, p)
+		}
+	}
+	if len(searchParts) == 0 { // fallback to simple term if all tokens filtered out
+		searchParts = []string{searchTerm}
+	}
+
+	// Collect candidate thread IDs under read lock first (don't hold lock while calling Discord API)
+	type candidate struct {
+		id   string
+		name string
+	}
+	var candidates []candidate
+
 	lfgThreadCache.RLock()
-	for k, id := range lfgThreadCache.nameToThreadID {
-		if strings.Contains(strings.ToLower(k), normalized) {
-			if excludeThreadID != "" && id == excludeThreadID {
-				continue
+	for name, id := range lfgThreadCache.nameToThreadID {
+		if excludeThreadID != "" && id == excludeThreadID { // skip exact we already show elsewhere
+			continue
+		}
+		threadName := strings.ToLower(name)
+
+		// Fast path: whole searchTerm substring match
+		if strings.Contains(threadName, searchTerm) {
+			candidates = append(candidates, candidate{id: id, name: threadName})
+			continue
+		}
+
+		// Per-token containment (token contained in thread or thread contained in token for single-word threads)
+		tokenHit := false
+		for _, part := range searchParts {
+			if strings.Contains(threadName, part) || strings.Contains(part, threadName) { // second condition handles very short thread names
+				tokenHit = true
+				break
 			}
-			ch, err := s.Channel(id)
-			if err == nil && ch != nil && ch.ParentID == forumID {
-				out = append(out, *ch)
-				if len(out) >= limit {
-					break
-				}
-			}
+		}
+		if tokenHit {
+			candidates = append(candidates, candidate{id: id, name: threadName})
 		}
 	}
 	lfgThreadCache.RUnlock()
-	return out
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// De-duplicate (map by ID) and score candidates; simple scoring: longer common substring / number of token matches.
+	type scored struct {
+		cand  candidate
+		score int
+	}
+	var scoredList []scored
+	seen := make(map[string]struct{})
+	for _, c := range candidates {
+		if _, ok := seen[c.id]; ok {
+			continue
+		}
+		seen[c.id] = struct{}{}
+		sc := 0
+		// Exact substring of full searchTerm already ensured at collection time (implicit boost)
+		if strings.Contains(c.name, searchTerm) {
+			sc += 5
+		}
+		tokenMatches := 0
+		for _, part := range searchParts {
+			if strings.Contains(c.name, part) {
+				tokenMatches++
+			}
+		}
+		sc += tokenMatches
+		// Mild length proximity bonus (avoid super-short generic names overshadowing)
+		if len(c.name) >= len(searchTerm) {
+			sc++
+		}
+		scoredList = append(scoredList, scored{cand: c, score: sc})
+	}
+
+	// Sort best-first
+	slices.SortFunc(scoredList, func(a, b scored) int {
+		if a.score == b.score {
+			// tie-break by lexicographic to keep determinism
+			return strings.Compare(a.cand.name, b.cand.name)
+		}
+		// higher score first
+		if a.score > b.score {
+			return -1
+		}
+		return 1
+	})
+
+	// Fetch channel objects for top results until limit satisfied
+	var foundThreads []discordgo.Channel
+	for _, sEntry := range scoredList {
+		if len(foundThreads) >= limit {
+			break
+		}
+		ch, err := s.Channel(sEntry.cand.id)
+		if err != nil || ch == nil { // stale, skip
+			continue
+		}
+		if ch.ParentID != forumID { // wrong forum; could be stale mapping
+			continue
+		}
+		foundThreads = append(foundThreads, *ch)
+	}
+	return foundThreads
 }
 
 // ---- More Suggestions Flow ----

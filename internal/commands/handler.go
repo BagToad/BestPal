@@ -29,8 +29,8 @@ type SlashCommandHandler struct {
 	lfgNowSvc *lfgpanel.InMemoryService
 }
 
-// NewSlashHandler creates a new command handler
-func NewSlashHandler(cfg *config.Config) *SlashCommandHandler {
+// NewSlashCommandHandler creates a new command handler
+func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 

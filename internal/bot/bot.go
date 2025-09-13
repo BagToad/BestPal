@@ -36,7 +36,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 
 	// Create command handler
-	handler := commands.NewSlashHandler(cfg)
+	handler := commands.NewSlashCommandHandler(cfg)
 
 	bot := &Bot{
 		session:             session,

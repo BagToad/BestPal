@@ -594,47 +594,125 @@ func (h *SlashCommandHandler) createLFGThreadFromExactMatch(s *discordgo.Session
 
 // gatherPartialThreadSuggestionsDetailed returns up to 'limit' partial match existing thread suggestions.
 func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
-	var foundThreads []discordgo.Channel
-	lfgThreadCache.RLock()
-	defer lfgThreadCache.RUnlock()
-
-	searchTerm = strings.ToLower(searchTerm)
-	searchParts := strings.Fields(searchTerm)
-
-	if len(searchParts) == 0 {
-		lfgThreadCache.RUnlock()
-		return foundThreads
+	// Normalize input
+	searchTerm = strings.TrimSpace(strings.ToLower(searchTerm))
+	if searchTerm == "" || limit <= 0 {
+		return nil
 	}
 
+	// Tokenize search term into meaningful parts (length >= 2) to avoid noise.
+	rawParts := strings.Fields(searchTerm)
+	var searchParts []string
+	for _, p := range rawParts {
+		p = strings.TrimSpace(p)
+		if len(p) >= 2 { // skip 1-char tokens like 'a' / '2'
+			searchParts = append(searchParts, p)
+		}
+	}
+	if len(searchParts) == 0 { // fallback to simple term if all tokens filtered out
+		searchParts = []string{searchTerm}
+	}
+
+	// Collect candidate thread IDs under read lock first (don't hold lock while calling Discord API)
+	type candidate struct {
+		id   string
+		name string
+	}
+	var candidates []candidate
+
+	lfgThreadCache.RLock()
 	for name, id := range lfgThreadCache.nameToThreadID {
+		if excludeThreadID != "" && id == excludeThreadID { // skip exact we already show elsewhere
+			continue
+		}
 		threadName := strings.ToLower(name)
-		// If the search term is present in the thread name,
-		// or if any individual word from the search term
-		// is present in the thread name, consider it a hit.
-		isSearchHit := strings.Contains(threadName, searchTerm) ||
-			slices.Contains(searchParts, threadName)
 
-		if isSearchHit {
-			if excludeThreadID != "" && id == excludeThreadID {
-				continue
-			}
-			ch, err := s.Channel(id)
+		// Fast path: whole searchTerm substring match
+		if strings.Contains(threadName, searchTerm) {
+			candidates = append(candidates, candidate{id: id, name: threadName})
+			continue
+		}
 
-			if err != nil {
-				// stale entry
-				continue
+		// Per-token containment (token contained in thread or thread contained in token for single-word threads)
+		tokenHit := false
+		for _, part := range searchParts {
+			if strings.Contains(threadName, part) || strings.Contains(part, threadName) { // second condition handles very short thread names
+				tokenHit = true
+				break
 			}
-
-			// Ensure it's still a valid thread in the correct forum
-			if ch != nil && ch.ParentID == forumID {
-				foundThreads = append(foundThreads, *ch)
-				if len(foundThreads) >= limit {
-					break
-				}
-			}
+		}
+		if tokenHit {
+			candidates = append(candidates, candidate{id: id, name: threadName})
+		}
+		if len(candidates) >= limit*2 { // small over-collect buffer before API lookups
+			// don't break yet; quality isn't sorted, but we bound growth
 		}
 	}
 	lfgThreadCache.RUnlock()
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// De-duplicate (map by ID) and score candidates; simple scoring: longer common substring / number of token matches.
+	type scored struct {
+		cand  candidate
+		score int
+	}
+	var scoredList []scored
+	seen := make(map[string]struct{})
+	for _, c := range candidates {
+		if _, ok := seen[c.id]; ok {
+			continue
+		}
+		seen[c.id] = struct{}{}
+		sc := 0
+		// Exact substring of full searchTerm already ensured at collection time (implicit boost)
+		if strings.Contains(c.name, searchTerm) {
+			sc += 5
+		}
+		tokenMatches := 0
+		for _, part := range searchParts {
+			if strings.Contains(c.name, part) {
+				tokenMatches++
+			}
+		}
+		sc += tokenMatches
+		// Mild length proximity bonus (avoid super-short generic names overshadowing)
+		if len(c.name) >= len(searchTerm) {
+			sc++
+		}
+		scoredList = append(scoredList, scored{cand: c, score: sc})
+	}
+
+	// Sort best-first
+	slices.SortFunc(scoredList, func(a, b scored) int {
+		if a.score == b.score {
+			// tie-break by lexicographic to keep determinism
+			return strings.Compare(a.cand.name, b.cand.name)
+		}
+		// higher score first
+		if a.score > b.score {
+			return -1
+		}
+		return 1
+	})
+
+	// Fetch channel objects for top results until limit satisfied
+	var foundThreads []discordgo.Channel
+	for _, sEntry := range scoredList {
+		if len(foundThreads) >= limit {
+			break
+		}
+		ch, err := s.Channel(sEntry.cand.id)
+		if err != nil || ch == nil { // stale, skip
+			continue
+		}
+		if ch.ParentID != forumID { // wrong forum; could be stale mapping
+			continue
+		}
+		foundThreads = append(foundThreads, *ch)
+	}
 	return foundThreads
 }
 

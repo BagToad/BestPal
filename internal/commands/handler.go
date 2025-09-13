@@ -126,7 +126,7 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 						Description: "Rebuild the LFG thread name -> thread ID cache (includes archived threads)",
 					},
 				},
-				DefaultMemberPermissions: &adminPerms,
+				DefaultMemberPermissions: &modPerms,
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			},
 			HandlerFunc: h.handleLFG,

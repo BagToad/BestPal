@@ -644,9 +644,6 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searc
 		if tokenHit {
 			candidates = append(candidates, candidate{id: id, name: threadName})
 		}
-		if len(candidates) >= limit*2 { // small over-collect buffer before API lookups
-			// don't break yet; quality isn't sorted, but we bound growth
-		}
 	}
 	lfgThreadCache.RUnlock()
 

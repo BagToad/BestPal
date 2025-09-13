@@ -120,6 +120,11 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 						Name:        "setup-looking-now",
 						Description: "Set up the 'Looking NOW' panel in this channel",
 					},
+					{
+						Type:        discordgo.ApplicationCommandOptionSubCommand,
+						Name:        "refresh-thread-cache",
+						Description: "Rebuild the LFG thread name -> thread ID cache (includes archived threads)",
+					},
 				},
 				DefaultMemberPermissions: &adminPerms,
 				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},

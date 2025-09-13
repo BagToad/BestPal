@@ -92,9 +92,106 @@ func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.Inter
 		h.handleLFGSetupLookingNow(s, i)
 	case "now":
 		h.handleLFGNow(s, i)
+	case "refresh-thread-cache":
+		h.handleLFGRefreshCache(s, i)
 	default:
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Unknown subcommand"}})
 	}
+}
+
+// handleLFGRefreshCache rebuilds the in-memory LFG thread cache (admin only command path).
+func (h *SlashCommandHandler) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	forumID := h.config.GetGamerPalsLFGForumChannelID()
+	if forumID == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
+		return
+	}
+
+	// Defer ephemeral response while refreshing.
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
+
+	cached, active, archived, err := rebuildLFGThreadCache(s, h.config.GetGamerPalsServerID(), forumID)
+	if err != nil {
+		h.config.Logger.Warnf("LFG cache refresh: %v", err)
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ Failed to refresh cache: " + err.Error())})
+		return
+	}
+
+	msg := fmt.Sprintf("✅ Refreshed LFG cache. Cached %d threads (active=%d, archived=%d).", cached, active, archived)
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+}
+
+// rebuildLFGThreadCache lists active + archived threads for the given forum and seeds the cache.
+func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total, activeCount, archivedCount int, err error) {
+	if forumID == "" || guildID == "" {
+		return 0, 0, 0, fmt.Errorf("missing guild or forum ID")
+	}
+
+	// Temporary local map to avoid partial results on failure.
+	temp := make(map[string]string)
+
+	// 1. Active threads (guild-wide endpoint, filter by parent)
+	active, aErr := s.GuildThreadsActive(guildID)
+	if aErr != nil {
+		return 0, 0, 0, fmt.Errorf("failed listing active threads: %w", aErr)
+	}
+	for _, th := range active.Threads {
+		if th.ParentID == forumID {
+			norm := strings.ToLower(th.Name)
+			temp[norm] = th.ID
+			activeCount++
+		}
+	}
+
+	// 2. Archived public threads (paginate until no more)
+	var before *time.Time
+	for {
+		archived, archErr := s.ThreadsArchived(forumID, before, 50)
+		if archErr != nil { // treat archived errors as non-fatal (still seed active entries)
+			break
+		}
+		if archived == nil || len(archived.Threads) == 0 {
+			break
+		}
+		for _, th := range archived.Threads {
+			norm := strings.ToLower(th.Name)
+			if _, exists := temp[norm]; !exists { // don't double count (if any)
+				temp[norm] = th.ID
+				archivedCount++
+			}
+		}
+		if !archived.HasMore { // discordgo exposes HasMore; if false we're done
+			break
+		}
+		// Prepare 'before' for next page using last thread's archive timestamp if available
+		// discordgo.ThreadsArchived returns Threads, but doesn't directly expose timestamps; rely on ID order.
+		last := archived.Threads[len(archived.Threads)-1]
+		// Convert snowflake ID to time (Discord epoch: 2015-01-01). Keep simple; we just need ordering.
+		if ts, tErr := discordgo.SnowflakeTimestamp(last.ID); tErr == nil {
+			t := ts
+			before = &t
+		} else {
+			break // can't paginate further reliably
+		}
+	}
+
+	// Replace global cache under lock
+	lfgThreadCache.Lock()
+	for k := range lfgThreadCache.nameToThreadID { // clear existing
+		delete(lfgThreadCache.nameToThreadID, k)
+	}
+	for k, v := range temp {
+		lfgThreadCache.nameToThreadID[k] = v
+	}
+	total = len(lfgThreadCache.nameToThreadID)
+	lfgThreadCache.Unlock()
+
+	return total, activeCount, archivedCount, nil
+}
+
+// RebuildLFGThreadCacheWrapper is an exported wrapper so other packages (bot) can trigger a rebuild.
+func RebuildLFGThreadCacheWrapper(s *discordgo.Session, guildID, forumID string) (int, int, int, error) {
+	return rebuildLFGThreadCache(s, guildID, forumID)
 }
 
 // handleLFGSetup posts (or replaces) the LFG panel in the current channel.

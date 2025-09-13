@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -495,25 +496,49 @@ func (h *SlashCommandHandler) createLFGThreadFromExactMatch(s *discordgo.Session
 }
 
 // gatherPartialThreadSuggestionsDetailed returns up to 'limit' partial match existing thread suggestions.
-func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, normalized, excludeThreadID string, limit int) []discordgo.Channel {
-	var out []discordgo.Channel
+func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
+	var foundThreads []discordgo.Channel
 	lfgThreadCache.RLock()
-	for k, id := range lfgThreadCache.nameToThreadID {
-		if strings.Contains(strings.ToLower(k), normalized) {
+	defer lfgThreadCache.RUnlock()
+
+	searchTerm = strings.ToLower(searchTerm)
+	searchParts := strings.Fields(searchTerm)
+
+	if len(searchParts) == 0 {
+		lfgThreadCache.RUnlock()
+		return foundThreads
+	}
+
+	for name, id := range lfgThreadCache.nameToThreadID {
+		threadName := strings.ToLower(name)
+		// If the search term is present in the thread name,
+		// or if any individual word from the search term
+		// is present in the thread name, consider it a hit.
+		isSearchHit := strings.Contains(threadName, searchTerm) ||
+			slices.Contains(searchParts, threadName)
+
+		if isSearchHit {
 			if excludeThreadID != "" && id == excludeThreadID {
 				continue
 			}
 			ch, err := s.Channel(id)
-			if err == nil && ch != nil && ch.ParentID == forumID {
-				out = append(out, *ch)
-				if len(out) >= limit {
+
+			if err != nil {
+				// stale entry
+				continue
+			}
+
+			// Ensure it's still a valid thread in the correct forum
+			if ch != nil && ch.ParentID == forumID {
+				foundThreads = append(foundThreads, *ch)
+				if len(foundThreads) >= limit {
 					break
 				}
 			}
 		}
 	}
 	lfgThreadCache.RUnlock()
-	return out
+	return foundThreads
 }
 
 // ---- More Suggestions Flow ----

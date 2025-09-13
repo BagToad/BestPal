@@ -383,11 +383,11 @@ func (h *SlashCommandHandler) handleLFGModalSubmit(s *discordgo.Session, i *disc
 	if len(searchRes.Suggestions) > 0 || searchRes.ExactMatch != nil {
 		components = []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Show more suggestions", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
+				&discordgo.Button{Style: discordgo.SecondaryButton, Label: "Create a thread", CustomID: fmt.Sprintf("%s::%s", lfgMoreSuggestionsPrefix, gameName)},
 			}},
 		}
 		fields = append(fields, &discordgo.MessageEmbedField{
-			Name: "Click \"Show More Suggestions\" to find more options and create a thread!",
+			Name: "Click \"Create a thread\" to find more options and create a thread!",
 		})
 	}
 

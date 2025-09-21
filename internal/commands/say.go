@@ -123,6 +123,8 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 		},
 	}
 
+	h.config.Logger.Infof("Moderator %s (%s) used /say to send a message to %s (Message ID: %s)", i.Member.User.String(), i.Member.User.ID, targetChannel.Mention(), sentMessage.ID)
+
 	// Respond to the admin with confirmation (ephemeral)
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

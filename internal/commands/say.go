@@ -84,21 +84,7 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
-	// Add the anonymous admin tag to the message content to distinguish
-	// different admins anonymously.
-	anonID, err := utils.ObfuscateID(i.Member.User.ID, h.config.GetCryptoSalt())
-	if err != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Failed to obfuscate your ID. Please try again later.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	messageContent = fmt.Sprintf("%s\n\n**Sent by mod (%s)**", messageContent, anonID)
+	messageContent = fmt.Sprintf("%s\n\n**On behalf of moderator**", messageContent)
 
 	// Send the message to the target channel
 	sentMessage, err := s.ChannelMessageSend(targetChannelID, messageContent)
@@ -136,6 +122,8 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 			},
 		},
 	}
+
+	h.config.Logger.Infof("Moderator %s (%s) used /say to send a message to %s (Message ID: %s)", i.Member.User.String(), i.Member.User.ID, targetChannel.Mention(), sentMessage.ID)
 
 	// Respond to the admin with confirmation (ephemeral)
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

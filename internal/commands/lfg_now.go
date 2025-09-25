@@ -65,7 +65,7 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ The provided voice_channel must be a voice or stage channel.")})
 			return
 		}
-		voiceChannelMention = fmt.Sprintf("Join voice: <#%s>\\n", voiceChannelID)
+		voiceChannelMention = fmt.Sprintf("Join voice: <#%s>\n", voiceChannelID)
 	}
 
 	// Public thread announcement with @here

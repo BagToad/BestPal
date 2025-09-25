@@ -29,6 +29,7 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 	opts := i.ApplicationCommandData().Options[0].Options
 	var region, message string
 	var playerCount int
+	var voiceChannelID string
 	for _, o := range opts {
 		switch o.Name {
 		case "region":
@@ -37,6 +38,8 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 			message = o.StringValue()
 		case "player_count":
 			playerCount = int(o.IntValue())
+		case "voice_channel":
+			voiceChannelID = o.ChannelValue(s).ID
 		}
 	}
 	message = strings.TrimSpace(message)
@@ -54,8 +57,19 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 
 	userID := i.Member.User.ID
 
+	// Validate voice channel (if provided) really is a voice/stage channel; reject if invalid
+	var voiceChannelMention string
+	if voiceChannelID != "" {
+		vc, err := s.Channel(voiceChannelID)
+		if err != nil || vc == nil || (vc.Type != discordgo.ChannelTypeGuildVoice && vc.Type != discordgo.ChannelTypeGuildStageVoice) {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ The provided voice_channel must be a voice or stage channel.")})
+			return
+		}
+		voiceChannelMention = fmt.Sprintf("Join voice: <#%s>\\n", voiceChannelID)
+	}
+
 	// Public thread announcement with @here
-	publicContent := fmt.Sprintf("@here: <@%s> is looking to play!\n\n_%s_", userID, message)
+	publicContent := fmt.Sprintf("@here: <@%s> is looking to play!\n%s\n_%s_", userID, voiceChannelMention, message)
 	if _, err := s.ChannelMessageSend(ch.ID, publicContent); err != nil {
 		fallback := fmt.Sprintf("✅ Posted, but couldn't send public thread message.\n\n%s", publicContent)
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fallback)})
@@ -72,16 +86,20 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 	if playerCount == 1 {
 		playersWord = "pal"
 	}
+	embedFields := []*discordgo.MessageEmbedField{
+		{Name: "Region", Value: region, Inline: true},
+		{Name: "Looking For", Value: fmt.Sprintf("%d %s", playerCount, playersWord), Inline: true},
+		{Name: "Message", Value: message, Inline: false},
+	}
+	if voiceChannelID != "" {
+		embedFields = append(embedFields, &discordgo.MessageEmbedField{Name: "Voice", Value: fmt.Sprintf("<#%s>", voiceChannelID), Inline: true})
+	}
 	embed := &discordgo.MessageEmbed{
 		Title:       "Looking NOW",
 		Description: fmt.Sprintf("<@%s> is looking to play in <#%s>!", userID, ch.ID),
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Region", Value: region, Inline: true},
-			{Name: "Looking For", Value: fmt.Sprintf("%d %s", playerCount, playersWord), Inline: true},
-			{Name: "Message", Value: message, Inline: false},
-		},
-		Timestamp: time.Now().Format(time.RFC3339),
-		Footer:    &discordgo.MessageEmbedFooter{Text: "Run /lfg now in a game thread to make a post like this!"},
+		Fields:      embedFields,
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Footer:      &discordgo.MessageEmbedFooter{Text: "Run /lfg now in a game thread to make a post like this!"},
 	}
 	_, _ = s.ChannelMessageSendEmbeds(feedChannelID, []*discordgo.MessageEmbed{embed})
 }

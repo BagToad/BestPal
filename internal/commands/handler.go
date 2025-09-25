@@ -77,16 +77,6 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 								},
 							},
 							{
-								Type:        discordgo.ApplicationCommandOptionChannel,
-								Name:        "voice_channel",
-								Description: "Optional voice channel to join",
-								Required:    false,
-								ChannelTypes: []discordgo.ChannelType{
-									discordgo.ChannelTypeGuildVoice,
-									discordgo.ChannelTypeGuildStageVoice,
-								},
-							},
-							{
 								Type:        discordgo.ApplicationCommandOptionString,
 								Name:        "message",
 								Description: "Short message",
@@ -99,6 +89,16 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 								Required:    true,
 								MinValue:    &[]float64{1}[0],
 								MaxValue:    99,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionChannel,
+								Name:        "voice_channel",
+								Description: "Optional voice channel to join",
+								Required:    false,
+								ChannelTypes: []discordgo.ChannelType{
+									discordgo.ChannelTypeGuildVoice,
+									discordgo.ChannelTypeGuildStageVoice,
+								},
 							},
 						},
 					},

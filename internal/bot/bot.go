@@ -112,10 +112,6 @@ func (b *Bot) Start() error {
 		return nil
 	})
 
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		return b.slashCommandHandler.RefreshLFGNowPanel(b.session)
-	})
-
 	b.scheduler.RegisterNewHourFunc(func() error {
 		return b.config.RotateAndPruneLogs()
 	})

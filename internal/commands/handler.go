@@ -3,7 +3,6 @@ package commands
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/lfgpanel"
 	"gamerpal/internal/pairing"
 
 	"github.com/Henry-Sarabia/igdb/v2"
@@ -25,8 +24,7 @@ type SlashCommandHandler struct {
 	DB             *database.DB
 	PairingService *pairing.PairingService
 
-	// LFG Now panel service (extracted state)
-	lfgNowSvc *lfgpanel.InMemoryService
+	// (legacy) lfg panel service removed – feed model requires only config key
 }
 
 // NewSlashCommandHandler creates a new command handler
@@ -41,18 +39,11 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 		// Continue without database for now
 	}
 
-	// initialize lfg now panel service
-	lfgSvc := lfgpanel.NewLFGPanelService(cfg).WithLogger(
-		func(msg string, args ...any) { cfg.Logger.Infof(msg, args...) },
-		func(msg string, args ...any) { cfg.Logger.Warnf(msg, args...) },
-	)
-
 	h := &SlashCommandHandler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
 		config:     cfg,
 		DB:         db,
-		lfgNowSvc:  lfgSvc,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -98,6 +89,16 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 								Required:    true,
 								MinValue:    &[]float64{1}[0],
 								MaxValue:    99,
+							},
+							{
+								Type:        discordgo.ApplicationCommandOptionChannel,
+								Name:        "voice_channel",
+								Description: "Optional voice channel to join",
+								Required:    false,
+								ChannelTypes: []discordgo.ChannelType{
+									discordgo.ChannelTypeGuildVoice,
+									discordgo.ChannelTypeGuildStageVoice,
+								},
 							},
 						},
 					},
@@ -514,6 +515,12 @@ func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 		return err
 	}
 
+	// Index existing by name for quick lookup
+	existingByName := make(map[string]*discordgo.ApplicationCommand)
+	for _, ec := range existingCommands {
+		existingByName[ec.Name] = ec
+	}
+
 	for _, c := range h.Commands {
 		// If a command is in development, we're not only going to skip it, but we'll
 		// also unregister it if it exists.
@@ -531,15 +538,22 @@ func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 			continue
 		}
 
-		// Register commands globally
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
-		if err != nil {
-			return err
+		if existing := existingByName[c.ApplicationCommand.Name]; existing != nil {
+			// Edit existing command (preserves ID so clients update faster)
+			cmd, err := s.ApplicationCommandEdit(s.State.User.ID, "", existing.ID, c.ApplicationCommand)
+			if err != nil {
+				return err
+			}
+			c.ApplicationCommand.ID = cmd.ID
+			h.config.Logger.Infof("Updated command: %s", cmd.Name)
+		} else {
+			cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
+			if err != nil {
+				return err
+			}
+			c.ApplicationCommand.ID = cmd.ID
+			h.config.Logger.Infof("Registered command: %s", cmd.Name)
 		}
-
-		// Update the local command with the ID returned from Discord
-		c.ApplicationCommand.ID = cmd.ID
-		h.config.Logger.Infof("Registered command: %s", cmd.Name)
 	}
 
 	return nil

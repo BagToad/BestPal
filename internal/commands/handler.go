@@ -515,6 +515,12 @@ func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 		return err
 	}
 
+	// Index existing by name for quick lookup
+	existingByName := make(map[string]*discordgo.ApplicationCommand)
+	for _, ec := range existingCommands {
+		existingByName[ec.Name] = ec
+	}
+
 	for _, c := range h.Commands {
 		// If a command is in development, we're not only going to skip it, but we'll
 		// also unregister it if it exists.
@@ -532,15 +538,22 @@ func (h *SlashCommandHandler) RegisterCommands(s *discordgo.Session) error {
 			continue
 		}
 
-		// Register commands globally
-		cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
-		if err != nil {
-			return err
+		if existing := existingByName[c.ApplicationCommand.Name]; existing != nil {
+			// Edit existing command (preserves ID so clients update faster)
+			cmd, err := s.ApplicationCommandEdit(s.State.User.ID, "", existing.ID, c.ApplicationCommand)
+			if err != nil {
+				return err
+			}
+			c.ApplicationCommand.ID = cmd.ID
+			h.config.Logger.Infof("Updated command: %s", cmd.Name)
+		} else {
+			cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
+			if err != nil {
+				return err
+			}
+			c.ApplicationCommand.ID = cmd.ID
+			h.config.Logger.Infof("Registered command: %s", cmd.Name)
 		}
-
-		// Update the local command with the ID returned from Discord
-		c.ApplicationCommand.ID = cmd.ID
-		h.config.Logger.Infof("Registered command: %s", cmd.Name)
 	}
 
 	return nil

@@ -81,7 +81,7 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 			{Name: "Message", Value: message, Inline: false},
 		},
 		Timestamp: time.Now().Format(time.RFC3339),
-		Footer:    &discordgo.MessageEmbedFooter{Text: "Run /lfg now again to post another update"},
+		Footer:    &discordgo.MessageEmbedFooter{Text: "Run /lfg now in a game thread to make a post like this!"},
 	}
 	_, _ = s.ChannelMessageSendEmbeds(feedChannelID, []*discordgo.MessageEmbed{embed})
 }

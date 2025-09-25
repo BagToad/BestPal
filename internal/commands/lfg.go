@@ -133,7 +133,8 @@ func (h *SlashCommandHandler) handleLFGRefreshCache(s *discordgo.Session, i *dis
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 
 	// log to log channel
-	if err = utils.LogToChannel(h.config, s, msg+"Performed by "+i.Member.User.Mention()); err != nil {
+	logMsg := fmt.Sprintf("%s Refreshed LFG cache. Cached %d threads (active=%d, archived=%d).", i.Member.User.Mention(), cached, active, archived)
+	if err = utils.LogToChannel(h.config, s, logMsg); err != nil {
 		h.config.Logger.Warnf("Failed to log LFG cache refresh: %v", err)
 	}
 }

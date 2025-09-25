@@ -3,7 +3,6 @@ package commands
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/lfgpanel"
 	"gamerpal/internal/pairing"
 
 	"github.com/Henry-Sarabia/igdb/v2"
@@ -25,8 +24,7 @@ type SlashCommandHandler struct {
 	DB             *database.DB
 	PairingService *pairing.PairingService
 
-	// LFG Now panel service (extracted state)
-	lfgNowSvc *lfgpanel.InMemoryService
+	// (legacy) lfg panel service removed – feed model requires only config key
 }
 
 // NewSlashCommandHandler creates a new command handler
@@ -41,18 +39,11 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 		// Continue without database for now
 	}
 
-	// initialize lfg now panel service
-	lfgSvc := lfgpanel.NewLFGPanelService(cfg).WithLogger(
-		func(msg string, args ...any) { cfg.Logger.Infof(msg, args...) },
-		func(msg string, args ...any) { cfg.Logger.Warnf(msg, args...) },
-	)
-
 	h := &SlashCommandHandler{
 		igdbClient: igdbClient,
 		Commands:   make(map[string]*Command),
 		config:     cfg,
 		DB:         db,
-		lfgNowSvc:  lfgSvc,
 	}
 
 	var adminPerms int64 = discordgo.PermissionAdministrator

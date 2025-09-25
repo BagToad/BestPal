@@ -103,7 +103,15 @@ func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.Inter
 func (h *SlashCommandHandler) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := h.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
+		_ = s.InteractionRespond(i.Interaction,
+			&discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "❌ LFG forum channel ID not configured.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			},
+		)
 		return
 	}
 
@@ -113,12 +121,21 @@ func (h *SlashCommandHandler) handleLFGRefreshCache(s *discordgo.Session, i *dis
 	cached, active, archived, err := rebuildLFGThreadCache(s, h.config.GetGamerPalsServerID(), forumID)
 	if err != nil {
 		h.config.Logger.Warnf("LFG cache refresh: %v", err)
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ Failed to refresh cache: " + err.Error())})
+		_, _ = s.InteractionResponseEdit(i.Interaction,
+			&discordgo.WebhookEdit{
+				Content: fmtPtr("❌ Failed to refresh cache: " + err.Error()),
+			},
+		)
 		return
 	}
 
 	msg := fmt.Sprintf("✅ Refreshed LFG cache. Cached %d threads (active=%d, archived=%d).", cached, active, archived)
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+
+	// log to log channel
+	if err = utils.LogToChannel(h.config, s, msg+"Performed by "+i.Member.User.Mention()); err != nil {
+		h.config.Logger.Warnf("Failed to log LFG cache refresh: %v", err)
+	}
 }
 
 // rebuildLFGThreadCache lists active + archived threads for the given forum and seeds the cache.

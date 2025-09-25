@@ -99,6 +99,7 @@ func (h *SlashCommandHandler) handleLFGNow(s *discordgo.Session, i *discordgo.In
 		Description: fmt.Sprintf("<@%s> is looking to play in <#%s>!", userID, ch.ID),
 		Fields:      embedFields,
 		Timestamp:   time.Now().Format(time.RFC3339),
+		Color:       utils.Colors.Fancy(),
 		Footer:      &discordgo.MessageEmbedFooter{Text: "Run /lfg now in a game thread to make a post like this!"},
 	}
 	_, _ = s.ChannelMessageSendEmbeds(feedChannelID, []*discordgo.MessageEmbed{embed})

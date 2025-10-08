@@ -112,6 +112,11 @@ func (b *Bot) Start() error {
 		return nil
 	})
 
+	// Scheduled say service minute check
+	b.scheduler.RegisterNewMinuteFunc(func() error {
+		return b.slashCommandHandler.ScheduleSayService.CheckAndSendDue(b.session)
+	})
+
 	b.scheduler.RegisterNewHourFunc(func() error {
 		return b.config.RotateAndPruneLogs()
 	})

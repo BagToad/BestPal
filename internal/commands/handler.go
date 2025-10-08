@@ -18,11 +18,12 @@ type Command struct {
 
 // SlashCommandHandler handles command processing
 type SlashCommandHandler struct {
-	igdbClient     *igdb.Client
-	Commands       map[string]*Command
-	config         *config.Config
-	DB             *database.DB
-	PairingService *pairing.PairingService
+	igdbClient         *igdb.Client
+	Commands           map[string]*Command
+	config             *config.Config
+	DB                 *database.DB
+	PairingService     *pairing.PairingService
+	ScheduleSayService *ScheduleSayService
 
 	// (legacy) lfg panel service removed – feed model requires only config key
 }
@@ -45,6 +46,9 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 		config:     cfg,
 		DB:         db,
 	}
+
+	// Initialize in-memory schedule say service
+	h.ScheduleSayService = NewScheduleSayService(cfg)
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 	var modPerms int64 = discordgo.PermissionBanMembers
@@ -355,6 +359,39 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 				},
 			},
 			HandlerFunc: h.handleSay,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "schedulesay",
+				Description:              "Schedule an anonymous message to be sent later (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionChannel,
+						Name:        "channel",
+						Description: "The channel to send the message to",
+						Required:    true,
+						ChannelTypes: []discordgo.ChannelType{
+							discordgo.ChannelTypeGuildText,
+							discordgo.ChannelTypeGuildNews,
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "message",
+						Description: "The message to send",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "timestamp",
+						Description: "Unix timestamp (seconds) when the message should be sent",
+						Required:    true,
+					},
+				},
+			},
+			HandlerFunc: h.handleScheduleSay,
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{

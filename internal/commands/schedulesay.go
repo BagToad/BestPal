@@ -3,10 +3,14 @@ package commands
 import (
 	"fmt"
 	"gamerpal/internal/utils"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
+
+// helper for inline min without pulling math
+func min(a, b int) int { if a < b { return a }; return b }
 
 // handleScheduleSay handles the /schedulesay command
 func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -53,24 +57,30 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 	}
 
 	// store scheduled message
-	h.ScheduleSayService.Add(ScheduledMessage{ChannelID: channelID, Content: messageContent, FireAt: fireAt, ScheduledBy: i.Member.User.ID, SuppressModMessage: suppressModMessage})
+	id := h.ScheduleSayService.Add(ScheduledMessage{ChannelID: channelID, Content: messageContent, FireAt: fireAt, ScheduledBy: i.Member.User.ID, SuppressModMessage: suppressModMessage})
 
 	// log scheduling
-	logMsg := fmt.Sprintf("ScheduledSay Added: moderator=%s channel=%s fire_at=%s content_len=%d", i.Member.User.String(), ch.Mention(), fireAt.UTC().Format(time.RFC3339), len(messageContent))
+	preview := messageContent
+	if len(preview) > 10 {
+		preview = preview[:10]
+	}
+	logMsg := fmt.Sprintf("[ScheduledSay Added]\nID: %d\nChannel: %s (%s)\nModerator: %s (%s)\nFire At: %s (<t:%d:F>)\nSuppress Footer: %v\nLength: %d\nPreview: %.10q", id, ch.Mention(), ch.ID, i.Member.User.String(), i.Member.User.ID, fireAt.UTC().Format(time.RFC3339), fireAt.Unix(), suppressModMessage, len(messageContent), preview)
 	if lErr := utils.LogToChannel(h.config, s, logMsg); lErr != nil {
 		h.config.Logger.Errorf("failed logging schedule creation: %v", lErr)
 	}
 	h.config.Logger.Info(logMsg)
 
+	footer := "(footer suppressed)"
+	if !suppressModMessage { footer = "(footer WILL append)" }
 	embed := &discordgo.MessageEmbed{
 		Title:       "✅ Message Scheduled",
-		Description: fmt.Sprintf("Your message will be sent to %s at <t:%d:F> (<t:%d:R>)", ch.Mention(), timestampVal, timestampVal),
+		Description: fmt.Sprintf("ID %d scheduled for %s at <t:%d:F> (<t:%d:R>) %s", id, ch.Mention(), timestampVal, timestampVal, footer),
 		Color:       utils.Colors.Info(),
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Channel", Value: ch.Mention(), Inline: true},
 			{Name: "Fire Time", Value: fmt.Sprintf("<t:%d:F>", timestampVal), Inline: true},
 			{Name: "Suppress Mod Msg", Value: fmt.Sprintf("%v", suppressModMessage), Inline: true},
-			{Name: "Content", Value: fmt.Sprintf("```%s```", messageContent), Inline: false},
+			{Name: "Content (truncated preview)", Value: fmt.Sprintf("```%s```", strings.ReplaceAll(messageContent[:min(200, len(messageContent))], "`", "'")), Inline: false},
 		},
 	}
 

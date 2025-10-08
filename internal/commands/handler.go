@@ -407,6 +407,32 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "listscheduledsays",
+				Description:              "List the next 20 scheduled /schedulesay messages (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			},
+			HandlerFunc: h.handleListScheduledSays,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "cancelscheduledsay",
+				Description:              "Cancel a scheduled /schedulesay by ID (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "id",
+						Description: "The ID of the scheduled say to cancel",
+						Required:    true,
+					},
+				},
+			},
+			HandlerFunc: h.handleCancelScheduledSay,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
 				Name:        "roulette",
 				Description: "Sign up for a pairing or manage your game list",
 				Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},

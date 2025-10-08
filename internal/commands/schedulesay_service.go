@@ -6,6 +6,7 @@ import (
 	"gamerpal/internal/utils"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -13,6 +14,7 @@ import (
 
 // ScheduledMessage represents an in-memory scheduled anonymous message
 type ScheduledMessage struct {
+	ID                 int64
 	ChannelID          string
 	Content            string
 	FireAt             time.Time
@@ -25,19 +27,49 @@ type ScheduleSayService struct {
 	cfg      *config.Config
 	mu       sync.Mutex
 	messages []ScheduledMessage
+	nextID   atomic.Int64
 }
 
 func NewScheduleSayService(cfg *config.Config) *ScheduleSayService {
-	return &ScheduleSayService{cfg: cfg, messages: make([]ScheduledMessage, 0, 16)}
+	svc := &ScheduleSayService{cfg: cfg, messages: make([]ScheduledMessage, 0, 16)}
+	svc.nextID.Store(1)
+	return svc
 }
 
 // Add inserts a new scheduled message (kept in-memory only)
-func (s *ScheduleSayService) Add(msg ScheduledMessage) {
+func (s *ScheduleSayService) Add(msg ScheduledMessage) int64 {
+	msg.ID = s.nextID.Add(1) - 1
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.messages = append(s.messages, msg)
 	// keep slice ordered by FireAt ascending for efficient checks
 	sort.SliceStable(s.messages, func(i, j int) bool { return s.messages[i].FireAt.Before(s.messages[j].FireAt) })
+	s.mu.Unlock()
+	return msg.ID
+}
+
+// List returns up to limit upcoming scheduled messages (sorted soonest first)
+func (s *ScheduleSayService) List(limit int) []ScheduledMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if limit > len(s.messages) {
+		limit = len(s.messages)
+	}
+	out := make([]ScheduledMessage, limit)
+	copy(out, s.messages[:limit])
+	return out
+}
+
+// Cancel removes a scheduled message by ID; returns true if removed
+func (s *ScheduleSayService) Cancel(id int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for idx, m := range s.messages {
+		if m.ID == id {
+			s.messages = append(s.messages[:idx], s.messages[idx+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 // CheckAndSendDue sends all messages whose FireAt <= now.
@@ -74,7 +106,7 @@ func (s *ScheduleSayService) CheckAndSendDue(session *discordgo.Session) error {
 			errs = append(errs, fmt.Errorf("failed sending scheduled message to channel %s: %w", m.ChannelID, err))
 			continue
 		}
-		logMsg := fmt.Sprintf("ScheduledSay Fired: moderator=%s channel=%s fire_at=%s message_id=%s", m.ScheduledBy, m.ChannelID, m.FireAt.UTC().Format(time.RFC3339), sent.ID)
+		logMsg := fmt.Sprintf("[ScheduledSay Fired]\nID: %d\nChannel: %s\nModerator: %s\nFire At: %s (<t:%d:F>)\nDiscord Msg ID: %s\nSuppress Footer: %v\nPreview: %.10q", m.ID, m.ChannelID, m.ScheduledBy, m.FireAt.UTC().Format(time.RFC3339), m.FireAt.Unix(), sent.ID, m.SuppressModMessage, m.Content)
 		if lErr := utils.LogToChannel(s.cfg, session, logMsg); lErr != nil {
 			s.cfg.Logger.Errorf("failed logging scheduled say fire: %v", lErr)
 		}

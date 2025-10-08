@@ -13,10 +13,11 @@ import (
 
 // ScheduledMessage represents an in-memory scheduled anonymous message
 type ScheduledMessage struct {
-	ChannelID   string
-	Content     string
-	FireAt      time.Time
-	ScheduledBy string // user ID of moderator
+	ChannelID          string
+	Content            string
+	FireAt             time.Time
+	ScheduledBy        string // user ID of moderator
+	SuppressModMessage bool
 }
 
 // ScheduleSayService holds scheduled messages in memory only
@@ -64,7 +65,10 @@ func (s *ScheduleSayService) CheckAndSendDue(session *discordgo.Session) error {
 
 	var errs []error
 	for _, m := range due {
-		content := fmt.Sprintf("%s\n\n**On behalf of moderator**", m.Content)
+		content := m.Content
+		if !m.SuppressModMessage {
+			content = fmt.Sprintf("%s\n\n**On behalf of moderator**", content)
+		}
 		sent, err := session.ChannelMessageSend(m.ChannelID, content)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed sending scheduled message to channel %s: %w", m.ChannelID, err))

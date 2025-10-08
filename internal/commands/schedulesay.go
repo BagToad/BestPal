@@ -14,6 +14,7 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 	var channelID string
 	var messageContent string
 	var timestampVal int64
+	var suppressModMessage bool
 
 	for _, opt := range options {
 		switch opt.Name {
@@ -23,6 +24,8 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 			messageContent = opt.StringValue()
 		case "timestamp":
 			timestampVal = opt.IntValue()
+		case "suppressmodmessage":
+			suppressModMessage = opt.BoolValue()
 		}
 	}
 
@@ -50,7 +53,7 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 	}
 
 	// store scheduled message
-	h.ScheduleSayService.Add(ScheduledMessage{ChannelID: channelID, Content: messageContent, FireAt: fireAt, ScheduledBy: i.Member.User.ID})
+	h.ScheduleSayService.Add(ScheduledMessage{ChannelID: channelID, Content: messageContent, FireAt: fireAt, ScheduledBy: i.Member.User.ID, SuppressModMessage: suppressModMessage})
 
 	// log scheduling
 	logMsg := fmt.Sprintf("ScheduledSay Added: moderator=%s channel=%s fire_at=%s content_len=%d", i.Member.User.String(), ch.Mention(), fireAt.UTC().Format(time.RFC3339), len(messageContent))
@@ -66,6 +69,7 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 		Fields: []*discordgo.MessageEmbedField{
 			{Name: "Channel", Value: ch.Mention(), Inline: true},
 			{Name: "Fire Time", Value: fmt.Sprintf("<t:%d:F>", timestampVal), Inline: true},
+			{Name: "Suppress Mod Msg", Value: fmt.Sprintf("%v", suppressModMessage), Inline: true},
 			{Name: "Content", Value: fmt.Sprintf("```%s```", messageContent), Inline: false},
 		},
 	}

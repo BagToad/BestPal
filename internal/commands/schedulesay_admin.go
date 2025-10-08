@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"strings"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -15,20 +16,32 @@ func (h *SlashCommandHandler) handleListScheduledSays(s *discordgo.Session, i *d
 		return
 	}
 
-	var b strings.Builder
-	b.WriteString("ID | Fire (abs) | In | Channel | Preview | Suppress\n")
+	// Build fields; ensure we don't exceed embed field limits (25) - we cap at 20 anyway.
+	fields := make([]*discordgo.MessageEmbedField, 0, len(list))
 	for _, m := range list {
 		preview := m.Content
-		if len(preview) > 10 {
-			preview = preview[:10]
-		}
-		b.WriteString(fmt.Sprintf("%d | <t:%d:F> | <t:%d:R> | %s | %.10q | %v\n", m.ID, m.FireAt.Unix(), m.FireAt.Unix(), m.ChannelID, preview, m.SuppressModMessage))
+		if len(preview) > 10 { preview = preview[:10] }
+		name := fmt.Sprintf("ID %d", m.ID)
+		valueBuilder := strings.Builder{}
+		valueBuilder.WriteString(fmt.Sprintf("Channel: <#%s>\n", m.ChannelID))
+		valueBuilder.WriteString(fmt.Sprintf("Fire: <t:%d:F> (\n<t:%d:R>)\n", m.FireAt.Unix(), m.FireAt.Unix()))
+		valueBuilder.WriteString(fmt.Sprintf("Suppress Footer: %v\n", m.SuppressModMessage))
+		valueBuilder.WriteString(fmt.Sprintf("Preview: %.10q", preview))
+		val := valueBuilder.String()
+		// Discord field value max length is 1024
+		if len(val) > 1024 { val = val[:1021] + "..." }
+		fields = append(fields, &discordgo.MessageEmbedField{Name: name, Value: val, Inline: true})
 	}
-	content := b.String()
-	if len(content) > 1800 { // safety trimming
-		content = content[:1800] + "..."
+
+	embed := &discordgo.MessageEmbed{
+		Title:       "Scheduled Says (next 20)",
+		Description: fmt.Sprintf("Total queued (showing up to 20): %d", len(list)),
+		Color:       utils.Colors.Info(),
+		Fields:      fields,
+		Footer: &discordgo.MessageEmbedFooter{Text: "Use /cancelscheduledsay <ID> to cancel"},
 	}
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("```%s```", content), Flags: discordgo.MessageFlagsEphemeral}})
+
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}, Flags: discordgo.MessageFlagsEphemeral}})
 }
 
 // handleCancelScheduledSay cancels a scheduled message by ID

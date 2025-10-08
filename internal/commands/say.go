@@ -25,6 +25,7 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 	// Get channel and message from options
 	var targetChannelID string
 	var messageContent string
+	var suppressModMessage bool
 
 	for _, option := range options {
 		switch option.Name {
@@ -32,6 +33,8 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 			targetChannelID = option.ChannelValue(s).ID
 		case "message":
 			messageContent = option.StringValue()
+		case "suppressmodmessage":
+			suppressModMessage = option.BoolValue()
 		}
 	}
 
@@ -84,7 +87,9 @@ func (h *SlashCommandHandler) handleSay(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
-	messageContent = fmt.Sprintf("%s\n\n**On behalf of moderator**", messageContent)
+	if !suppressModMessage {
+		messageContent = fmt.Sprintf("%s\n\n**On behalf of moderator**", messageContent)
+	}
 
 	// Send the message to the target channel
 	sentMessage, err := s.ChannelMessageSend(targetChannelID, messageContent)

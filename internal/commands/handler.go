@@ -18,11 +18,12 @@ type Command struct {
 
 // SlashCommandHandler handles command processing
 type SlashCommandHandler struct {
-	igdbClient     *igdb.Client
-	Commands       map[string]*Command
-	config         *config.Config
-	DB             *database.DB
-	PairingService *pairing.PairingService
+	igdbClient         *igdb.Client
+	Commands           map[string]*Command
+	config             *config.Config
+	DB                 *database.DB
+	PairingService     *pairing.PairingService
+	ScheduleSayService *ScheduleSayService
 
 	// (legacy) lfg panel service removed – feed model requires only config key
 }
@@ -45,6 +46,9 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 		config:     cfg,
 		DB:         db,
 	}
+
+	// Initialize in-memory schedule say service
+	h.ScheduleSayService = NewScheduleSayService(cfg)
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 	var modPerms int64 = discordgo.PermissionBanMembers
@@ -352,9 +356,80 @@ func NewSlashCommandHandler(cfg *config.Config) *SlashCommandHandler {
 						Description: "The message to send",
 						Required:    true,
 					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "suppressmodmessage",
+						Description: "If true, do not append the 'On behalf of moderator' footer",
+						Required:    false,
+					},
 				},
 			},
 			HandlerFunc: h.handleSay,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "schedulesay",
+				Description:              "Schedule an anonymous message to be sent later (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionChannel,
+						Name:        "channel",
+						Description: "The channel to send the message to",
+						Required:    true,
+						ChannelTypes: []discordgo.ChannelType{
+							discordgo.ChannelTypeGuildText,
+							discordgo.ChannelTypeGuildNews,
+						},
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "message",
+						Description: "The message to send",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "timestamp",
+						Description: "Unix timestamp (seconds) when the message should be sent",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "suppressmodmessage",
+						Description: "If true, do not append the 'On behalf of moderator' footer",
+						Required:    false,
+					},
+				},
+			},
+			HandlerFunc: h.handleScheduleSay,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "listscheduledsays",
+				Description:              "List the next 20 scheduled /schedulesay messages (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			},
+			HandlerFunc: h.handleListScheduledSays,
+		},
+		{
+			ApplicationCommand: &discordgo.ApplicationCommand{
+				Name:                     "cancelscheduledsay",
+				Description:              "Cancel a scheduled /schedulesay by ID (admin only)",
+				DefaultMemberPermissions: &modPerms,
+				Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "id",
+						Description: "The ID of the scheduled say to cancel",
+						Required:    true,
+					},
+				},
+			},
+			HandlerFunc: h.handleCancelScheduledSay,
 		},
 		{
 			ApplicationCommand: &discordgo.ApplicationCommand{

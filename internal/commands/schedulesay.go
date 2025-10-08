@@ -10,7 +10,12 @@ import (
 )
 
 // helper for inline min without pulling math
-func min(a, b int) int { if a < b { return a }; return b }
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // handleScheduleSay handles the /schedulesay command
 func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -71,7 +76,9 @@ func (h *SlashCommandHandler) handleScheduleSay(s *discordgo.Session, i *discord
 	h.config.Logger.Info(logMsg)
 
 	footer := "(footer suppressed)"
-	if !suppressModMessage { footer = "(footer WILL append)" }
+	if !suppressModMessage {
+		footer = "(footer WILL append)"
+	}
 	embed := &discordgo.MessageEmbed{
 		Title:       "✅ Message Scheduled",
 		Description: fmt.Sprintf("ID %d scheduled for %s at <t:%d:F> (<t:%d:R>) %s", id, ch.Mention(), timestampVal, timestampVal, footer),

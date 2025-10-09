@@ -28,7 +28,7 @@ global config file.
 | `/listscheduledsays` | List the next 20 scheduled messages |
 | `/cancelscheduledsay` | Cancel a scheduled message by ID |
 | `/lfg-admin setup-find-a-thread` | Set up the LFG find-a-thread panel |
-| `/lfg-admin setup-looking-now` | Set up the 'Looking NOW' panel |
+| `/lfg-admin setup-looking-now` | Set up the 'Looking NOW' feed channel |
 | `/lfg-admin refresh-thread-cache` | Rebuild the LFG thread cache |
 
 ### Administrator Commands

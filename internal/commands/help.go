@@ -83,7 +83,7 @@ func (h *SlashCommandHandler) handleHelp(s *discordgo.Session, i *discordgo.Inte
 			},
 			{
 				Name:   "/lfg-admin",
-				Value:  "LFG admin commands\n• `/lfg-admin setup-find-a-thread` - Set up find-a-thread panel\n• `/lfg-admin setup-looking-now` - Set up Looking NOW panel\n• `/lfg-admin refresh-thread-cache` - Rebuild thread cache",
+				Value:  "LFG admin commands\n• `/lfg-admin setup-find-a-thread` - Set up find-a-thread panel\n• `/lfg-admin setup-looking-now` - Set up Looking NOW feed channel\n• `/lfg-admin refresh-thread-cache` - Rebuild thread cache",
 				Inline: false,
 			},
 			{

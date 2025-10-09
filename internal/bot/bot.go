@@ -22,7 +22,7 @@ import (
 type Bot struct {
 	session             *discordgo.Session
 	config              *config.Config
-	slashCommandHandler *commands.SlashCommandHandler
+	slashCommandHandler *commands.ModularHandler
 	scheduler           *scheduler.Scheduler
 }
 
@@ -34,8 +34,8 @@ func New(cfg *config.Config) (*Bot, error) {
 		return nil, fmt.Errorf("error creating Discord session: %w", err)
 	}
 
-	// Create command handler
-	handler := commands.NewSlashCommandHandler(cfg)
+	// Create modular command handler
+	handler := commands.NewModularHandler(cfg)
 
 	bot := &Bot{
 		session:             session,
@@ -114,7 +114,11 @@ func (b *Bot) Start() error {
 
 	// Scheduled say service minute check
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		return b.slashCommandHandler.ScheduleSayService.CheckAndSendDue(b.session)
+		sayService := b.slashCommandHandler.GetSayService()
+		if sayService != nil {
+			return sayService.CheckAndSendDue(b.session)
+		}
+		return nil
 	})
 
 	b.scheduler.RegisterNewHourFunc(func() error {

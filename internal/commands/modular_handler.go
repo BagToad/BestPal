@@ -1,11 +1,18 @@
 package commands
 
 import (
+	"gamerpal/internal/commands/modules/config"
+	"gamerpal/internal/commands/modules/game"
+	"gamerpal/internal/commands/modules/help"
+	"gamerpal/internal/commands/modules/intro"
+	"gamerpal/internal/commands/modules/log"
 	"gamerpal/internal/commands/modules/ping"
+	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/time"
+	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/types"
-	"gamerpal/internal/config"
+	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/pairing"
 
@@ -15,20 +22,22 @@ import (
 
 // ModularHandler is the new modular command handler
 type ModularHandler struct {
-	commands map[string]*types.Command
-	config   *config.Config
-	db       *database.DB
-	deps     *types.Dependencies
+	commands   map[string]*types.Command
+	config     *internalConfig.Config
+	db         *database.DB
+	deps       *types.Dependencies
+	igdbClient *igdb.Client
 
 	// Module instances that need to be accessed externally
-	sayModule *say.Module
+	sayModule        *say.Module
+	refreshIgdbModule *refreshigdb.Module
 
 	// Legacy services that haven't been migrated yet
 	PairingService *pairing.PairingService
 }
 
 // NewModularHandler creates a new modular command handler
-func NewModularHandler(cfg *config.Config) *ModularHandler {
+func NewModularHandler(cfg *internalConfig.Config) *ModularHandler {
 	// Create IGDB client
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
@@ -40,9 +49,10 @@ func NewModularHandler(cfg *config.Config) *ModularHandler {
 	}
 
 	h := &ModularHandler{
-		commands: make(map[string]*types.Command),
-		config:   cfg,
-		db:       db,
+		commands:   make(map[string]*types.Command),
+		config:     cfg,
+		db:         db,
+		igdbClient: igdbClient,
 		deps: &types.Dependencies{
 			Config:     cfg,
 			DB:         db,
@@ -59,6 +69,7 @@ func NewModularHandler(cfg *config.Config) *ModularHandler {
 
 // registerModules registers all command modules
 func (h *ModularHandler) registerModules() {
+	// Phase 1: Already migrated
 	// Register ping module
 	pingModule := &ping.Module{}
 	pingModule.Register(h.commands, h.deps)
@@ -70,6 +81,41 @@ func (h *ModularHandler) registerModules() {
 	// Register say module (stores reference for scheduler access)
 	h.sayModule = &say.Module{}
 	h.sayModule.Register(h.commands, h.deps)
+
+	// Phase 2: Simple commands
+	// Register help module
+	helpModule := &help.Module{}
+	helpModule.Register(h.commands, h.deps)
+
+	// Register intro module
+	introModule := &intro.Module{}
+	introModule.Register(h.commands, h.deps)
+
+	// Register config module
+	configModule := &config.Module{}
+	configModule.Register(h.commands, h.deps)
+
+	// Register refresh-igdb module (store reference to update client)
+	h.refreshIgdbModule = &refreshigdb.Module{}
+	h.refreshIgdbModule.SetIGDBClientRef(&h.igdbClient)
+	h.refreshIgdbModule.Register(h.commands, h.deps)
+
+	// Phase 3: Medium complexity
+	// Register game module
+	gameModule := &game.Module{}
+	gameModule.Register(h.commands, h.deps)
+
+	// Register userstats module
+	userstatsModule := &userstats.Module{}
+	userstatsModule.Register(h.commands, h.deps)
+
+	// Register log module
+	logModule := &log.Module{}
+	logModule.Register(h.commands, h.deps)
+
+	// Phase 4: Complex with services
+	// TODO: roulette, lfg, prune
+	// These will be registered from the legacy handler for now
 }
 
 // GetDB returns the database instance (used by scheduler)
@@ -177,4 +223,22 @@ func (h *ModularHandler) UnregisterCommands(s *discordgo.Session) {
 			}
 		}
 	}
+}
+
+// HandleLFGComponent delegates to legacy LFG handler for component interactions
+// TODO: Remove when LFG is fully migrated
+func (h *ModularHandler) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// For now, we need to create a legacy handler temporarily to handle this
+	// This is a temporary bridge until LFG is fully migrated
+	// The actual implementation is in lfg.go but we can't easily call it without the old handler
+	// For now, just log and do nothing - LFG migration is Phase 4
+	h.config.Logger.Warn("LFG component interaction received but LFG module not yet migrated")
+}
+
+// HandleLFGModalSubmit delegates to legacy LFG handler for modal submissions
+// TODO: Remove when LFG is fully migrated
+func (h *ModularHandler) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// For now, we need to create a legacy handler temporarily to handle this
+	// This is a temporary bridge until LFG is fully migrated
+	h.config.Logger.Warn("LFG modal submit received but LFG module not yet migrated")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"gamerpal/internal/commands"
+	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -164,7 +165,7 @@ func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 			return
 		}
 		// Use shared rebuild helper (includes archived threads)
-		if total, active, archived, err := commands.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
+		if total, active, archived, err := lfg.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
 			b.config.Logger.Warnf("LFG preload: %v", err)
 		} else {
 			b.config.Logger.Infof("LFG preload: cached %d threads (active=%d, archived=%d)", total, active, archived)

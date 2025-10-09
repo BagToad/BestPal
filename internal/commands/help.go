@@ -38,6 +38,11 @@ func (h *SlashCommandHandler) handleHelp(s *discordgo.Session, i *discordgo.Inte
 				Inline: false,
 			},
 			{
+				Name:   "/lfg now",
+				Value:  "Mark yourself as looking for group in an LFG thread\n• Use `/lfg now region:Region message:Text player_count:X` to post",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,
@@ -57,8 +62,28 @@ func (h *SlashCommandHandler) handleHelp(s *discordgo.Session, i *discordgo.Inte
 				Inline: false,
 			},
 			{
-				Name:   "/welcome",
-				Value:  "Generate a welcome message for new members\n• Use `/welcome minutes:30` to preview\n• Use `execute:true` to post the message directly",
+				Name:   "/say",
+				Value:  "Send an anonymous message to a specified channel\n• Use `/say channel:#general message:Hello everyone!` to send a message",
+				Inline: false,
+			},
+			{
+				Name:   "/schedulesay",
+				Value:  "Schedule an anonymous message to be sent later\n• Use `/schedulesay channel:#general message:Text timestamp:123456789` to schedule",
+				Inline: false,
+			},
+			{
+				Name:   "/listscheduledsays",
+				Value:  "List the next 20 scheduled messages",
+				Inline: false,
+			},
+			{
+				Name:   "/cancelscheduledsay",
+				Value:  "Cancel a scheduled message by ID\n• Use `/cancelscheduledsay id:123` to cancel",
+				Inline: false,
+			},
+			{
+				Name:   "/lfg-admin",
+				Value:  "LFG admin commands\n• `/lfg-admin setup-find-a-thread` - Set up find-a-thread panel\n• `/lfg-admin setup-looking-now` - Set up Looking NOW feed channel\n• `/lfg-admin refresh-thread-cache` - Rebuild thread cache",
 				Inline: false,
 			},
 			{
@@ -66,13 +91,13 @@ func (h *SlashCommandHandler) handleHelp(s *discordgo.Session, i *discordgo.Inte
 				Inline: false,
 			},
 			{
-				Name:   "/say",
-				Value:  "Send an anonymous message to a specified channel\n• Use `/say channel:#general message:Hello everyone!` to send a message",
+				Name:   "/prune-inactive",
+				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users",
 				Inline: false,
 			},
 			{
-				Name:   "/prune-inactive",
-				Value:  "Remove users without any roles (dry run by default)\n• Use `execute:true` to actually remove users",
+				Name:   "/prune-forum",
+				Value:  "Find forum threads whose starter post was deleted\n• Use `forum:#channel execute:true` to delete threads",
 				Inline: false,
 			},
 			{

@@ -77,7 +77,7 @@ const (
 	lfgCreateSuggestionPrefix = "lfg_create_suggestion" // lfg_create_suggestion::<id>
 )
 
-// handleLFG processes /lfg commands (currently only setup)
+// handleLFG processes /lfg and /lfg-admin commands
 func (h *SlashCommandHandler) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if len(i.ApplicationCommandData().Options) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Missing subcommand"}})

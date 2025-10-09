@@ -24,8 +24,6 @@ type SlashCommandHandler struct {
 	DB                 *database.DB
 	PairingService     *pairing.PairingService
 	ScheduleSayService *ScheduleSayService
-
-	// (legacy) lfg panel service removed – feed model requires only config key
 }
 
 // NewSlashCommandHandler creates a new command handler

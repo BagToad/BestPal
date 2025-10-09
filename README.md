@@ -9,16 +9,40 @@ global config file.
 
 ## Slash Commands
 
-| Command | Description | Permissions |
-|---------|-------------|-------------|
-| `/userstats` | Shows member counts, growth metrics, and regional breakdown | Admin roles or Administrator permission |
-| `/ping` | Check if the bot is responsive | Admin roles or Administrator permission |
-| `/intro` | Look up a user's latest introduction post from the introductions forum | Everyone |
-| `/prune-inactive` | Remove users without any roles (dry run by default) | Administrator permission |
-| `/prune-forum` | Scan a forum for threads whose starter post was deleted; dry-run by default, use `execute:true` to delete | Administrator permission |
-| `/say` | Send an anonymous message to a specified channel | Administrator permission |
-| `/help` | Display all available commands | Admin roles or Administrator permission |
-| `/lfg setup` | Post the LFG panel in the current channel | Admin roles or Administrator permission |
+### Public Commands (Everyone)
+| Command | Description |
+|---------|-------------|
+| `/ping` | Check if the bot is responsive |
+| `/intro` | Look up a user's latest introduction post from the introductions forum |
+| `/help` | Display all available commands |
+| `/game` | Look up information about a video game from IGDB |
+| `/time` | Time-related utilities for converting dates to Discord timestamps |
+| `/lfg now` | Mark yourself as looking now inside an LFG thread |
+
+### Moderator Commands (Ban Members Permission)
+| Command | Description |
+|---------|-------------|
+| `/userstats` | Show member statistics for the server |
+| `/say` | Send an anonymous message to a specified channel |
+| `/schedulesay` | Schedule an anonymous message to be sent later |
+| `/listscheduledsays` | List the next 20 scheduled messages |
+| `/cancelscheduledsay` | Cancel a scheduled message by ID |
+| `/lfg-admin setup-find-a-thread` | Set up the LFG find-a-thread panel |
+| `/lfg-admin setup-looking-now` | Set up the 'Looking NOW' panel |
+| `/lfg-admin refresh-thread-cache` | Rebuild the LFG thread cache |
+
+### Administrator Commands
+| Command | Description |
+|---------|-------------|
+| `/prune-inactive` | Remove users without any roles (dry run by default) |
+| `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
+
+### Super-Admin Commands (DM Only)
+| Command | Description |
+|---------|-------------|
+| `/config` | View or modify the bot configuration |
+| `/refresh-igdb` | Refresh the IGDB client token |
+| `/log` | Log file management commands |
 
 ## Quick Start
 

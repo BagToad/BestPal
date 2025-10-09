@@ -5,17 +5,18 @@ import (
 	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
+	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/commands/modules/log"
 	"gamerpal/internal/commands/modules/ping"
 	"gamerpal/internal/commands/modules/prune"
 	"gamerpal/internal/commands/modules/refreshigdb"
+	"gamerpal/internal/commands/modules/roulette"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/time"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/types"
 	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/pairing"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -30,11 +31,10 @@ type ModularHandler struct {
 	igdbClient *igdb.Client
 
 	// Module instances that need to be accessed externally
-	sayModule        *say.Module
+	sayModule         *say.Module
 	refreshIgdbModule *refreshigdb.Module
-
-	// Legacy services that haven't been migrated yet
-	PairingService *pairing.PairingService
+	lfgModule         *lfg.Module
+	rouletteModule    *roulette.Module
 }
 
 // NewModularHandler creates a new modular command handler
@@ -119,8 +119,13 @@ func (h *ModularHandler) registerModules() {
 	pruneModule := &prune.Module{}
 	pruneModule.Register(h.commands, h.deps)
 
-	// TODO: roulette, lfg still need migration
-	// These are more complex and require additional work
+	// Register LFG module (store reference for component/modal handling)
+	h.lfgModule = &lfg.Module{}
+	h.lfgModule.Register(h.commands, h.deps)
+
+	// Register roulette module (store reference for pairing service)
+	h.rouletteModule = &roulette.Module{}
+	h.rouletteModule.Register(h.commands, h.deps)
 }
 
 // GetDB returns the database instance (used by scheduler)
@@ -136,9 +141,17 @@ func (h *ModularHandler) GetSayService() *say.Service {
 	return nil
 }
 
+// GetPairingService returns the pairing service for scheduler use
+func (h *ModularHandler) GetPairingService() *roulette.Module {
+	return h.rouletteModule
+}
+
 // InitializePairingService initializes the pairing service with a Discord session
 func (h *ModularHandler) InitializePairingService(session *discordgo.Session) {
-	h.PairingService = pairing.NewPairingService(session, h.config, h.db)
+	// Initialize pairing service in roulette module
+	if h.rouletteModule != nil {
+		h.rouletteModule.InitializePairingService(session)
+	}
 	// Also set session in dependencies for future modules
 	h.deps.Session = session
 }
@@ -230,20 +243,20 @@ func (h *ModularHandler) UnregisterCommands(s *discordgo.Session) {
 	}
 }
 
-// HandleLFGComponent delegates to legacy LFG handler for component interactions
-// TODO: Remove when LFG is fully migrated
+// HandleLFGComponent delegates to LFG module for component interactions
 func (h *ModularHandler) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// For now, we need to create a legacy handler temporarily to handle this
-	// This is a temporary bridge until LFG is fully migrated
-	// The actual implementation is in lfg.go but we can't easily call it without the old handler
-	// For now, just log and do nothing - LFG migration is Phase 4
-	h.config.Logger.Warn("LFG component interaction received but LFG module not yet migrated")
+	if h.lfgModule != nil {
+		h.lfgModule.HandleComponent(s, i)
+	} else {
+		h.config.Logger.Warn("LFG component interaction received but LFG module not initialized")
+	}
 }
 
-// HandleLFGModalSubmit delegates to legacy LFG handler for modal submissions
-// TODO: Remove when LFG is fully migrated
+// HandleLFGModalSubmit delegates to LFG module for modal submissions
 func (h *ModularHandler) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// For now, we need to create a legacy handler temporarily to handle this
-	// This is a temporary bridge until LFG is fully migrated
-	h.config.Logger.Warn("LFG modal submit received but LFG module not yet migrated")
+	if h.lfgModule != nil {
+		h.lfgModule.HandleModalSubmit(s, i)
+	} else {
+		h.config.Logger.Warn("LFG modal submit received but LFG module not initialized")
+	}
 }

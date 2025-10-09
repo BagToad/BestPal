@@ -13,7 +13,6 @@ import (
 	"gamerpal/internal/commands"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
-	"gamerpal/internal/pairing"
 	"gamerpal/internal/scheduler"
 	"gamerpal/internal/welcome"
 )
@@ -105,10 +104,16 @@ func (b *Bot) Start() error {
 		return nil
 	})
 
-	pairingService := pairing.NewPairingService(b.session, b.config, b.slashCommandHandler.GetDB())
+	// Pairing service minute check (via roulette module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		// TODO: These services should return errors
-		pairingService.CheckAndExecuteScheduledPairings()
+		rouletteModule := b.slashCommandHandler.GetPairingService()
+		if rouletteModule != nil {
+			pairingService := rouletteModule.GetPairingService()
+			if pairingService != nil {
+				// TODO: These services should return errors
+				pairingService.CheckAndExecuteScheduledPairings()
+			}
+		}
 		return nil
 	})
 

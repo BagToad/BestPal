@@ -1,0 +1,610 @@
+package roulette
+
+import (
+	"fmt"
+	"gamerpal/internal/utils"
+	"strings"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+)
+
+// handleRouletteAdmin handles the roulette-admin command and its subcommands
+func (m *Module) handleRouletteAdmin(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Check if user has admin permissions
+	if !utils.HasAdminPermissions(s, i) {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ You need administrator permissions to use this command.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Get the subcommand
+	options := i.ApplicationCommandData().Options
+	if len(options) == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Please specify a subcommand. Use `/roulette-admin help` for detailed information.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	subcommand := options[0]
+	switch subcommand.Name {
+	case "help":
+		m.handleRouletteAdminHelp(s, i)
+	case "debug":
+		m.handleRouletteAdminDebug(s, i)
+	case "pair":
+		m.handleRouletteAdminPair(s, i, subcommand.Options)
+	case "reset":
+		m.handleRouletteAdminReset(s, i)
+	case "delete-schedule":
+		m.handleRouletteAdminDeleteSchedule(s, i)
+	case "simulate-pairing":
+		m.handleRouletteAdminSimulatePairing(s, i, subcommand.Options)
+	default:
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unknown subcommand",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	}
+}
+
+// handleRouletteAdminHelp shows detailed help for roulette admin commands
+func (m *Module) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	embed := &discordgo.MessageEmbed{
+		Title:       "🚀 Roulette Admin Commands - Help",
+		Description: "Administrative commands for managing the roulette pairing system",
+		Color:       utils.Colors.Warning(),
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "🔧 Management Commands:",
+				Inline: false,
+			},
+			{
+				Name:   "/roulette-admin debug",
+				Value:  "Show detailed system information\n• View current signups and their games\n• Check scheduled pairing times",
+				Inline: false,
+			},
+			{
+				Name:   "/roulette-admin pair",
+				Value:  "Execute or schedule pairing events\n• `time:datetime` - Schedule for specific time\n• `immediate-pair:true` - Execute pairing now\n• `dryrun:false` - Actually create channels (default: true for testing)\n\nExample: `/roulette-admin pair time:2025-08-15 8:00 PM`",
+				Inline: false,
+			},
+			{
+				Name:   "/roulette-admin reset",
+				Value:  "Delete all existing pairing channels\n• Removes all channels created by previous pairings",
+				Inline: false,
+			},
+			{
+				Name:   "/roulette-admin delete-schedule",
+				Value:  "Cancel the currently scheduled pairing\n• Removes any scheduled pairing time\n• Does not affect current signups",
+				Inline: false,
+			},
+			{
+				Name:   "🧪 Testing Commands:",
+				Inline: false,
+			},
+			{
+				Name:   "/roulette-admin simulate-pairing",
+				Value:  "Test the pairing system with fake users\n• `user-count:8` - Number of fake users (4-50)\n• `create-channels:true` - Actually create test channels\n• Useful for testing pairing algorithms",
+				Inline: false,
+			},
+			{
+				Name:   "📋 Best Practices:",
+				Value:  "• Always use `dryrun:true` first to test pairing",
+				Inline: false,
+			},
+		},
+	}
+
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
+// handleRouletteAdminDebug shows debug information about the roulette system
+func (m *Module) handleRouletteAdminDebug(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	guildID := i.GuildID
+
+	// Defer response since this might take a moment
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	var response strings.Builder
+	response.WriteString("🔧 **Roulette System Debug Information**\n\n")
+
+	// Get scheduled pairing info
+	schedule, err := m.db.GetRouletteSchedule(guildID)
+	if err != nil {
+		response.WriteString(fmt.Sprintf("❌ Error getting schedule: %v\n\n", err))
+	} else if schedule == nil {
+		response.WriteString("📅 **Next Scheduled Pairing:** None scheduled\n\n")
+	} else {
+		response.WriteString(fmt.Sprintf("📅 **Next Scheduled Pairing:** <t:%d:F>\n\n", schedule.ScheduledAt.Unix()))
+	}
+
+	// Get signed up users
+	signups, err := m.db.GetRouletteSignups(guildID)
+	if err != nil {
+		response.WriteString(fmt.Sprintf("❌ Error getting signups: %v\n\n", err))
+	} else {
+		response.WriteString(fmt.Sprintf("👥 **Users Signed Up:** %d\n", len(signups)))
+		if len(signups) > 0 {
+			for _, signup := range signups {
+				user, err := s.User(signup.UserID)
+				username := signup.UserID
+				if err == nil {
+					username = user.Username
+				}
+
+				// Get user's games
+				games, err := m.db.GetRouletteGames(signup.UserID, guildID)
+				if err != nil {
+					m.config.Logger.Error("Error getting games for %s: %v", username, err)
+					continue
+				}
+
+				var gameNames []string
+				for _, game := range games {
+					gameNames = append(gameNames, game.GameName)
+				}
+				gamesList := strings.Join(gameNames, ", ")
+
+				response.WriteString(fmt.Sprintf("• %s (%s)\n", username, gamesList))
+			}
+		}
+		response.WriteString("\n")
+	}
+
+	// Get config info
+	pairingCategoryID := m.config.GetGamerPalsPairingCategoryID()
+	modLogChannelID := m.config.GetGamerPalsModActionLogChannelID()
+
+	response.WriteString("⚙️ **Configuration:**\n")
+	response.WriteString(fmt.Sprintf("• Pairing Category ID: %s\n", pairingCategoryID))
+	response.WriteString(fmt.Sprintf("• Mod Log Channel ID: %s\n", modLogChannelID))
+
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(response.String()),
+	})
+}
+
+// handleRouletteAdminPair handles the pairing command
+func (m *Module) handleRouletteAdminPair(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+	guildID := i.GuildID
+
+	// Parse options
+	var pairTime *time.Time
+	immediatePair := false
+	dryRun := true // Default to true
+
+	for _, option := range options {
+		switch option.Name {
+		case "time":
+			t, err := utils.ResolveDateToUnixTimestamp(option.StringValue())
+			if err != nil {
+				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{
+						Content: "❌ Unable to parse pair time.",
+						Flags:   discordgo.MessageFlagsEphemeral,
+					},
+				})
+				return
+			}
+
+			parsedTime := time.Unix(t, 0).UTC()
+			pairTime = &parsedTime
+
+		case "immediate-pair":
+			immediatePair = option.BoolValue()
+		case "dryrun":
+			dryRun = option.BoolValue()
+		}
+	}
+
+	// Defer response since pairing might take time
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	if immediatePair {
+		// Execute pairing immediately
+		m.executePairing(s, i, guildID, dryRun)
+	} else if pairTime != nil {
+		// Schedule pairing
+		m.schedulePairing(s, i, guildID, *pairTime, dryRun)
+	} else {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("❌ You must specify either a pair time or set immediate-pair-bool to true."),
+		})
+	}
+}
+
+// schedulePairing schedules a pairing for later
+func (m *Module) schedulePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, pairTime time.Time, dryRun bool) {
+	if !dryRun {
+		err := m.db.SetRouletteSchedule(guildID, pairTime)
+		if err != nil {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr(fmt.Sprintf("❌ Error scheduling pairing: %v", err)),
+			})
+			return
+		}
+	}
+
+	dryRunText := ""
+	if dryRun {
+		dryRunText = " (DRY RUN - not actually scheduled)"
+	}
+
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(fmt.Sprintf("✅ Pairing scheduled for <t:%d:F>%s", pairTime.Unix(), dryRunText)),
+	})
+}
+
+// executePairing executes the pairing algorithm
+func (m *Module) executePairing(s *discordgo.Session, i *discordgo.InteractionCreate, guildID string, dryRun bool) {
+	// Execute pairing using the pairing service
+	result, err := m.pairingService.ExecutePairing(guildID, dryRun)
+	if err != nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing pairing: %v", err)),
+		})
+		return
+	}
+
+	// Build response
+	var response strings.Builder
+	dryRunText := ""
+	if dryRun {
+		dryRunText = " (DRY RUN)"
+	}
+
+	response.WriteString(fmt.Sprintf("🎰 **Roulette Pairing Results%s**\n\n", dryRunText))
+
+	if !result.Success {
+		response.WriteString(fmt.Sprintf("❌ %s\n", result.ErrorMessage))
+	} else {
+		response.WriteString(fmt.Sprintf("✅ Found %d pair(s):\n\n", result.PairCount))
+
+		for i, pair := range result.Pairs {
+			response.WriteString(fmt.Sprintf("**Pair %d:**\n", i+1))
+
+			var commonGames []string
+			// Find common games
+			if len(pair) >= 2 {
+				commonGames = m.pairingService.FindCommonGames(pair[0].Games, pair[1].Games)
+				if len(pair) > 2 {
+					// For groups of 3+, find games common to all
+					for j := 2; j < len(pair); j++ {
+						commonGames = m.pairingService.FindCommonGames(commonGames, pair[j].Games)
+					}
+				}
+			}
+
+			for _, user := range pair {
+				response.WriteString(fmt.Sprintf("• <@%s>\n", user.UserID))
+			}
+
+			if len(commonGames) > 0 {
+				response.WriteString(fmt.Sprintf("🎮 Common games: %s\n", strings.Join(commonGames, ", ")))
+			} else {
+				response.WriteString("🎮 No common games found\n")
+			}
+
+			response.WriteString("\n")
+		}
+
+		// List unpaired users
+		if len(result.UnpairedUsers) > 0 {
+			var unpairedMentions []string
+			for _, userID := range result.UnpairedUsers {
+				unpairedMentions = append(unpairedMentions, fmt.Sprintf("<@%s>", userID))
+			}
+			response.WriteString(fmt.Sprintf("⚠️ **Unpaired users (%d):** %s\n\n", len(result.UnpairedUsers), strings.Join(unpairedMentions, ", ")))
+		}
+
+		if !dryRun {
+			// Log to mod action log
+			m.pairingService.LogPairingResults(guildID, result, false)
+		}
+	}
+
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(response.String()),
+	})
+}
+
+// handleRouletteAdminReset handles the reset subcommand
+func (m *Module) handleRouletteAdminReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	guildID := i.GuildID
+
+	// Respond with thinking message
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Get count of existing pairing channels before cleanup
+	pairingCategoryID := m.config.GetGamerPalsPairingCategoryID()
+	channelCount := 0
+	if pairingCategoryID != "" {
+		channels, err := s.GuildChannels(guildID)
+		if err == nil {
+			for _, channel := range channels {
+				if channel.ParentID == pairingCategoryID {
+					channelCount++
+				}
+			}
+		}
+	}
+
+	// Execute cleanup using the pairing service
+	err := m.pairingService.CleanupPreviousPairings(guildID)
+
+	var response strings.Builder
+	if err != nil {
+		response.WriteString(fmt.Sprintf("❌ **Reset Failed**\n\nError: %s", err.Error()))
+	} else {
+		response.WriteString(fmt.Sprintf("✅ **Pairing Channels Reset**\n\nDeleted %d pairing channels successfully.", channelCount))
+
+		// Log the reset action to mod log
+		modLogChannelID := m.config.GetGamerPalsModActionLogChannelID()
+		if modLogChannelID != "" {
+			logMessage := fmt.Sprintf("🔄 **Roulette Channels Reset**\n\n"+
+				"**Administrator:** <@%s>\n"+
+				"**Guild:** %s\n"+
+				"**Channels Deleted:** %d\n"+
+				"**Time:** <t:%d:F>",
+				i.Member.User.ID, guildID, channelCount, time.Now().Unix())
+
+			_, err := s.ChannelMessageSend(modLogChannelID, logMessage)
+			if err != nil {
+				m.config.Logger.Warn("Error sending reset notification: %v", err)
+			}
+		}
+	}
+
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(response.String()),
+	})
+}
+
+// handleRouletteAdminDeleteSchedule handles removing a scheduled pairing
+func (m *Module) handleRouletteAdminDeleteSchedule(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	guildID := i.GuildID
+
+	// Defer response
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Check if there's a scheduled pairing first
+	schedule, err := m.db.GetRouletteSchedule(guildID)
+	if err != nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(fmt.Sprintf("❌ Error checking schedule: %v", err)),
+		})
+		return
+	}
+
+	if schedule == nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("❌ No scheduled pairing found to delete."),
+		})
+		return
+	}
+
+	// Store the schedule time for logging
+	scheduledTime := schedule.ScheduledAt
+
+	// Delete the schedule
+	err = m.db.ClearRouletteSchedule(guildID)
+	if err != nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(fmt.Sprintf("❌ Error deleting schedule: %v", err)),
+		})
+		return
+	}
+
+	// Build success response
+	response := fmt.Sprintf("✅ **Scheduled Pairing Deleted**\n\nThe pairing scheduled for <t:%d:F> has been removed.", scheduledTime.Unix())
+
+	// Log the deletion to mod action log
+	modLogChannelID := m.config.GetGamerPalsModActionLogChannelID()
+	if modLogChannelID != "" {
+		logMessage := fmt.Sprintf("🗑️ **Roulette Schedule Deleted**\n\n"+
+			"**Administrator:** <@%s>\n"+
+			"**Guild:** %s\n"+
+			"**Scheduled Time:** <t:%d:F>\n"+
+			"**Deletion Time:** <t:%d:F>",
+			i.Member.User.ID, guildID, scheduledTime.Unix(), time.Now().Unix())
+
+		_, err := s.ChannelMessageSend(modLogChannelID, logMessage)
+		if err != nil {
+			m.config.Logger.Warn("Error sending schedule deletion notification: %v", err)
+		}
+	}
+
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(response),
+	})
+}
+
+// handleRouletteAdminSimulatePairing handles the simulate-pairing subcommand
+func (m *Module) handleRouletteAdminSimulatePairing(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+	guildID := i.GuildID
+
+	// Parse options
+	userCount := 8          // Default to 8 users for simulation
+	createChannels := false // Default to false
+
+	for _, option := range options {
+		switch option.Name {
+		case "user-count":
+			userCount = int(option.IntValue())
+		case "create-channels":
+			createChannels = option.BoolValue()
+		}
+	}
+
+	// Validate user count
+	if userCount < 4 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ User count must be at least 4 for simulation.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	if userCount > 50 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ User count cannot exceed 50 for simulation.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Defer response since simulation might take time
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Execute simulation using the pairing service
+	result, err := m.pairingService.SimulatePairing(guildID, userCount, createChannels)
+	if err != nil {
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing simulation: %v", err)),
+		})
+		return
+	}
+
+	// Build response content for file
+	var response strings.Builder
+	channelText := ""
+	if createChannels {
+		channelText = " (Channels Created)"
+	}
+
+	response.WriteString(fmt.Sprintf("Roulette Pairing Simulation%s\n", channelText))
+	response.WriteString(strings.Repeat("=", 50) + "\n\n")
+	response.WriteString(fmt.Sprintf("Simulated Users: %d\n\n", userCount))
+
+	if !result.Success {
+		response.WriteString(fmt.Sprintf("ERROR: %s\n", result.ErrorMessage))
+	} else {
+		response.WriteString(fmt.Sprintf("SUCCESS: Found %d group(s)\n\n", result.PairCount))
+
+		for i, pair := range result.Pairs {
+			response.WriteString(fmt.Sprintf("Group %d:\n", i+1))
+			response.WriteString(strings.Repeat("-", 20) + "\n")
+
+			var commonGames []string
+			// Find common games
+			if len(pair) >= 2 {
+				commonGames = m.pairingService.FindCommonGames(pair[0].Games, pair[1].Games)
+				if len(pair) > 2 {
+					// For groups of 3+, find games common to all
+					for j := 2; j < len(pair); j++ {
+						commonGames = m.pairingService.FindCommonGames(commonGames, pair[j].Games)
+					}
+				}
+			}
+
+			for _, user := range pair {
+				// Show fake user info instead of mentioning real users
+				response.WriteString(fmt.Sprintf("• %s\n", user.UserID))
+				response.WriteString(fmt.Sprintf("  Games: %s\n", strings.Join(user.Games, ", ")))
+				response.WriteString(fmt.Sprintf("  Regions: %s\n", strings.Join(user.Regions, ", ")))
+			}
+
+			if len(commonGames) > 0 {
+				response.WriteString(fmt.Sprintf("Common games: %s\n", strings.Join(commonGames, ", ")))
+			} else {
+				response.WriteString("No common games found\n")
+			}
+
+			response.WriteString("\n")
+		}
+
+		// List unpaired users
+		if len(result.UnpairedUsers) > 0 {
+			response.WriteString(fmt.Sprintf("Unpaired users (%d):\n", len(result.UnpairedUsers)))
+			response.WriteString(strings.Repeat("-", 20) + "\n")
+			for _, userID := range result.UnpairedUsers {
+				response.WriteString(fmt.Sprintf("• %s\n", userID))
+			}
+			response.WriteString("\n")
+		}
+
+		// Add efficiency stats
+		pairedUsers := result.TotalUsers - len(result.UnpairedUsers)
+		efficiency := float64(pairedUsers) / float64(result.TotalUsers) * 100
+		response.WriteString(fmt.Sprintf("Pairing Efficiency: %.1f%% (%d/%d users paired)\n", efficiency, pairedUsers, result.TotalUsers))
+
+		if createChannels {
+			response.WriteString("\nNote: Simulation channels were created with fake users. Use /roulette-admin reset to clean them up.\n")
+		}
+	}
+
+	// Create filename with timestamp
+	timestamp := time.Now().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("roulette_simulation_%s.txt", timestamp)
+
+	// Send as file attachment
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(fmt.Sprintf("🧪 **Roulette Pairing Simulation Complete**\n\nResults saved to file. %d users simulated with %.1f%% pairing efficiency.",
+			userCount,
+			func() float64 {
+				if result.Success {
+					pairedUsers := result.TotalUsers - len(result.UnpairedUsers)
+					return float64(pairedUsers) / float64(result.TotalUsers) * 100
+				}
+				return 0.0
+			}())),
+		Files: []*discordgo.File{
+			{
+				Name:   filename,
+				Reader: strings.NewReader(response.String()),
+			},
+		},
+	})
+}

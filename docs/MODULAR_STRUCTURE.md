@@ -148,15 +148,15 @@ func (m *Module) GetService() *Service {
 ### Step 1: Create Module Directory
 
 ```bash
-mkdir -p internal/commands/modules/yourcommand
+mkdir -p internal/commands/modules/mycommand
 ```
 
 ### Step 2: Create Module File
 
-Create `yourcommand.go` in the new directory:
+Create `mycommand.go` in the new directory:
 
 ```go
-package yourcommand
+package mycommand
 
 import (
     "gamerpal/internal/commands/types"
@@ -169,17 +169,17 @@ type Module struct {
 
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
     // Register your command(s)
-    cmds["yourcommand"] = &types.Command{
+    cmds["mycommand"] = &types.Command{
         ApplicationCommand: &discordgo.ApplicationCommand{
-            Name:        "yourcommand",
+            Name:        "mycommand",
             Description: "Your command description",
             // ... options, permissions, etc.
         },
-        HandlerFunc: m.handleYourCommand,
+        HandlerFunc: m.handleMyCommand,
     }
 }
 
-func (m *Module) handleYourCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleMyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
     // Move handler logic here from handler.go
 }
 ```
@@ -199,15 +199,15 @@ Add to `modular_handler.go`:
 
 ```go
 import (
-    "gamerpal/internal/commands/modules/yourcommand"
+    "gamerpal/internal/commands/modules/mycommand"
     // ...
 )
 
 func (h *ModularHandler) registerModules() {
     // ... existing modules
     
-    yourModule := &yourcommand.Module{}
-    yourModule.Register(h.commands, h.deps)
+    myModule := &mycommand.Module{}
+    myModule.Register(h.commands, h.deps)
 }
 ```
 

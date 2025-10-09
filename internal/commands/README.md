@@ -138,17 +138,19 @@ Original 600+ line handler. Being phased out as commands migrate.
 
 ## Testing
 
-All tests pass:
+All tests pass with the new modular structure:
 ```bash
 go test ./...
 # All packages: PASS
 ```
 
-All packages build:
+All packages build successfully:
 ```bash
 go build ./...
 # No errors
 ```
+
+**Note**: The modular structure is currently implemented alongside the existing handler. Full integration (switching bot.go to use ModularHandler) is pending but the foundation is complete and tested.
 
 ## Questions?
 

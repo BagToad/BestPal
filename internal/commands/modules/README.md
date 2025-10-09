@@ -33,7 +33,7 @@ Complex module demonstrating command grouping and service integration.
 
 ## Creating a New Module
 
-1. Create a new directory: `mkdir -p modules/mycommand`
+1. Create a new directory: `mkdir -p internal/commands/modules/mycommand`
 2. Create `mycommand.go` implementing the `CommandModule` interface
 3. Optionally create `service.go` for complex logic
 4. Register the module in `modular_handler.go`

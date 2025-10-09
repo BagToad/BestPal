@@ -7,6 +7,7 @@ import (
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/log"
 	"gamerpal/internal/commands/modules/ping"
+	"gamerpal/internal/commands/modules/prune"
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/time"
@@ -114,8 +115,12 @@ func (h *ModularHandler) registerModules() {
 	logModule.Register(h.commands, h.deps)
 
 	// Phase 4: Complex with services
-	// TODO: roulette, lfg, prune
-	// These will be registered from the legacy handler for now
+	// Register prune module
+	pruneModule := &prune.Module{}
+	pruneModule.Register(h.commands, h.deps)
+
+	// TODO: roulette, lfg still need migration
+	// These are more complex and require additional work
 }
 
 // GetDB returns the database instance (used by scheduler)

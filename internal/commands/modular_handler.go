@@ -70,70 +70,57 @@ func NewModularHandler(cfg *internalConfig.Config) *ModularHandler {
 
 // registerModules registers all command modules
 func (h *ModularHandler) registerModules() {
-	// Phase 1: Already migrated
-	// Register ping module
 	pingModule := &ping.Module{}
 	pingModule.Register(h.commands, h.deps)
 
-	// Register time module
 	timeModule := &time.Module{}
 	timeModule.Register(h.commands, h.deps)
 
-	// Register say module (stores reference for scheduler access)
+	// Store reference for scheduler access
 	h.sayModule = &say.Module{}
 	h.sayModule.Register(h.commands, h.deps)
 
-	// Phase 2: Simple commands
-	// Register help module
 	helpModule := &help.Module{}
 	helpModule.Register(h.commands, h.deps)
 
-	// Register intro module
 	introModule := &intro.Module{}
 	introModule.Register(h.commands, h.deps)
 
-	// Register config module
 	configModule := &config.Module{}
 	configModule.Register(h.commands, h.deps)
 
-	// Register refresh-igdb module (store reference to update client)
+	// Store reference to update IGDB client
 	h.refreshIgdbModule = &refreshigdb.Module{}
 	h.refreshIgdbModule.SetIGDBClientRef(&h.igdbClient)
 	h.refreshIgdbModule.Register(h.commands, h.deps)
 
-	// Phase 3: Medium complexity
-	// Register game module
 	gameModule := &game.Module{}
 	gameModule.Register(h.commands, h.deps)
 
-	// Register userstats module
 	userstatsModule := &userstats.Module{}
 	userstatsModule.Register(h.commands, h.deps)
 
-	// Register log module
 	logModule := &log.Module{}
 	logModule.Register(h.commands, h.deps)
 
-	// Phase 4: Complex with services
-	// Register prune module
 	pruneModule := &prune.Module{}
 	pruneModule.Register(h.commands, h.deps)
 
-	// Register LFG module (store reference for component/modal handling)
+	// Store reference for component/modal handling
 	h.lfgModule = &lfg.Module{}
 	h.lfgModule.Register(h.commands, h.deps)
 
-	// Register roulette module (store reference for pairing service)
+	// Store reference for pairing service access
 	h.rouletteModule = &roulette.Module{}
 	h.rouletteModule.Register(h.commands, h.deps)
 }
 
-// GetDB returns the database instance (used by scheduler)
+// GetDB returns the database instance
 func (h *ModularHandler) GetDB() *database.DB {
 	return h.db
 }
 
-// GetSayService returns the say service for scheduler use
+// GetSayService returns the say service for scheduler access
 func (h *ModularHandler) GetSayService() *say.Service {
 	if h.sayModule != nil {
 		return h.sayModule.GetService()
@@ -141,39 +128,26 @@ func (h *ModularHandler) GetSayService() *say.Service {
 	return nil
 }
 
-// GetPairingService returns the pairing service for scheduler use
+// GetPairingService returns the roulette module for pairing service access
 func (h *ModularHandler) GetPairingService() *roulette.Module {
 	return h.rouletteModule
 }
 
-// InitializePairingService initializes the pairing service with a Discord session
-func (h *ModularHandler) InitializePairingService(session *discordgo.Session) {
-	// Initialize pairing service in roulette module
-	if h.rouletteModule != nil {
-		h.rouletteModule.InitializePairingService(session)
-	}
-	// Also set session in dependencies for future modules
-	h.deps.Session = session
-}
-
 // RegisterCommands registers all slash commands with Discord
 func (h *ModularHandler) RegisterCommands(s *discordgo.Session) error {
-	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
 		h.config.Logger.Warn("Error fetching existing commands: %v", err)
 		return err
 	}
 
-	// Index existing by name for quick lookup
 	existingByName := make(map[string]*discordgo.ApplicationCommand)
 	for _, ec := range existingCommands {
 		existingByName[ec.Name] = ec
 	}
 
 	for _, c := range h.commands {
-		// If a command is in development, we're not only going to skip it, but we'll
-		// also unregister it if it exists.
+		// Unregister development commands if they exist
 		if c.Development {
 			for _, existingCmd := range existingCommands {
 				if existingCmd.Name == c.ApplicationCommand.Name {
@@ -189,7 +163,7 @@ func (h *ModularHandler) RegisterCommands(s *discordgo.Session) error {
 		}
 
 		if existing := existingByName[c.ApplicationCommand.Name]; existing != nil {
-			// Edit existing command (preserves ID so clients update faster)
+			// Update existing command
 			cmd, err := s.ApplicationCommandEdit(s.State.User.ID, "", existing.ID, c.ApplicationCommand)
 			if err != nil {
 				return err
@@ -221,16 +195,14 @@ func (h *ModularHandler) HandleInteraction(s *discordgo.Session, i *discordgo.In
 	}
 }
 
-// UnregisterCommands removes all registered commands (useful for cleanup)
+// UnregisterCommands removes all registered commands
 func (h *ModularHandler) UnregisterCommands(s *discordgo.Session) {
-	// Get all existing commands from Discord
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
 		h.config.Logger.Warn("Error fetching existing commands: %v", err)
 		return
 	}
 
-	// Delete each command that exists in our local command map
 	for _, existingCmd := range existingCommands {
 		if _, exists := h.commands[existingCmd.Name]; exists {
 			err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)

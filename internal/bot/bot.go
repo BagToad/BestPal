@@ -90,8 +90,11 @@ func (b *Bot) Start() error {
 		return fmt.Errorf("error registering commands: %w", err)
 	}
 
-	// Initialize pairing service with session
-	b.slashCommandHandler.InitializePairingService(b.session)
+	// Initialize pairing service in roulette module with session
+	rouletteModule := b.slashCommandHandler.GetPairingService()
+	if rouletteModule != nil {
+		rouletteModule.InitializePairingService(b.session)
+	}
 
 	// Create and initialize scheduler
 	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashCommandHandler.GetDB())

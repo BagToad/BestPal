@@ -104,7 +104,7 @@ func (b *Bot) Start() error {
 	// Welcome service minute check (via welcome module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
 		if welcomeMod, ok := b.commandModuleHandler.GetModule("welcome").(*welcome.WelcomeModule); ok {
-			if welcomeService := welcomeMod.GetService(); welcomeService != nil {
+			if welcomeService := welcomeMod.GetWelcomeService(); welcomeService != nil {
 				// TODO: These services should return errors
 				welcomeService.CleanNewPalsRoleFromOldMembers()
 				welcomeService.CheckAndWelcomeNewPals()
@@ -126,7 +126,7 @@ func (b *Bot) Start() error {
 	// Scheduled say service minute check
 	b.scheduler.RegisterNewMinuteFunc(func() error {
 		if sayMod, ok := b.commandModuleHandler.GetModule("say").(*say.SayModule); ok {
-			if sayService := sayMod.GetService(); sayService != nil {
+			if sayService := sayMod.GetSayService(); sayService != nil {
 				return sayService.CheckAndSendDue(b.session)
 			}
 		}

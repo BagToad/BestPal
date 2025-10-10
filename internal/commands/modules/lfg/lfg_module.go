@@ -123,6 +123,6 @@ func (m *LfgModule) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interac
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *LfgModule) GetServices() []types.ModuleService {
+func (m *LfgModule) GetService() types.ModuleService {
 return nil
 }

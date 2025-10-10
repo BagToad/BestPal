@@ -231,7 +231,7 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	
 	// Initialize services for all modules
 	for _, module := range h.modules {
-		for _, service := range module.GetServices() {
+		if service := module.GetService(); service != nil {
 			if err := service.InitializeService(s); err != nil {
 				return fmt.Errorf("failed to initialize service: %w", err)
 			}

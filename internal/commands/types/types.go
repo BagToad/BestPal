@@ -25,14 +25,14 @@ type ModuleService interface {
 // Each module should contain:
 // - Command definition(s)
 // - Handler function(s)
-// - Associated service(s) if needed
+// - Associated service if needed (max one service per module)
 type CommandModule interface {
 	// Register adds the module's commands to the provided map
 	Register(commands map[string]*Command, deps *Dependencies)
 	
-	// GetServices returns services that need session initialization
-	// Returns nil if the module has no services requiring initialization
-	GetServices() []ModuleService
+	// GetService returns the service that needs session initialization
+	// Returns nil if the module has no service requiring initialization
+	GetService() ModuleService
 }
 
 // Dependencies contains shared dependencies that command modules may need

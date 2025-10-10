@@ -26,24 +26,18 @@ func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dep
 	// No commands to register - this module only provides scheduled services
 }
 
-// welcomeServiceWrapper wraps WelcomeService to implement ModuleService
-type welcomeServiceWrapper struct {
-	module *WelcomeModule
-}
-
-func (w *welcomeServiceWrapper) InitializeService(s *discordgo.Session) error {
-	w.module.service = NewWelcomeService(s, w.module.config)
+// InitializeService initializes the welcome service with a Discord session
+func (m *WelcomeModule) InitializeService(s *discordgo.Session) error {
+	m.service = NewWelcomeService(s, m.config)
 	return nil
 }
 
-// GetServices returns services that need session initialization
-func (m *WelcomeModule) GetServices() []types.ModuleService {
-	return []types.ModuleService{
-		&welcomeServiceWrapper{module: m},
-	}
+// GetService returns the module's service that needs session initialization
+func (m *WelcomeModule) GetService() types.ModuleService {
+	return m
 }
 
-// GetService returns the welcome service for scheduler access
-func (m *WelcomeModule) GetService() *WelcomeService {
+// GetWelcomeService returns the welcome service for scheduler access
+func (m *WelcomeModule) GetWelcomeService() *WelcomeService {
 	return m.service
 }

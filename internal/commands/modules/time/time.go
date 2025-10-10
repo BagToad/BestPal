@@ -176,6 +176,6 @@ func (m *TimeModule) handleTimeParse(s *discordgo.Session, i *discordgo.Interact
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *TimeModule) GetServices() []types.ModuleService {
+func (m *TimeModule) GetService() types.ModuleService {
 return nil
 }

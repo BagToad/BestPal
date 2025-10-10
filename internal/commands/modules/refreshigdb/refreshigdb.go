@@ -138,6 +138,6 @@ func (m *RefreshigdbModule) fetchTwitchAppToken(clientID, clientSecret string) (
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *RefreshigdbModule) GetServices() []types.ModuleService {
+func (m *RefreshigdbModule) GetService() types.ModuleService {
 return nil
 }

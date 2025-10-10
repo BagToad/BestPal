@@ -299,6 +299,6 @@ func (m *GameModule) formatReleaseDate(timestamp int) string {
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *GameModule) GetServices() []types.ModuleService {
+func (m *GameModule) GetService() types.ModuleService {
 return nil
 }

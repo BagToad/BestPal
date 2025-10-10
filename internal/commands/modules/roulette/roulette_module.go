@@ -29,7 +29,7 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 	m.igdbClient = deps.IGDBClient
 
 	// PairingService will be initialized later when session is available
-	// (see InitializePairingService method)
+	// (see GetService and InitializeService methods)
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 
@@ -167,21 +167,15 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 	}
 }
 
-// pairingServiceWrapper wraps PairingService to implement ModuleService
-type pairingServiceWrapper struct {
-	module *RouletteModule
-}
-
-func (w *pairingServiceWrapper) InitializeService(s *discordgo.Session) error {
-	w.module.pairingService = NewPairingService(s, w.module.config, w.module.db)
+// InitializeService initializes the pairing service with a Discord session
+func (m *RouletteModule) InitializeService(s *discordgo.Session) error {
+	m.pairingService = NewPairingService(s, m.config, m.db)
 	return nil
 }
 
-// GetServices returns services that need session initialization
-func (m *RouletteModule) GetServices() []types.ModuleService {
-	return []types.ModuleService{
-		&pairingServiceWrapper{module: m},
-	}
+// GetService returns the module's service that needs session initialization
+func (m *RouletteModule) GetService() types.ModuleService {
+	return m
 }
 
 // GetPairingService returns the pairing service for external use (e.g., scheduler)

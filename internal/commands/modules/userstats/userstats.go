@@ -331,6 +331,6 @@ func formatRegionCounts(regionCounts map[string]int) string {
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *UserstatsModule) GetServices() []types.ModuleService {
+func (m *UserstatsModule) GetService() types.ModuleService {
 return nil
 }

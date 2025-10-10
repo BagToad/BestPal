@@ -126,8 +126,8 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 	}
 }
 
-// GetService returns the service instance for external use (e.g., scheduler)
-func (m *SayModule) GetService() *Service {
+// GetSayService returns the service instance for external use (e.g., scheduler)
+func (m *SayModule) GetSayService() *Service {
 	return m.service
 }
 
@@ -399,6 +399,6 @@ func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *SayModule) GetServices() []types.ModuleService {
+func (m *SayModule) GetService() types.ModuleService {
 return nil
 }

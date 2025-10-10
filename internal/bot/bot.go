@@ -22,10 +22,10 @@ import (
 
 // Bot represents the Discord bot
 type Bot struct {
-	session             *discordgo.Session
-	config              *config.Config
+	session              *discordgo.Session
+	config               *config.Config
 	commandModuleHandler *commands.ModuleHandler
-	scheduler           *scheduler.Scheduler
+	scheduler            *scheduler.Scheduler
 }
 
 // New creates a new Bot instance
@@ -40,8 +40,8 @@ func New(cfg *config.Config) (*Bot, error) {
 	handler := commands.NewModuleHandler(cfg)
 
 	bot := &Bot{
-		session:             session,
-		config:              cfg,
+		session:              session,
+		config:               cfg,
 		commandModuleHandler: handler,
 	}
 

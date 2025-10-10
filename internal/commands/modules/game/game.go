@@ -297,3 +297,8 @@ func (m *GameModule) formatReleaseDate(timestamp int) string {
 	t := time.Unix(int64(timestamp), 0)
 	return t.Format("January 2, 2006")
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *GameModule) GetServices() []types.ModuleService {
+return nil
+}

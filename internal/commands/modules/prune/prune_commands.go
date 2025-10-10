@@ -70,3 +70,8 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 		HandlerFunc: m.handlePruneForum,
 	}
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *PruneModule) GetServices() []types.ModuleService {
+return nil
+}

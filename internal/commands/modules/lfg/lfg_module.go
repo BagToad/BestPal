@@ -121,3 +121,8 @@ func (m *LfgModule) HandleComponent(s *discordgo.Session, i *discordgo.Interacti
 func (m *LfgModule) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGModalSubmit(s, i)
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *LfgModule) GetServices() []types.ModuleService {
+return nil
+}

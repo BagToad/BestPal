@@ -397,3 +397,8 @@ func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("No scheduled say with ID %d found", idVal), Flags: discordgo.MessageFlagsEphemeral}})
 	}
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *SayModule) GetServices() []types.ModuleService {
+return nil
+}

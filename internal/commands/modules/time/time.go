@@ -174,3 +174,8 @@ func (m *TimeModule) handleTimeParse(s *discordgo.Session, i *discordgo.Interact
 		Embeds: &[]*discordgo.MessageEmbed{&embed},
 	})
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *TimeModule) GetServices() []types.ModuleService {
+return nil
+}

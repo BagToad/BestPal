@@ -229,16 +229,13 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	// Update dependencies with session
 	h.deps.Session = s
 	
-	// Initialize roulette module's pairing service
-	if rouletteMod, ok := h.GetModule("roulette").(*roulette.RouletteModule); ok {
-		if err := rouletteMod.InitializePairingService(s); err != nil {
-			return fmt.Errorf("failed to initialize pairing service: %w", err)
+	// Initialize services for all modules
+	for _, module := range h.modules {
+		for _, service := range module.GetServices() {
+			if err := service.InitializeService(s); err != nil {
+				return fmt.Errorf("failed to initialize service: %w", err)
+			}
 		}
-	}
-	
-	// Initialize welcome module's service
-	if welcomeMod, ok := h.GetModule("welcome").(*welcome.WelcomeModule); ok {
-		welcomeMod.InitializeServices(s, h.config)
 	}
 	
 	return nil

@@ -15,6 +15,12 @@ type Command struct {
 	Development        bool
 }
 
+// ModuleService represents a service that requires session initialization
+type ModuleService interface {
+	// InitializeService initializes the service with a Discord session
+	InitializeService(s *discordgo.Session) error
+}
+
 // CommandModule represents a module that can register commands
 // Each module should contain:
 // - Command definition(s)
@@ -23,6 +29,10 @@ type Command struct {
 type CommandModule interface {
 	// Register adds the module's commands to the provided map
 	Register(commands map[string]*Command, deps *Dependencies)
+	
+	// GetServices returns services that need session initialization
+	// Returns nil if the module has no services requiring initialization
+	GetServices() []ModuleService
 }
 
 // Dependencies contains shared dependencies that command modules may need

@@ -167,10 +167,21 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 	}
 }
 
-// InitializePairingService initializes the pairing service with a Discord session
-func (m *RouletteModule) InitializePairingService(session *discordgo.Session) error {
-	m.pairingService = NewPairingService(session, m.config, m.db)
+// pairingServiceWrapper wraps PairingService to implement ModuleService
+type pairingServiceWrapper struct {
+	module *RouletteModule
+}
+
+func (w *pairingServiceWrapper) InitializeService(s *discordgo.Session) error {
+	w.module.pairingService = NewPairingService(s, w.module.config, w.module.db)
 	return nil
+}
+
+// GetServices returns services that need session initialization
+func (m *RouletteModule) GetServices() []types.ModuleService {
+	return []types.ModuleService{
+		&pairingServiceWrapper{module: m},
+	}
 }
 
 // GetPairingService returns the pairing service for external use (e.g., scheduler)

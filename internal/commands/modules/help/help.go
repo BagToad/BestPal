@@ -136,3 +136,8 @@ func (m *HelpModule) handleHelp(s *discordgo.Session, i *discordgo.InteractionCr
 		},
 	})
 }
+
+// GetServices returns nil as this module has no services requiring initialization
+func (m *HelpModule) GetServices() []types.ModuleService {
+return nil
+}

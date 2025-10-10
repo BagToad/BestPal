@@ -14,10 +14,10 @@ import (
 	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/commands/modules/roulette"
 	"gamerpal/internal/commands/modules/say"
+	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
-	"gamerpal/internal/welcome"
 )
 
 // Bot represents the Discord bot
@@ -101,11 +101,15 @@ func (b *Bot) Start() error {
 	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.commandModuleHandler.GetDB())
 
 	// Add services to scheduler
-	welcomeService := welcome.NewWelcomeService(b.session, b.config)
+	// Welcome service minute check (via welcome module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		// TODO: These services should return errors
-		welcomeService.CleanNewPalsRoleFromOldMembers()
-		welcomeService.CheckAndWelcomeNewPals()
+		if welcomeMod, ok := b.commandModuleHandler.GetModule("welcome").(*welcome.WelcomeModule); ok {
+			if welcomeService := welcomeMod.GetService(); welcomeService != nil {
+				// TODO: These services should return errors
+				welcomeService.CleanNewPalsRoleFromOldMembers()
+				welcomeService.CheckAndWelcomeNewPals()
+			}
+		}
 		return nil
 	})
 

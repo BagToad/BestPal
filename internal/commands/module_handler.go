@@ -15,6 +15,7 @@ import (
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/time"
 	"gamerpal/internal/commands/modules/userstats"
+	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
 	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
@@ -31,6 +32,7 @@ import (
 // 1. Say Module - Accessed by scheduler (bot.go:124-131) for scheduled messages
 // 2. Roulette Module - Accessed by scheduler (bot.go:111-122) for automated pairing
 // 3. LFG Module - Accessed by bot event handler (bot.go:216-224) for modal/component interactions
+// 4. Welcome Module - Accessed by scheduler (bot.go) for new member welcoming
 //
 // These are accessed via GetModule[T]() for type-safe access.
 type ModuleHandler struct {
@@ -90,6 +92,7 @@ func (h *ModuleHandler) registerModules() {
 		{"prune", prune.New()},
 		{"lfg", lfg.New()},
 		{"roulette", roulette.New()},
+		{"welcome", welcome.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -231,6 +234,11 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 		if err := rouletteMod.InitializePairingService(s); err != nil {
 			return fmt.Errorf("failed to initialize pairing service: %w", err)
 		}
+	}
+	
+	// Initialize welcome module's service
+	if welcomeMod, ok := h.GetModule("welcome").(*welcome.WelcomeModule); ok {
+		welcomeMod.InitializeServices(s, h.config)
 	}
 	
 	return nil

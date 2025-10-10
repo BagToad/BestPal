@@ -14,6 +14,11 @@ type Module struct {
 	igdbClient *igdb.Client
 }
 
+// New creates a new LFG module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds LFG commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config

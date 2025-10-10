@@ -12,6 +12,11 @@ import (
 // Module implements the CommandModule interface for the userstats command
 type Module struct{}
 
+// New creates a new userstats module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the userstats command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var modPerms int64 = discordgo.PermissionBanMembers

@@ -18,6 +18,11 @@ type Module struct {
 	pairingService *pairing.PairingService
 }
 
+// New creates a new roulette module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds roulette commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
@@ -164,8 +169,9 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // InitializePairingService initializes the pairing service with a Discord session
-func (m *Module) InitializePairingService(session *discordgo.Session) {
+func (m *Module) InitializePairingService(session *discordgo.Session) error {
 	m.pairingService = pairing.NewPairingService(session, m.config, m.db)
+	return nil
 }
 
 // GetPairingService returns the pairing service for external use (e.g., scheduler)

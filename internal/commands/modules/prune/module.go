@@ -12,6 +12,11 @@ type Module struct {
 	config *config.Config
 }
 
+// New creates a new prune module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds prune commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config

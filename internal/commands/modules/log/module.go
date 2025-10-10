@@ -22,6 +22,11 @@ type Module struct {
 	config *config.Config
 }
 
+// New creates a new log module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the log command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config

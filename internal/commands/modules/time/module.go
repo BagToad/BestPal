@@ -12,6 +12,11 @@ import (
 // Module implements the CommandModule interface for the time command
 type Module struct{}
 
+// New creates a new time module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the time command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["time"] = &types.Command{

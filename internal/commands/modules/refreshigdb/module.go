@@ -21,6 +21,11 @@ type Module struct {
 	igdbClient **igdb.Client // Pointer to the client pointer so we can update it
 }
 
+// New creates a new refresh-igdb module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the refresh-igdb command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config

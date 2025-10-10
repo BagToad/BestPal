@@ -14,6 +14,11 @@ type Module struct {
 	config *types.Dependencies
 }
 
+// New creates a new intro module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the intro command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps

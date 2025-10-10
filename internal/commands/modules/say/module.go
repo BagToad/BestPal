@@ -15,6 +15,11 @@ type Module struct {
 	service *Service
 }
 
+// New creates a new say module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds say-related commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	// Initialize the service

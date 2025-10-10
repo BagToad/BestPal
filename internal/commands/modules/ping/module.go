@@ -9,6 +9,11 @@ import (
 // Module implements the CommandModule interface for the ping command
 type Module struct{}
 
+// New creates a new ping module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the ping command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["ping"] = &types.Command{

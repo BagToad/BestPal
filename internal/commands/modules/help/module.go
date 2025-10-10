@@ -10,6 +10,11 @@ import (
 // Module implements the CommandModule interface for the help command
 type Module struct{}
 
+// New creates a new help module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the help command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["help"] = &types.Command{

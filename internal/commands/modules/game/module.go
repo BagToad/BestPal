@@ -16,6 +16,11 @@ type Module struct {
 	igdbClient *igdb.Client
 }
 
+// New creates a new game module
+func New() *Module {
+	return &Module{}
+}
+
 // Register adds the game command to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.igdbClient = deps.IGDBClient

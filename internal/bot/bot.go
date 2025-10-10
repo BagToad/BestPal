@@ -12,6 +12,8 @@ import (
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/lfg"
+	"gamerpal/internal/commands/modules/roulette"
+	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -22,7 +24,7 @@ import (
 type Bot struct {
 	session             *discordgo.Session
 	config              *config.Config
-	slashCommandHandler *commands.ModularHandler
+	slashCommandHandler *commands.ModuleHandler
 	scheduler           *scheduler.Scheduler
 }
 
@@ -35,7 +37,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 
 	// Create modular command handler
-	handler := commands.NewModularHandler(cfg)
+	handler := commands.NewModuleHandler(cfg)
 
 	bot := &Bot{
 		session:             session,
@@ -90,10 +92,9 @@ func (b *Bot) Start() error {
 		return fmt.Errorf("error registering commands: %w", err)
 	}
 
-	// Initialize pairing service in roulette module with session
-	rouletteModule := b.slashCommandHandler.GetPairingService()
-	if rouletteModule != nil {
-		rouletteModule.InitializePairingService(b.session)
+	// Initialize module services that need the Discord session
+	if err := b.slashCommandHandler.InitializeModuleServices(b.session); err != nil {
+		return fmt.Errorf("error initializing module services: %w", err)
 	}
 
 	// Create and initialize scheduler
@@ -110,11 +111,8 @@ func (b *Bot) Start() error {
 
 	// Pairing service minute check (via roulette module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		rouletteModule := b.slashCommandHandler.GetPairingService()
-		if rouletteModule != nil {
-			pairingService := rouletteModule.GetPairingService()
-			if pairingService != nil {
-				// TODO: These services should return errors
+		if rouletteMod, ok := b.slashCommandHandler.GetModule("roulette").(*roulette.Module); ok {
+			if pairingService := rouletteMod.GetPairingService(); pairingService != nil {
 				pairingService.CheckAndExecuteScheduledPairings()
 			}
 		}
@@ -123,9 +121,10 @@ func (b *Bot) Start() error {
 
 	// Scheduled say service minute check
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		sayService := b.slashCommandHandler.GetSayService()
-		if sayService != nil {
-			return sayService.CheckAndSendDue(b.session)
+		if sayMod, ok := b.slashCommandHandler.GetModule("say").(*say.Module); ok {
+			if sayService := sayMod.GetService(); sayService != nil {
+				return sayService.CheckAndSendDue(b.session)
+			}
 		}
 		return nil
 	})
@@ -213,13 +212,12 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	}
 	// Component interactions
 	if i.Type == discordgo.InteractionMessageComponent {
-		// Delegate to LFG handler (currently only component using)
-		b.slashCommandHandler.HandleLFGComponent(s, i)
+		b.slashCommandHandler.HandleComponentInteraction(s, i)
 		return
 	}
 	// Modal submit
 	if i.Type == discordgo.InteractionModalSubmit {
-		b.slashCommandHandler.HandleLFGModalSubmit(s, i)
+		b.slashCommandHandler.HandleModalSubmit(s, i)
 		return
 	}
 }

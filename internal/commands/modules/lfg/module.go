@@ -9,18 +9,18 @@ import (
 )
 
 // Module implements the CommandModule interface for LFG commands
-type Module struct {
+type LfgModule struct {
 	config     *config.Config
 	igdbClient *igdb.Client
 }
 
 // New creates a new LFG module
-func New() *Module {
-	return &Module{}
+func New() *LfgModule {
+	return &LfgModule{}
 }
 
 // Register adds LFG commands to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 	m.igdbClient = deps.IGDBClient
 
@@ -113,11 +113,11 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // HandleComponent handles component interactions for LFG
-func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LfgModule) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGComponent(s, i)
 }
 
 // HandleModalSubmit handles modal submissions for LFG
-func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LfgModule) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGModalSubmit(s, i)
 }

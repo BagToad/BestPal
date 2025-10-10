@@ -111,7 +111,7 @@ func (b *Bot) Start() error {
 
 	// Pairing service minute check (via roulette module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if rouletteMod, ok := b.slashCommandHandler.GetModule("roulette").(*roulette.Module); ok {
+		if rouletteMod, ok := b.slashCommandHandler.GetModule("roulette").(*roulette.RouletteModule); ok {
 			if pairingService := rouletteMod.GetPairingService(); pairingService != nil {
 				pairingService.CheckAndExecuteScheduledPairings()
 			}
@@ -121,7 +121,7 @@ func (b *Bot) Start() error {
 
 	// Scheduled say service minute check
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if sayMod, ok := b.slashCommandHandler.GetModule("say").(*say.Module); ok {
+		if sayMod, ok := b.slashCommandHandler.GetModule("say").(*say.SayModule); ok {
 			if sayService := sayMod.GetService(); sayService != nil {
 				return sayService.CheckAndSendDue(b.session)
 			}

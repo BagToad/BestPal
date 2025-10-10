@@ -10,17 +10,17 @@ import (
 )
 
 // Module implements the CommandModule interface for the config command
-type Module struct {
+type ConfigModule struct {
 	config *config.Config
 }
 
 // New creates a new config module
-func New() *Module {
-	return &Module{}
+func New() *ConfigModule {
+	return &ConfigModule{}
 }
 
 // Register adds the config command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *ConfigModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -62,7 +62,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 	}
 }
 
-func (m *Module) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *ConfigModule) handleConfig(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, m.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -97,7 +97,7 @@ func (m *Module) handleConfig(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 }
 
-func (m *Module) handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, key, value string) {
+func (m *ConfigModule) handleConfigSet(s *discordgo.Session, i *discordgo.InteractionCreate, key, value string) {
 	if key == "" || value == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -134,7 +134,7 @@ func (m *Module) handleConfigSet(s *discordgo.Session, i *discordgo.InteractionC
 	})
 }
 
-func (m *Module) handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// List of configuration keys with their current values
 	// Note: sensitive keys like tokens are excluded from showing values
 

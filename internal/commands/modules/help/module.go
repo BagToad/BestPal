@@ -8,15 +8,15 @@ import (
 )
 
 // Module implements the CommandModule interface for the help command
-type Module struct{}
+type HelpModule struct{}
 
 // New creates a new help module
-func New() *Module {
-	return &Module{}
+func New() *HelpModule {
+	return &HelpModule{}
 }
 
 // Register adds the help command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *HelpModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["help"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "help",
@@ -27,7 +27,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // handleHelp handles the help slash command
-func (m *Module) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *HelpModule) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎮 Best Pal Bot - Help",
 		Description: "A bot for r/GamerPals. Check out the code on [GitHub](https://github.com/BagToad/BestPal)",

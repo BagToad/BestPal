@@ -12,17 +12,17 @@ import (
 )
 
 // Module implements the CommandModule interface for the game command
-type Module struct {
+type GameModule struct {
 	igdbClient *igdb.Client
 }
 
 // New creates a new game module
-func New() *Module {
-	return &Module{}
+func New() *GameModule {
+	return &GameModule{}
 }
 
 // Register adds the game command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *GameModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.igdbClient = deps.IGDBClient
 
 	cmds["game"] = &types.Command{
@@ -43,7 +43,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // handleGame handles the game lookup slash command
-func (m *Module) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *GameModule) handleGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -105,7 +105,7 @@ type gameEmbedOptions struct {
 }
 
 // newGameEmbed creates a Discord embed for a game using the provided options
-func (m *Module) newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
+func (m *GameModule) newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed {
 	// Create the embed
 	embed := &discordgo.MessageEmbed{
 		Title: fmt.Sprintf("🎮 %s", options.Name),
@@ -203,7 +203,7 @@ func (m *Module) newGameEmbed(options gameEmbedOptions) *discordgo.MessageEmbed 
 }
 
 // searchGame searches for a game using IGDB API and returns an embed
-func (m *Module) searchGame( gameName string) (*igdb.Game, error) {
+func (m *GameModule) searchGame( gameName string) (*igdb.Game, error) {
 	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 	// Get an exact match first
@@ -228,7 +228,7 @@ func (m *Module) searchGame( gameName string) (*igdb.Game, error) {
 	return games[0], nil
 }
 
-func (m *Module) newGameEmbedOptionsFromGame( game *igdb.Game) gameEmbedOptions {
+func (m *GameModule) newGameEmbedOptionsFromGame( game *igdb.Game) gameEmbedOptions {
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,
@@ -290,7 +290,7 @@ func (m *Module) newGameEmbedOptionsFromGame( game *igdb.Game) gameEmbedOptions 
 }
 
 // formatReleaseDate converts Unix timestamp to human readable date
-func (m *Module) formatReleaseDate(timestamp int) string {
+func (m *GameModule) formatReleaseDate(timestamp int) string {
 	if timestamp == 0 {
 		return "TBA"
 	}

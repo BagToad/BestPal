@@ -10,7 +10,7 @@ import (
 )
 
 // handleLFGNow handles /lfg now subcommand
-func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LfgModule) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer an ephemeral reply
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
 
@@ -106,7 +106,7 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 // handleLFGSetupLookingNow sets the feed channel
-func (m *Module) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LfgModule) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource})
 	m.config.Set("gamerpals_lfg_now_panel_channel_id", i.ChannelID)
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Looking NOW feed channel set. New /lfg now posts will appear here.")})

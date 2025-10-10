@@ -11,17 +11,17 @@ import (
 )
 
 // Module implements the CommandModule interface for say commands
-type Module struct {
+type SayModule struct {
 	service *Service
 }
 
 // New creates a new say module
-func New() *Module {
-	return &Module{}
+func New() *SayModule {
+	return &SayModule{}
 }
 
 // Register adds say-related commands to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	// Initialize the service
 	m.service = NewService(deps.Config)
 
@@ -127,12 +127,12 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // GetService returns the service instance for external use (e.g., scheduler)
-func (m *Module) GetService() *Service {
+func (m *SayModule) GetService() *Service {
 	return m.service
 }
 
 // handleSay handles the say slash command
-func (m *Module) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *SayModule) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Parse command options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 2 {
@@ -263,7 +263,7 @@ func (m *Module) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate)
 }
 
 // handleScheduleSay handles the /schedulesay command
-func (m *Module) handleScheduleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *SayModule) handleScheduleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var channelID string
 	var messageContent string
@@ -340,7 +340,7 @@ func (m *Module) handleScheduleSay(s *discordgo.Session, i *discordgo.Interactio
 }
 
 // handleListScheduledSays lists up to the next 20 scheduled messages
-func (m *Module) handleListScheduledSays(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *SayModule) handleListScheduledSays(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	list := m.service.List(20)
 	if len(list) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "No scheduled messages.", Flags: discordgo.MessageFlagsEphemeral}})
@@ -380,7 +380,7 @@ func (m *Module) handleListScheduledSays(s *discordgo.Session, i *discordgo.Inte
 }
 
 // handleCancelScheduledSay cancels a scheduled message by ID
-func (m *Module) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var idVal int64
 	for _, opt := range i.ApplicationCommandData().Options {
 		if opt.Name == "id" {

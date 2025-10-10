@@ -95,7 +95,7 @@ func (h *ModuleHandler) registerModules() {
 	for _, m := range modules {
 		// Special handling for refreshigdb module to update IGDB client
 		if m.name == "refreshigdb" {
-			if rm, ok := m.module.(*refreshigdb.Module); ok {
+			if rm, ok := m.module.(*refreshigdb.RefreshigdbModule); ok {
 				rm.SetIGDBClientRef(&h.igdbClient)
 			}
 		}
@@ -109,7 +109,7 @@ func (h *ModuleHandler) registerModules() {
 // This is used for external access (scheduler, bot event handlers).
 //
 // Example usage:
-//   sayMod, ok := handler.GetModule("say").(*say.Module)
+//   sayMod, ok := handler.GetModule("say").(*say.SayModule)
 func (h *ModuleHandler) GetModule(name string) types.CommandModule {
 	return h.modules[name]
 }
@@ -183,7 +183,7 @@ func (h *ModuleHandler) HandleInteraction(s *discordgo.Session, i *discordgo.Int
 // HandleComponentInteraction routes component interactions to appropriate module handlers
 func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Currently only LFG module uses component interactions
-	if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
+	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
 		lfgMod.HandleComponent(s, i)
 	} else {
 		h.config.Logger.Warn("Component interaction received but LFG module not available")
@@ -193,7 +193,7 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 // HandleModalSubmit routes modal submissions to appropriate module handlers
 func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Currently only LFG module uses modal submissions
-	if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
+	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
 		lfgMod.HandleModalSubmit(s, i)
 	} else {
 		h.config.Logger.Warn("Modal submit received but LFG module not available")
@@ -227,7 +227,7 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	h.deps.Session = s
 	
 	// Initialize roulette module's pairing service
-	if rouletteMod, ok := h.GetModule("roulette").(*roulette.Module); ok {
+	if rouletteMod, ok := h.GetModule("roulette").(*roulette.RouletteModule); ok {
 		if err := rouletteMod.InitializePairingService(s); err != nil {
 			return fmt.Errorf("failed to initialize pairing service: %w", err)
 		}

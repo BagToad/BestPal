@@ -18,17 +18,17 @@ import (
 )
 
 // Module implements the CommandModule interface for the log command
-type Module struct {
+type LogModule struct {
 	config *config.Config
 }
 
 // New creates a new log module
-func New() *Module {
-	return &Module{}
+func New() *LogModule {
+	return &LogModule{}
 }
 
 // Register adds the log command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *LogModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -58,7 +58,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 
 // handleLog processes the /log command with subcommands for downloading logs
 // Only accessible to super admins in DM context
-func (m *Module) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LogModule) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, m.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -94,7 +94,7 @@ func (m *Module) handleLog(s *discordgo.Session, i *discordgo.InteractionCreate)
 	}
 }
 
-func (m *Module) handleLogDownload(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LogModule) handleLogDownload(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	logDir := m.config.GetLogDir()
 	if logDir == "" {
 		m.sendErrorFollowup(s, i, "❌ Log directory is not configured.")
@@ -164,7 +164,7 @@ func (m *Module) handleLogDownload(s *discordgo.Session, i *discordgo.Interactio
 	}
 }
 
-func (m *Module) handleLogLatest(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *LogModule) handleLogLatest(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	logDir := m.config.GetLogDir()
 	if logDir == "" {
 		m.sendErrorFollowup(s, i, "❌ Log directory is not configured.")
@@ -237,7 +237,7 @@ func (m *Module) handleLogLatest(s *discordgo.Session, i *discordgo.InteractionC
 }
 
 // getLogFiles returns a sorted list of log files in the directory
-func (m *Module) getLogFiles(logDir string) ([]string, error) {
+func (m *LogModule) getLogFiles(logDir string) ([]string, error) {
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		return nil, err
@@ -262,7 +262,7 @@ func (m *Module) getLogFiles(logDir string) ([]string, error) {
 }
 
 // getLatestLogFile returns the path to the most recent log file
-func (m *Module) getLatestLogFile(logDir string) (string, error) {
+func (m *LogModule) getLatestLogFile(logDir string) (string, error) {
 	logFiles, err := m.getLogFiles(logDir)
 	if err != nil {
 		return "", err
@@ -277,7 +277,7 @@ func (m *Module) getLatestLogFile(logDir string) (string, error) {
 }
 
 // createLogZip creates a zip archive containing all the log files
-func (m *Module) createLogZip(logFiles []string, zipPath string) error {
+func (m *LogModule) createLogZip(logFiles []string, zipPath string) error {
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		return err
@@ -306,7 +306,7 @@ func (m *Module) createLogZip(logFiles []string, zipPath string) error {
 }
 
 // addFileToZip adds a single file to the zip archive
-func (m *Module) addFileToZip(zipWriter *zip.Writer, filePath string) error {
+func (m *LogModule) addFileToZip(zipWriter *zip.Writer, filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -345,7 +345,7 @@ func (m *Module) addFileToZip(zipWriter *zip.Writer, filePath string) error {
 }
 
 // getLastNLines reads the last N lines from a file
-func (m *Module) getLastNLines(filePath string, n int) ([]string, error) {
+func (m *LogModule) getLastNLines(filePath string, n int) ([]string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -377,7 +377,7 @@ func (m *Module) getLastNLines(filePath string, n int) ([]string, error) {
 }
 
 // sendErrorFollowup sends an error message as a followup
-func (m *Module) sendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
+func (m *LogModule) sendErrorFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(message),
 	})

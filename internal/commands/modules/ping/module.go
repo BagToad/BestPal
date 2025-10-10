@@ -6,16 +6,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Module implements the CommandModule interface for the ping command
-type Module struct{}
+// PingModule implements the CommandModule interface for the ping command
+type PingModule struct{}
 
 // New creates a new ping module
-func New() *Module {
-	return &Module{}
+func New() *PingModule {
+	return &PingModule{}
 }
 
 // Register adds the ping command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *PingModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["ping"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "ping",
@@ -26,7 +26,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // handlePing handles the ping slash command
-func (m *Module) handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *PingModule) handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{

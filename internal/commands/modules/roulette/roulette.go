@@ -10,7 +10,7 @@ import (
 )
 
 // handleRoulette handles the main roulette command and its subcommands
-func (m *Module) handleRoulette(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *RouletteModule) handleRoulette(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get the subcommand
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
@@ -48,7 +48,7 @@ func (m *Module) handleRoulette(s *discordgo.Session, i *discordgo.InteractionCr
 }
 
 // handleRouletteHelp handles the roulette help subcommand
-func (m *Module) handleRouletteHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *RouletteModule) handleRouletteHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := &discordgo.MessageEmbed{
 		Title:       "🎲 Roulette Pairing System - Help",
 		Description: "Find some GamerPals! Meet new people!",
@@ -101,7 +101,7 @@ func (m *Module) handleRouletteHelp(s *discordgo.Session, i *discordgo.Interacti
 }
 
 // handleRouletteSignup handles signing up a user for roulette
-func (m *Module) handleRouletteSignup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *RouletteModule) handleRouletteSignup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := i.Member.User.ID
 	guildID := i.GuildID
 
@@ -152,7 +152,7 @@ func (m *Module) handleRouletteSignup(s *discordgo.Session, i *discordgo.Interac
 }
 
 // handleRouletteNah handles removing a user from roulette
-func (m *Module) handleRouletteNah(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *RouletteModule) handleRouletteNah(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := i.Member.User.ID
 	guildID := i.GuildID
 
@@ -203,7 +203,7 @@ func (m *Module) handleRouletteNah(s *discordgo.Session, i *discordgo.Interactio
 }
 
 // handleRouletteGamesAdd handles adding games to a user's roulette list
-func (m *Module) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (m *RouletteModule) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	userID := i.Member.User.ID
 	guildID := i.GuildID
 
@@ -385,7 +385,7 @@ func (m *Module) handleRouletteGamesAdd(s *discordgo.Session, i *discordgo.Inter
 }
 
 // handleRouletteGamesRemove handles removing games from a user's roulette list
-func (m *Module) handleRouletteGamesRemove(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (m *RouletteModule) handleRouletteGamesRemove(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	userID := i.Member.User.ID
 	guildID := i.GuildID
 

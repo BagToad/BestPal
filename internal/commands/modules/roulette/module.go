@@ -11,7 +11,7 @@ import (
 )
 
 // Module implements the CommandModule interface for roulette commands
-type Module struct {
+type RouletteModule struct {
 	config         *config.Config
 	db             *database.DB
 	igdbClient     *igdb.Client
@@ -19,12 +19,12 @@ type Module struct {
 }
 
 // New creates a new roulette module
-func New() *Module {
-	return &Module{}
+func New() *RouletteModule {
+	return &RouletteModule{}
 }
 
 // Register adds roulette commands to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 	m.db = deps.DB
 	m.igdbClient = deps.IGDBClient
@@ -169,12 +169,12 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // InitializePairingService initializes the pairing service with a Discord session
-func (m *Module) InitializePairingService(session *discordgo.Session) error {
+func (m *RouletteModule) InitializePairingService(session *discordgo.Session) error {
 	m.pairingService = pairing.NewPairingService(session, m.config, m.db)
 	return nil
 }
 
 // GetPairingService returns the pairing service for external use (e.g., scheduler)
-func (m *Module) GetPairingService() *pairing.PairingService {
+func (m *RouletteModule) GetPairingService() *pairing.PairingService {
 	return m.pairingService
 }

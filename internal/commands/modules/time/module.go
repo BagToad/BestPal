@@ -10,15 +10,15 @@ import (
 )
 
 // Module implements the CommandModule interface for the time command
-type Module struct{}
+type TimeModule struct{}
 
 // New creates a new time module
-func New() *Module {
-	return &Module{}
+func New() *TimeModule {
+	return &TimeModule{}
 }
 
 // Register adds the time command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *TimeModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["time"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "time",
@@ -43,7 +43,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // handleTime handles the /time command
-func (m *Module) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *TimeModule) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -54,7 +54,7 @@ func (m *Module) handleTime(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 // handleTimeParse handles the time parse logic
-func (m *Module) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
+func (m *TimeModule) handleTimeParse(s *discordgo.Session, i *discordgo.InteractionCreate, options []*discordgo.ApplicationCommandInteractionDataOption) {
 	if len(options) == 0 {
 		embed := &discordgo.MessageEmbed{
 			Title:       "❌ Missing Parameter",

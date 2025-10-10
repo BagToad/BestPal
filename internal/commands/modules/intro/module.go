@@ -10,17 +10,17 @@ import (
 )
 
 // Module implements the CommandModule interface for the intro command
-type Module struct {
+type IntroModule struct {
 	config *types.Dependencies
 }
 
 // New creates a new intro module
-func New() *Module {
-	return &Module{}
+func New() *IntroModule {
+	return &IntroModule{}
 }
 
 // Register adds the intro command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps
 
 	cmds["intro"] = &types.Command{
@@ -41,7 +41,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // handleIntro handles the intro slash command
-func (m *Module) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get the introductions forum channel ID from config
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {
@@ -112,7 +112,7 @@ func (m *Module) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreat
 }
 
 // getAllActiveThreads gets all active threads from a forum channel
-func (m *Module) getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
+func (m *IntroModule) getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
 	var allThreads []*discordgo.Channel
 
 	// For forum channels, get the channel and its threads directly

@@ -8,17 +8,17 @@ import (
 )
 
 // Module implements the CommandModule interface for prune commands
-type Module struct {
+type PruneModule struct {
 	config *config.Config
 }
 
 // New creates a new prune module
-func New() *Module {
-	return &Module{}
+func New() *PruneModule {
+	return &PruneModule{}
 }
 
 // Register adds prune commands to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 
 	var adminPerms int64 = discordgo.PermissionAdministrator

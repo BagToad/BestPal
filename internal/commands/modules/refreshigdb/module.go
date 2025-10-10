@@ -16,18 +16,18 @@ import (
 )
 
 // Module implements the CommandModule interface for the refresh-igdb command
-type Module struct {
+type RefreshigdbModule struct {
 	config     *config.Config
 	igdbClient **igdb.Client // Pointer to the client pointer so we can update it
 }
 
 // New creates a new refresh-igdb module
-func New() *Module {
-	return &Module{}
+func New() *RefreshigdbModule {
+	return &RefreshigdbModule{}
 }
 
 // Register adds the refresh-igdb command to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *RefreshigdbModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
@@ -44,13 +44,13 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 
 // SetIGDBClientRef sets a reference to the IGDB client pointer
-func (m *Module) SetIGDBClientRef(client **igdb.Client) {
+func (m *RefreshigdbModule) SetIGDBClientRef(client **igdb.Client) {
 	m.igdbClient = client
 }
 
 // handleRefreshIGDB refreshes the IGDB access token using the stored client ID and client secret.
 // Only usable in bot DM context by super admins.
-func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *RefreshigdbModule) handleRefreshIGDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if !utils.IsSuperAdmin(i.User.ID, m.config) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -91,7 +91,7 @@ func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Interactio
 }
 
 // fetchTwitchAppToken requests a new app access token from Twitch/IGDB.
-func (m *Module) fetchTwitchAppToken(clientID, clientSecret string) (token string, expiresIn int, err error) {
+func (m *RefreshigdbModule) fetchTwitchAppToken(clientID, clientSecret string) (token string, expiresIn int, err error) {
 	u, err := url.Parse("https://id.twitch.tv/oauth2/token")
 	if err != nil {
 		return "", 0, err

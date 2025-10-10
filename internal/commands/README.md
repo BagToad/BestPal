@@ -1,53 +1,79 @@
 # Modular Command Architecture
 
-This directory contains the implementation of a modular command architecture for the BestPal Discord bot.
+The BestPal Discord bot uses a modular command architecture for better maintainability and scalability.
 
-## Quick Start
+## Quick Reference
 
-### For Users of This Architecture
+- **Architecture**: See [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md)
+- **Developer Guide**: See [`docs/DEVELOPER_GUIDE.md`](../../docs/DEVELOPER_GUIDE.md)
+- **Visual Diagrams**: See [`docs/ARCHITECTURE_DIAGRAM.md`](../../docs/ARCHITECTURE_DIAGRAM.md)
+- **Module Reference**: See [`modules/README.md`](modules/README.md)
 
-1. **Read the Proposal**: [`docs/PROPOSAL.md`](../../docs/PROPOSAL.md)
-2. **Review the Guide**: [`docs/MODULAR_STRUCTURE.md`](../../docs/MODULAR_STRUCTURE.md)
-3. **Study Examples**: Check `modules/{ping,time,say}/`
+## Structure
 
-### For Migrating Commands
+```
+internal/commands/
+├── types/              # Shared interfaces and types
+├── modules/           # Self-contained command modules
+│   ├── ping/
+│   ├── time/
+│   ├── say/          # With service
+│   └── ...
+└── modular_handler.go # Routes commands to modules
+```
 
-1. Create module directory in `modules/yourcommand/`
-2. Implement the `CommandModule` interface
+## Core Concepts
+
+### CommandModule Interface
+All modules implement this interface:
+```go
+type CommandModule interface {
+    Register(cmds map[string]*Command, deps *Dependencies)
+}
+```
+
+### Dependencies
+Shared resources injected into modules:
+```go
+type Dependencies struct {
+    Config     *config.Config
+    DB         *database.DB
+    IGDBClient *igdb.Client
+    Session    *discordgo.Session
+}
+```
+
+### Module Pattern
+Each module is self-contained:
+- Command definition(s)
+- Handler function(s)
+- Service (if needed)
+
+## Examples
+
+| Module | Complexity | Description |
+|--------|------------|-------------|
+| `ping/` | Simple | Basic command |
+| `time/` | Medium | Command with options |
+| `say/` | Complex | Multiple commands with service |
+| `lfg/` | Advanced | Modal and component interactions |
+| `roulette/` | Advanced | External service integration |
+
+## Adding a Command
+
+1. Create module directory: `mkdir -p modules/mycommand`
+2. Implement `CommandModule` interface
 3. Register in `modular_handler.go`
-4. See migration guide in [`docs/MODULAR_STRUCTURE.md`](../../docs/MODULAR_STRUCTURE.md)
 
-## Architecture Overview
+See [`docs/DEVELOPER_GUIDE.md`](../../docs/DEVELOPER_GUIDE.md) for detailed instructions.
 
-```
-┌─────────────────────────────────────────────┐
-│           ModularHandler                    │
-│  - Manages dependencies                     │
-│  - Registers all modules                    │
-│  - Routes interactions                      │
-└─────────────────┬───────────────────────────┘
-                  │
-         ┌────────┴─────────┐
-         │   Dependencies    │
-         │  - Config         │
-         │  - Database       │
-         │  - IGDB Client    │
-         │  - Session        │
-         └────────┬──────────┘
-                  │
-         ┌────────┴─────────────────────┐
-         │      Command Modules         │
-         │  ┌──────────────────────┐   │
-         │  │  ping.Module         │   │
-         │  │  time.Module         │   │
-         │  │  say.Module          │   │
-         │  │    ├── service       │   │
-         │  │  roulette.Module     │   │
-         │  │    ├── service       │   │
-         │  │  ... more modules    │   │
-         │  └──────────────────────┘   │
-         └──────────────────────────────┘
-```
+## Architecture Benefits
+
+- **Maintainable**: Changes are localized to modules
+- **Scalable**: Add commands without touching central handler
+- **Testable**: Modules test independently
+- **Organized**: Related code lives together
+- **Clear**: Explicit service ownership
 
 ## Key Components
 

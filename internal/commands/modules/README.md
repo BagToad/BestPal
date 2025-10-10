@@ -1,98 +1,90 @@
 # Command Modules
 
-This directory contains modular command implementations for the BestPal Discord bot.
+Self-contained command implementations for the BestPal Discord bot.
 
 ## Structure
 
-Each subdirectory represents a command module that encapsulates:
+Each module encapsulates:
 - Command definition(s)
 - Handler logic
-- Associated services (if any)
+- Services (if needed)
 
-## Existing Modules
+## Available Modules
 
-### ping/
-Simple command demonstrating the basic module pattern.
-- **Commands**: `/ping`
-- **Complexity**: Low
-- **Services**: None
-
-### time/
-Medium complexity command with options and parsing logic.
-- **Commands**: `/time`
-- **Complexity**: Medium
-- **Services**: None
-- **Features**: Date/time parsing, Discord timestamp formatting
-
-### say/
-Complex module demonstrating command grouping and service integration.
-- **Commands**: `/say`, `/schedulesay`, `/listscheduledsays`, `/cancelscheduledsay`
-- **Complexity**: High
-- **Services**: `say.Service` for scheduled message management
-- **Features**: Anonymous messaging, scheduling, in-memory message queue
-
-## Creating a New Module
-
-1. Create a new directory: `mkdir -p internal/commands/modules/mycommand`
-2. Create `mycommand.go` implementing the `CommandModule` interface
-3. Optionally create `service.go` for complex logic
-4. Register the module in `modular_handler.go`
-
-See [`/docs/MODULAR_STRUCTURE.md`](../../../docs/MODULAR_STRUCTURE.md) for detailed migration guide.
+| Module | Commands | Complexity | Features |
+|--------|----------|------------|----------|
+| **ping** | `/ping` | Simple | Basic response |
+| **time** | `/time` | Medium | Date/time parsing, Discord timestamps |
+| **say** | `/say`, `/schedulesay`, `/listscheduledsays`, `/cancelscheduledsay` | Complex | Service for scheduled messages |
+| **help** | `/help` | Simple | Command documentation |
+| **intro** | `/intro` | Simple | Forum introduction lookup |
+| **config** | `/config` | Medium | Bot configuration (SuperAdmin) |
+| **refreshigdb** | `/refresh-igdb` | Simple | IGDB token refresh |
+| **game** | `/game` | Medium | IGDB game search |
+| **userstats** | `/userstats` | Medium | Server statistics |
+| **log** | `/log` | Medium | Log file management |
+| **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
+| **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |
+| **roulette** | `/roulette`, `/roulette-admin` | Advanced | Pairing service integration |
 
 ## Module Pattern
 
 ```go
 package mycommand
 
-import (
-    "gamerpal/internal/commands/types"
-    "github.com/bwmarrin/discordgo"
-)
+import "gamerpal/internal/commands/types"
 
 type Module struct {
-    // Optional: service instances
+    config  *config.Config
+    service *Service  // Optional
 }
 
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+    m.config = deps.Config
+    
     cmds["mycommand"] = &types.Command{
         ApplicationCommand: &discordgo.ApplicationCommand{
             Name:        "mycommand",
-            Description: "My command description",
+            Description: "Description",
         },
         HandlerFunc: m.handleMyCommand,
     }
 }
 
 func (m *Module) handleMyCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
-    // Handler implementation
+    // Implementation
 }
 ```
 
+## Creating a Module
+
+1. Create directory: `mkdir -p modules/mycommand`
+2. Create `mycommand.go` implementing `CommandModule`
+3. Optional: Create `service.go` for complex logic
+4. Register in `modular_handler.go`
+
+See [`/docs/DEVELOPER_GUIDE.md`](../../../docs/DEVELOPER_GUIDE.md) for detailed guide.
+
 ## Best Practices
 
-1. **Single Responsibility**: Each module should handle related commands only
-2. **Self-Contained**: Modules should not depend on other modules
-3. **Clean Interfaces**: Expose services via getter methods when needed
-4. **Testable**: Write unit tests for each module
-5. **Documentation**: Document complex logic and service interfaces
+- **Single Responsibility**: Handle related commands only
+- **Self-Contained**: Don't depend on other modules
+- **Service Co-location**: Keep services with their commands
+- **Clean Interfaces**: Expose services via getter methods
+- **Documentation**: Comment complex logic
 
 ## Testing
 
-Test modules independently:
-
 ```go
-func TestMyModule(t *testing.T) {
+func TestModule(t *testing.T) {
     module := &mycommand.Module{}
     commands := make(map[string]*types.Command)
     deps := &types.Dependencies{
         Config: testConfig,
-        // ... other test dependencies
     }
     
     module.Register(commands, deps)
     
-    // Assert command was registered
     assert.NotNil(t, commands["mycommand"])
 }
 ```

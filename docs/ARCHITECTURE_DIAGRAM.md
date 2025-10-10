@@ -1,56 +1,14 @@
 # Architecture Diagram
 
-## Current (Monolithic) Architecture
+## Modular Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    handler.go (667 lines)                    │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ NewSlashCommandHandler()                             │  │
-│  │   - Command definitions (15+ commands, ~400 lines)   │  │
-│  │   - Initialization logic                             │  │
-│  └──────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ RegisterCommands()                                    │  │
-│  │ HandleInteraction()                                   │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                            ↓
-        ┌──────────────────┼──────────────────┐
-        ↓                  ↓                  ↓
-┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  ping.go     │   │  say.go      │   │  time.go     │
-│  help.go     │   │  lfg.go      │   │  game.go     │
-│  intro.go    │   │  roulette.go │   │  prune.go    │
-│  config.go   │   │  etc...      │   │  etc...      │
-└──────────────┘   └──────────────┘   └──────────────┘
-                            ↓
-        ┌──────────────────┼──────────────────┐
-        ↓                  ↓                  ↓
-┌──────────────────┐  ┌──────────────┐  ┌──────────────┐
-│ schedulesay_     │  │ pairing/     │  │ Other        │
-│ service.go       │  │ service.go   │  │ services     │
-│ (commands/)      │  │ (separate    │  │ scattered    │
-│                  │  │  package)    │  │ everywhere   │
-└──────────────────┘  └──────────────┘  └──────────────┘
-
-Problem: Logic scattered across multiple locations
-```
-
-## New (Modular) Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│              modular_handler.go (180 lines)                  │
+│              modular_handler.go (~230 lines)                 │
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │ NewModularHandler()                                   │  │
 │  │   - Initialize dependencies                           │  │
-│  │   - Call registerModules()                            │  │
-│  └──────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ registerModules()                                     │  │
-│  │   - Instantiate each module                           │  │
-│  │   - Call module.Register()                            │  │
+│  │   - Register all modules                              │  │
 │  └──────────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │ RegisterCommands() - Routes to Discord                │  │
@@ -64,25 +22,19 @@ Problem: Logic scattered across multiple locations
 │ modules/ping/   │  │ modules/time/   │  │ modules/say/    │
 │  ping.go        │  │  time.go        │  │  say.go         │
 │  - Register()   │  │  - Register()   │  │  - Register()   │
-│  - handle()     │  │  - handle()     │  │  - handle*()    │
-│  (30 lines)     │  │  (170 lines)    │  │  - GetService() │
+│  - handler      │  │  - handler      │  │  - handlers     │
 │                 │  │                 │  │  service.go     │
-│                 │  │                 │  │  (520 lines)    │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
-        ↓                  ↓                  ↓
-   [All logic        [All logic         [All logic +
-    in one place]     in one place]      service together]
 
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ modules/        │  │ modules/        │  │ modules/        │
-│ roulette/       │  │ lfg/            │  │ game/           │
-│  roulette.go    │  │  lfg.go         │  │  game.go        │
-│  admin.go       │  │  now.go         │  │  refresh.go     │
-│  service.go     │  │  service.go(?)  │  │                 │
-│  (pairing)      │  │                 │  │                 │
+│ modules/lfg/    │  │ modules/        │  │ modules/game/   │
+│  lfg.go         │  │ roulette/       │  │  game.go        │
+│  module.go      │  │  roulette.go    │  │                 │
+│  now.go         │  │  admin.go       │  │                 │
+│                 │  │  module.go      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 
-Solution: Everything for a command in one module
+All logic for each command in its module
 ```
 
 ## Dependency Flow
@@ -147,48 +99,31 @@ modules/mycommand/
     └── Service methods
 ```
 
-## Data Flow: Command Execution
+## Command Execution Flow
 
 ```
 1. User triggers /command in Discord
    ↓
 2. Discord sends interaction to bot
    ↓
-3. Bot receives interaction
+3. bot.onInteractionCreate() called
    ↓
-4. bot.onInteractionCreate() called
+4. ModularHandler.HandleInteraction(session, interaction)
    ↓
-5. ModularHandler.HandleInteraction(session, interaction)
+5. Handler looks up command by name in registry
    ↓
-6. Handler looks up command by name in registry
+6. Calls Command.HandlerFunc(session, interaction)
    ↓
-7. Calls Command.HandlerFunc(session, interaction)
-   ↓
-8. Module's handler executes
+7. Module's handler executes
    ├── May use module's service
    ├── May use shared dependencies
    └── Sends response to Discord
    ↓
-9. Response appears to user
+8. Response appears to user
 ```
 
-## Comparison: Adding a New Command
+## Adding a New Command
 
-### Old Way
-```
-1. Add definition to handler.go (modify 667-line file)
-   ↓
-2. Create new file for handler (e.g., newcmd.go)
-   ↓
-3. If service needed:
-   ├── Create service file somewhere
-   ├── Decide where to put it (commands/ or separate package?)
-   └── Initialize in handler.go
-   ↓
-4. Update multiple files
-```
-
-### New Way
 ```
 1. Create modules/newcmd/
    ↓
@@ -205,71 +140,4 @@ modules/mycommand/
    - Module registration
    ↓
 5. Done! All logic in one place
-```
-
-## Benefits Visualization
-
-```
-                Monolithic                 vs               Modular
-    
-    ┌─────────────────────┐                    ┌──────────┐
-    │     handler.go      │                    │ Module A │
-    │      667 lines      │                    │ ~100 loc │
-    │                     │                    └──────────┘
-    │  Command A def      │                    ┌──────────┐
-    │  Command B def      │                    │ Module B │
-    │  Command C def      │                    │ ~100 loc │
-    │  ...15+ commands    │                    └──────────┘
-    └─────────────────────┘                    ┌──────────┐
-             ↓↓↓                               │ Module C │
-    ┌─────────────────────┐                    │ ~150 loc │
-    │  Handler Files      │                    └──────────┘
-    │  - ping.go          │                         ...
-    │  - say.go           │                    ┌──────────┐
-    │  - time.go          │                    │ Module N │
-    │  - ...20+ files     │                    │ ~100 loc │
-    └─────────────────────┘                    └──────────┘
-             ↓↓↓                                    ↓↓↓
-    ┌─────────────────────┐              ┌────────────────────┐
-    │ Services (scattered)│              │ Services (co-      │
-    │ - schedulesay_      │              │  located in        │
-    │   service.go        │              │  modules)          │
-    │ - pairing/service   │              └────────────────────┘
-    │ - Mixed locations   │
-    └─────────────────────┘
-    
-    3 layers, unclear              1 layer, crystal clear
-    ownership                      ownership
-```
-
-## Summary
-
-### Current Architecture Issues
-- 667-line handler file
-- Logic scattered across 23+ files
-- Unclear service ownership
-- Difficult to navigate
-
-### New Architecture Solutions
-- Small focused modules (~100-150 lines each)
-- All related code together
-- Clear service ownership
-- Easy to navigate and maintain
-
-### Migration Path
-```
-Phase 1: Foundation ✅
-  - Types package
-  - ModularHandler
-  - Example modules
-
-Phase 2-4: Incremental Migration
-  - Migrate one command at a time
-  - Both handlers coexist
-  - No breaking changes
-
-Phase 5: Complete
-  - All commands migrated
-  - Remove legacy handler
-  - Clean, modular codebase
 ```

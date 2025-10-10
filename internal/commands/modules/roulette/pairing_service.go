@@ -1,4 +1,4 @@
-package pairing
+package roulette
 
 import (
 	"fmt"

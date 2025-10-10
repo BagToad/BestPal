@@ -4,7 +4,6 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/pairing"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -15,7 +14,7 @@ type RouletteModule struct {
 	config         *config.Config
 	db             *database.DB
 	igdbClient     *igdb.Client
-	pairingService *pairing.PairingService
+	pairingService *PairingService
 }
 
 // New creates a new roulette module
@@ -170,11 +169,11 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 
 // InitializePairingService initializes the pairing service with a Discord session
 func (m *RouletteModule) InitializePairingService(session *discordgo.Session) error {
-	m.pairingService = pairing.NewPairingService(session, m.config, m.db)
+	m.pairingService = NewPairingService(session, m.config, m.db)
 	return nil
 }
 
 // GetPairingService returns the pairing service for external use (e.g., scheduler)
-func (m *RouletteModule) GetPairingService() *pairing.PairingService {
+func (m *RouletteModule) GetPairingService() *PairingService {
 	return m.pairingService
 }

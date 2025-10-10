@@ -24,7 +24,7 @@ import (
 type Bot struct {
 	session             *discordgo.Session
 	config              *config.Config
-	slashCommandHandler *commands.ModuleHandler
+	commandModuleHandler *commands.ModuleHandler
 	scheduler           *scheduler.Scheduler
 }
 
@@ -42,7 +42,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	bot := &Bot{
 		session:             session,
 		config:              cfg,
-		slashCommandHandler: handler,
+		commandModuleHandler: handler,
 	}
 
 	// Set intents - we need guild, member, message, and message content intents
@@ -88,17 +88,17 @@ func (b *Bot) Start() error {
 	}
 
 	// Register slash commands
-	if err := b.slashCommandHandler.RegisterCommands(b.session); err != nil {
+	if err := b.commandModuleHandler.RegisterCommands(b.session); err != nil {
 		return fmt.Errorf("error registering commands: %w", err)
 	}
 
 	// Initialize module services that need the Discord session
-	if err := b.slashCommandHandler.InitializeModuleServices(b.session); err != nil {
+	if err := b.commandModuleHandler.InitializeModuleServices(b.session); err != nil {
 		return fmt.Errorf("error initializing module services: %w", err)
 	}
 
 	// Create and initialize scheduler
-	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashCommandHandler.GetDB())
+	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.commandModuleHandler.GetDB())
 
 	// Add services to scheduler
 	welcomeService := welcome.NewWelcomeService(b.session, b.config)
@@ -111,7 +111,7 @@ func (b *Bot) Start() error {
 
 	// Pairing service minute check (via roulette module)
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if rouletteMod, ok := b.slashCommandHandler.GetModule("roulette").(*roulette.RouletteModule); ok {
+		if rouletteMod, ok := b.commandModuleHandler.GetModule("roulette").(*roulette.RouletteModule); ok {
 			if pairingService := rouletteMod.GetPairingService(); pairingService != nil {
 				pairingService.CheckAndExecuteScheduledPairings()
 			}
@@ -121,7 +121,7 @@ func (b *Bot) Start() error {
 
 	// Scheduled say service minute check
 	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if sayMod, ok := b.slashCommandHandler.GetModule("say").(*say.SayModule); ok {
+		if sayMod, ok := b.commandModuleHandler.GetModule("say").(*say.SayModule); ok {
 			if sayService := sayMod.GetService(); sayService != nil {
 				return sayService.CheckAndSendDue(b.session)
 			}
@@ -150,7 +150,7 @@ func (b *Bot) Start() error {
 
 	// Cleanup: Unregister commands, optionally
 	if os.Getenv("UNREGISTER_COMMANDS") == "true" {
-		b.slashCommandHandler.UnregisterCommands(b.session)
+		b.commandModuleHandler.UnregisterCommands(b.session)
 	}
 
 	return nil
@@ -206,18 +206,18 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	// Slash commands
 	if i.Type == discordgo.InteractionApplicationCommand {
 		if i.ApplicationCommandData().Name != "" {
-			b.slashCommandHandler.HandleInteraction(s, i)
+			b.commandModuleHandler.HandleInteraction(s, i)
 		}
 		return
 	}
 	// Component interactions
 	if i.Type == discordgo.InteractionMessageComponent {
-		b.slashCommandHandler.HandleComponentInteraction(s, i)
+		b.commandModuleHandler.HandleComponentInteraction(s, i)
 		return
 	}
 	// Modal submit
 	if i.Type == discordgo.InteractionModalSubmit {
-		b.slashCommandHandler.HandleModalSubmit(s, i)
+		b.commandModuleHandler.HandleModalSubmit(s, i)
 		return
 	}
 }

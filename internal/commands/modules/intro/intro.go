@@ -15,7 +15,7 @@ type IntroModule struct {
 }
 
 // New creates a new intro module
-func New() *IntroModule {
+func New(deps *types.Dependencies) *IntroModule {
 	return &IntroModule{}
 }
 

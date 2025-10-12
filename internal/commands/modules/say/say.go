@@ -16,15 +16,14 @@ type SayModule struct {
 }
 
 // New creates a new say module
-func New() *SayModule {
-	return &SayModule{}
+func New(deps *types.Dependencies) *SayModule {
+	return &SayModule{
+		service: NewService(deps.Config),
+	}
 }
 
 // Register adds say-related commands to the command map
 func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
-	// Initialize the service
-	m.service = NewService(deps.Config)
-
 	var modPerms int64 = discordgo.PermissionBanMembers
 
 	// Register /say command

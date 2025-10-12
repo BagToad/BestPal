@@ -17,7 +17,7 @@ type GameModule struct {
 }
 
 // New creates a new game module
-func New() *GameModule {
+func New(deps *types.Dependencies) *GameModule {
 	return &GameModule{}
 }
 

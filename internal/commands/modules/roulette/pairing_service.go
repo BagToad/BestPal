@@ -30,9 +30,9 @@ type PairingService struct {
 }
 
 // NewPairingService creates a new pairing service
-func NewPairingService(session *discordgo.Session, cfg *config.Config, db *database.DB) *PairingService {
+func NewPairingService(cfg *config.Config, db *database.DB) *PairingService {
 	return &PairingService{
-		session: session,
+		session: nil, // Will be hydrated later
 		config:  cfg,
 		db:      db,
 	}
@@ -677,6 +677,11 @@ func (s *PairingService) LogPairingResults(guildID string, result *PairingResult
 
 // CheckAndExecuteScheduledPairings checks for due scheduled pairings and executes them
 func (s *PairingService) CheckAndExecuteScheduledPairings() {
+	if s.session == nil {
+		s.config.Logger.Warn("Discord session not initialized, skipping scheduled pairings check")
+		return
+	}
+
 	scheduledPairings, err := s.db.GetScheduledPairings()
 	if err != nil {
 		s.config.Logger.Errorf("Error getting scheduled pairings: %v", err)
@@ -739,8 +744,8 @@ func (s *PairingService) notifyFailedPairing(guildID, reason string) {
 	}
 }
 
-// InitializeService initializes the pairing service with a Discord session
-func (s *PairingService) InitializeService(session *discordgo.Session) error {
+// HydrateServiceDiscordSession hydrates the pairing service with a Discord session
+func (s *PairingService) HydrateServiceDiscordSession(session *discordgo.Session) error {
 	s.session = session
 	return nil
 }

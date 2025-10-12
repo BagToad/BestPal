@@ -11,7 +11,7 @@ import (
 type HelpModule struct{}
 
 // New creates a new help module
-func New() *HelpModule {
+func New(deps *types.Dependencies) *HelpModule {
 	return &HelpModule{}
 }
 

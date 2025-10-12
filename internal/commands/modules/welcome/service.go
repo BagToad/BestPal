@@ -20,11 +20,11 @@ type WelcomeService struct {
 }
 
 // NewWelcomeService creates a new WelcomeService instance
-func NewWelcomeService(session *discordgo.Session, config *config.Config) *WelcomeService {
+func NewWelcomeService(config *config.Config) *WelcomeService {
 	timeBetweenRuns := config.GetNewPalsTimeBetweenWelcomeMessages()
 
 	return &WelcomeService{
-		session: session,
+		session: nil, // Will be hydrated later
 		config:  config,
 		nextRun: time.Now().Add(timeBetweenRuns),
 		lastRun: time.Now(),
@@ -33,6 +33,11 @@ func NewWelcomeService(session *discordgo.Session, config *config.Config) *Welco
 
 // WelcomeNewPals sends a welcome message in the welcome channel to new members
 func (ws *WelcomeService) CheckAndWelcomeNewPals() {
+	if ws.session == nil {
+		ws.config.Logger.Warn("Discord session not initialized, skipping welcome process")
+		return
+	}
+
 	gamerPalsServerID := ws.config.GetGamerPalsServerID()
 	timeBetweenRuns := ws.config.GetNewPalsTimeBetweenWelcomeMessages()
 	isNewPalsEnabled := ws.config.GetNewPalsSystemEnabled()
@@ -145,6 +150,11 @@ func (ws *WelcomeService) cleanOldWelcomeMessages() {
 
 // CleanNewPalsRoleFromOldMembers removes the New Pals role from members who have had it for too long
 func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
+	if ws.session == nil {
+		ws.config.Logger.Warn("Discord session not initialized, skipping New Pals cleanup")
+		return
+	}
+
 	guildID := ws.config.GetGamerPalsServerID()
 	newPalsRoleID := ws.config.GetNewPalsRoleID()
 	newPalsKeepRoleDuration := ws.config.GetNewPalsKeepRoleDuration()
@@ -197,8 +207,8 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	ws.config.Logger.Info("Finished cleaning up New Pals roles")
 }
 
-// InitializeService initializes the welcome service with a Discord session
-func (ws *WelcomeService) InitializeService(session *discordgo.Session) error {
+// HydrateServiceDiscordSession hydrates the welcome service with a Discord session
+func (ws *WelcomeService) HydrateServiceDiscordSession(session *discordgo.Session) error {
 	ws.session = session
 	return nil
 }

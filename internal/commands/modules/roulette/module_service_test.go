@@ -26,7 +26,7 @@ func TestModuleServiceSeparation(t *testing.T) {
 	}
 
 	// Create module
-	module := New()
+	module := New(deps)
 	require.NotNil(t, module)
 
 	// Register commands
@@ -50,7 +50,7 @@ func TestModuleServiceSeparation(t *testing.T) {
 	require.NotNil(t, service.MinuteFuncs())
 	require.Nil(t, service.HourFuncs())
 
-	// Initialize service (this would normally be done by the module handler)
-	err = service.InitializeService(nil)
+	// Hydrate service with session (this would normally be done by the module handler)
+	err = service.HydrateServiceDiscordSession(nil)
 	require.NoError(t, err)
 }

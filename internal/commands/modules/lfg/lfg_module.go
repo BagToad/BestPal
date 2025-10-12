@@ -15,14 +15,15 @@ type LfgModule struct {
 }
 
 // New creates a new LFG module
-func New() *LfgModule {
-	return &LfgModule{}
+func New(deps *types.Dependencies) *LfgModule {
+	return &LfgModule{
+		config:     deps.Config,
+		igdbClient: deps.IGDBClient,
+	}
 }
 
 // Register adds LFG commands to the command map
 func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
-	m.config = deps.Config
-	m.igdbClient = deps.IGDBClient
 
 	var modPerms int64 = discordgo.PermissionBanMembers
 

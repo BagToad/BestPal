@@ -18,19 +18,17 @@ type RouletteModule struct {
 }
 
 // New creates a new roulette module
-func New() *RouletteModule {
-	return &RouletteModule{}
+func New(deps *types.Dependencies) *RouletteModule {
+	return &RouletteModule{
+		config:         deps.Config,
+		db:             deps.DB,
+		igdbClient:     deps.IGDBClient,
+		pairingService: NewPairingService(deps.Config, deps.DB),
+	}
 }
 
 // Register adds roulette commands to the command map
 func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
-	m.config = deps.Config
-	m.db = deps.DB
-	m.igdbClient = deps.IGDBClient
-
-	// Initialize PairingService
-	m.pairingService = NewPairingService(nil, m.config, m.db)
-
 	var adminPerms int64 = discordgo.PermissionAdministrator
 
 	// Register roulette command

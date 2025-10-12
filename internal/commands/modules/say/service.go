@@ -134,8 +134,8 @@ func (s *Service) CheckDue() error {
 	return s.CheckAndSendDue(s.session)
 }
 
-// InitializeService initializes the service with a Discord session
-func (s *Service) InitializeService(session *discordgo.Session) error {
+// HydrateServiceDiscordSession hydrates the service with a Discord session
+func (s *Service) HydrateServiceDiscordSession(session *discordgo.Session) error {
 	s.session = session
 	return nil
 }

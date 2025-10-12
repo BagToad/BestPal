@@ -15,15 +15,14 @@ type WelcomeModule struct {
 // New creates a new WelcomeModule instance
 func New(deps *types.Dependencies) types.CommandModule {
 	return &WelcomeModule{
-		config: deps.Config,
+		config:  deps.Config,
+		service: NewWelcomeService(deps.Config),
 	}
 }
 
 // Register registers the module (no commands for this module)
 func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	// No commands to register - this module only provides scheduled services
-	// Initialize the service
-	m.service = NewWelcomeService(nil, deps.Config)
 }
 
 // Service returns the module's service that needs session initialization

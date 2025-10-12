@@ -13,7 +13,7 @@ import (
 type TimeModule struct{}
 
 // New creates a new time module
-func New() *TimeModule {
+func New(deps *types.Dependencies) *TimeModule {
 	return &TimeModule{}
 }
 

@@ -13,13 +13,14 @@ type PruneModule struct {
 }
 
 // New creates a new prune module
-func New() *PruneModule {
-	return &PruneModule{}
+func New(deps *types.Dependencies) *PruneModule {
+	return &PruneModule{
+		config: deps.Config,
+	}
 }
 
 // Register adds prune commands to the command map
 func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
-	m.config = deps.Config
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 

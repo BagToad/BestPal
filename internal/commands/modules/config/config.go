@@ -15,7 +15,7 @@ type ConfigModule struct {
 }
 
 // New creates a new config module
-func New() *ConfigModule {
+func New(deps *types.Dependencies) *ConfigModule {
 	return &ConfigModule{}
 }
 

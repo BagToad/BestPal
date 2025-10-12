@@ -13,7 +13,7 @@ internal/commands/
 │   ├── ping/         # Each module is self-contained
 │   ├── say/
 │   └── ...
-└── modular_handler.go # Routes commands to modules
+└── module_handler.go # Routes commands to modules
 ```
 
 ### Key Concepts
@@ -68,11 +68,11 @@ For commands without services or complex logic:
    }
    ```
 
-3. **Register in `modular_handler.go`**:
+3. **Register in `module_handler.go`**:
    ```go
    import "gamerpal/internal/commands/modules/greet"
    
-   func (h *ModularHandler) registerModules() {
+   func (h *ModuleHandler) registerModules() {
        // ... other modules ...
        
        greetModule := &greet.Module{}
@@ -293,7 +293,7 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 }
 ```
 
-Register the modal handler in `modular_handler.go`:
+Register the modal handler in `module_handler.go`:
 ```go
 case discordgo.InteractionModalSubmit:
     if i.ModalSubmitData().CustomID == "feedback_modal" {
@@ -339,7 +339,7 @@ func TestModuleRegister(t *testing.T) {
 ```go
 func TestCommandExecution(t *testing.T) {
     // Setup
-    handler := NewModularHandler(testConfig)
+    handler := NewModuleHandler(testConfig)
     session := createTestSession(t)
     interaction := createTestInteraction(t, "mycommand")
     

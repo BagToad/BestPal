@@ -49,47 +49,7 @@ func (m *RouletteModule) handleRoulette(s *discordgo.Session, i *discordgo.Inter
 
 // handleRouletteHelp handles the roulette help subcommand
 func (m *RouletteModule) handleRouletteHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	embed := &discordgo.MessageEmbed{
-		Title:       "🎲 Roulette Pairing System - Help",
-		Description: "Find some GamerPals! Meet new people!",
-		Color:       utils.Colors.Info(),
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "📝 How It Works:",
-				Value:  "1. Sign up for pairing (e.g. `/roulette signup`)\n2. Add games you want to play (e.g. `/roulette games-add name:Overwatch 2`)\n3. Wait for scheduled pairing events\n4. Get matched with other players who share your games",
-				Inline: false,
-			},
-			{
-				Name:   "🎮 Available Commands:",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette signup",
-				Value:  "Sign up for the next pairing event\n• You'll be matched with other players who share games with you",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette nah",
-				Value:  "Remove yourself from pairing\n• Use this if you no longer want to be paired",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette games-add",
-				Value:  "Add games to your pairing list\n• Example: `/roulette games-add name:Overwatch 2`\n• You can add multiple games: `Overwatch 2, Minecraft, Valorant`\n• Only games in your list will be considered for matching",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette games-remove",
-				Value:  "Remove games from your pairing list\n• Example: `/roulette games-remove name:Overwatch 2`\n• You can remove multiple games: `Overwatch 2, Minecraft`",
-				Inline: false,
-			},
-			{
-				Name:   "📅 Pairing Schedule:",
-				Value:  "Pairing events are scheduled by server admins.",
-				Inline: false,
-			},
-		},
-	}
+	embed := rouletteHelpEmbed()
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

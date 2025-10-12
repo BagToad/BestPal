@@ -63,51 +63,7 @@ func (m *RouletteModule) handleRouletteAdmin(s *discordgo.Session, i *discordgo.
 
 // handleRouletteAdminHelp shows detailed help for roulette admin commands
 func (m *RouletteModule) handleRouletteAdminHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	embed := &discordgo.MessageEmbed{
-		Title:       "🚀 Roulette Admin Commands - Help",
-		Description: "Administrative commands for managing the roulette pairing system",
-		Color:       utils.Colors.Warning(),
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "🔧 Management Commands:",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin debug",
-				Value:  "Show detailed system information\n• View current signups and their games\n• Check scheduled pairing times",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin pair",
-				Value:  "Execute or schedule pairing events\n• `time:datetime` - Schedule for specific time\n• `immediate-pair:true` - Execute pairing now\n• `dryrun:false` - Actually create channels (default: true for testing)\n\nExample: `/roulette-admin pair time:2025-08-15 8:00 PM`",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin reset",
-				Value:  "Delete all existing pairing channels\n• Removes all channels created by previous pairings",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin delete-schedule",
-				Value:  "Cancel the currently scheduled pairing\n• Removes any scheduled pairing time\n• Does not affect current signups",
-				Inline: false,
-			},
-			{
-				Name:   "🧪 Testing Commands:",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin simulate-pairing",
-				Value:  "Test the pairing system with fake users\n• `user-count:8` - Number of fake users (4-50)\n• `create-channels:true` - Actually create test channels\n• Useful for testing pairing algorithms",
-				Inline: false,
-			},
-			{
-				Name:   "📋 Best Practices:",
-				Value:  "• Always use `dryrun:true` first to test pairing",
-				Inline: false,
-			},
-		},
-	}
+	embed := rouletteAdminHelpEmbed()
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

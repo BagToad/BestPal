@@ -236,10 +236,6 @@ func (m *LfgModule) handleLFGSetup(s *discordgo.Session, i *discordgo.Interactio
 		}})
 }
 
-
-
-
-
 // findCachedExactThread validates and returns a cached exact thread channel if still valid.
 func (m *LfgModule) findCachedExactThread(s *discordgo.Session, forumID, normalized string) (*discordgo.Channel, bool) {
 	lfgThreadCache.RLock()
@@ -532,10 +528,6 @@ func gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searc
 	}
 	return foundThreads
 }
-
-
-
-
 
 func idOrEmpty(ch *discordgo.Channel) string {
 	if ch == nil {

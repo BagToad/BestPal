@@ -2,6 +2,7 @@ package roulette
 
 import (
 	"fmt"
+	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/utils"
@@ -24,17 +25,16 @@ type User struct {
 
 // PairingService handles pairing-related operations
 type PairingService struct {
-	session *discordgo.Session
-	config  *config.Config
-	db      *database.DB
+	types.BaseService
+	config *config.Config
+	db     *database.DB
 }
 
 // NewPairingService creates a new pairing service
-func NewPairingService(session *discordgo.Session, cfg *config.Config, db *database.DB) *PairingService {
+func NewPairingService(cfg *config.Config, db *database.DB) *PairingService {
 	return &PairingService{
-		session: session,
-		config:  cfg,
-		db:      db,
+		config: cfg,
+		db:     db,
 	}
 }
 
@@ -74,7 +74,7 @@ func (s *PairingService) BuildUserPairingData(guildID string) ([]User, error) {
 		}
 
 		// Get user's regions
-		member, err := s.session.GuildMember(guildID, signup.UserID)
+		member, err := s.Session.GuildMember(guildID, signup.UserID)
 		if err != nil {
 			s.config.Logger.Errorf("Error getting guild member %s: %v", signup.UserID, err)
 			continue
@@ -277,14 +277,14 @@ func (s *PairingService) CleanupPreviousPairings(guildID string) error {
 		return fmt.Errorf("pairing category ID not configured")
 	}
 
-	channels, err := s.session.GuildChannels(guildID)
+	channels, err := s.Session.GuildChannels(guildID)
 	if err != nil {
 		return fmt.Errorf("failed to get guild channels: %w", err)
 	}
 
 	for _, channel := range channels {
 		if channel.ParentID == pairingCategoryID {
-			_, err := s.session.ChannelDelete(channel.ID)
+			_, err := s.Session.ChannelDelete(channel.ID)
 			if err != nil {
 				s.config.Logger.Errorf("Error deleting channel %s: %v", channel.Name, err)
 			}
@@ -317,13 +317,13 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 		channelName = channelName[:97] + "..."
 	}
 
-	if c, err := s.session.Channel(channelName); err == nil && c != nil {
+	if c, err := s.Session.Channel(channelName); err == nil && c != nil {
 		// probably already exists, add a number suffix
 		channelExists := true
 		suffix := 1
 		for channelExists {
 			newName := fmt.Sprintf("%s-%d", channelName, suffix)
-			if _, err := s.session.Channel(newName); err != nil {
+			if _, err := s.Session.Channel(newName); err != nil {
 				channelName = newName
 				channelExists = false
 			} else {
@@ -344,7 +344,7 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 
 	for _, user := range pair {
 		// if not a guild member, don't update with these (testing)
-		m, err := s.session.GuildMember(guildID, user.UserID)
+		m, err := s.Session.GuildMember(guildID, user.UserID)
 		if err != nil || m == nil {
 			continue
 		}
@@ -357,7 +357,7 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 	}
 
 	// Create text channel
-	textChannel, err := s.session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+	textChannel, err := s.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name:                 channelName,
 		Type:                 discordgo.ChannelTypeGuildText,
 		ParentID:             pairingCategoryID,
@@ -390,13 +390,13 @@ func (s *PairingService) CreatePairingChannels(guildID string, pair []User, comm
 		message += fmt.Sprintf("You all like: %s", strings.Join(commonGames, ", "))
 	}
 
-	_, err = s.session.ChannelMessageSend(textChannel.ID, message)
+	_, err = s.Session.ChannelMessageSend(textChannel.ID, message)
 	if err != nil {
 		s.config.Logger.Errorf("Error sending welcome message: %v", err)
 	}
 
 	// Create voice channel
-	_, err = s.session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+	_, err = s.Session.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name:                 channelName + "-voice",
 		Type:                 discordgo.ChannelTypeGuildVoice,
 		ParentID:             pairingCategoryID,
@@ -663,13 +663,13 @@ func (s *PairingService) LogPairingResults(guildID string, result *PairingResult
 		}
 
 		// Send as file attachment
-		if _, err := s.session.ChannelFileSend(modLogChannelID, "roulette_pairing_report.txt", strings.NewReader(report.String())); err != nil {
+		if _, err := s.Session.ChannelFileSend(modLogChannelID, "roulette_pairing_report.txt", strings.NewReader(report.String())); err != nil {
 			s.config.Logger.Errorf("error sending pairing report file: %v", err)
 		}
 		return
 	}
 
-	_, err := s.session.ChannelMessageSend(modLogChannelID, message)
+	_, err := s.Session.ChannelMessageSend(modLogChannelID, message)
 	if err != nil {
 		s.config.Logger.Errorf("Error sending pairing results notification: %v", err)
 	}
@@ -677,6 +677,11 @@ func (s *PairingService) LogPairingResults(guildID string, result *PairingResult
 
 // CheckAndExecuteScheduledPairings checks for due scheduled pairings and executes them
 func (s *PairingService) CheckAndExecuteScheduledPairings() {
+	if s.Session == nil {
+		s.config.Logger.Warn("Discord session not initialized, skipping scheduled pairings check")
+		return
+	}
+
 	scheduledPairings, err := s.db.GetScheduledPairings()
 	if err != nil {
 		s.config.Logger.Errorf("Error getting scheduled pairings: %v", err)
@@ -733,8 +738,23 @@ func (s *PairingService) notifyFailedPairing(guildID, reason string) {
 		"Please check the roulette system and manually trigger pairing if needed.",
 		guildID, reason, time.Now().Unix())
 
-	_, err := s.session.ChannelMessageSend(modLogChannelID, message)
+	_, err := s.Session.ChannelMessageSend(modLogChannelID, message)
 	if err != nil {
 		s.config.Logger.Errorf("Error sending failed pairing notification: %v", err)
 	}
+}
+
+// MinuteFuncs returns functions to be called every minute
+func (s *PairingService) MinuteFuncs() []func() error {
+	return []func() error{
+		func() error {
+			s.CheckAndExecuteScheduledPairings()
+			return nil
+		},
+	}
+}
+
+// HourFuncs returns nil as this service has no hourly tasks
+func (s *PairingService) HourFuncs() []func() error {
+	return nil
 }

@@ -22,8 +22,10 @@ type RefreshigdbModule struct {
 }
 
 // New creates a new refresh-igdb module
-func New() *RefreshigdbModule {
-	return &RefreshigdbModule{}
+func New(deps *types.Dependencies) *RefreshigdbModule {
+	return &RefreshigdbModule{
+		config: deps.Config,
+	}
 }
 
 // Register adds the refresh-igdb command to the command map

@@ -23,7 +23,7 @@ type LogModule struct {
 }
 
 // New creates a new log module
-func New() *LogModule {
+func New(deps *types.Dependencies) *LogModule {
 	return &LogModule{}
 }
 

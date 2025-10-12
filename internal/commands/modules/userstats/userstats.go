@@ -13,7 +13,7 @@ import (
 type UserstatsModule struct{}
 
 // New creates a new userstats module
-func New() *UserstatsModule {
+func New(deps *types.Dependencies) *UserstatsModule {
 	return &UserstatsModule{}
 }
 

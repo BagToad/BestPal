@@ -79,19 +79,19 @@ func (h *ModuleHandler) registerModules() {
 		name   string
 		module types.CommandModule
 	}{
-		{"ping", ping.New()},
-		{"time", time.New()},
-		{"say", say.New()},
-		{"help", help.New()},
-		{"intro", intro.New()},
-		{"config", config.New()},
-		{"refreshigdb", refreshigdb.New()},
-		{"game", game.New()},
-		{"userstats", userstats.New()},
-		{"log", log.New()},
-		{"prune", prune.New()},
-		{"lfg", lfg.New()},
-		{"roulette", roulette.New()},
+		{"ping", ping.New(h.deps)},
+		{"time", time.New(h.deps)},
+		{"say", say.New(h.deps)},
+		{"help", help.New(h.deps)},
+		{"intro", intro.New(h.deps)},
+		{"config", config.New(h.deps)},
+		{"refreshigdb", refreshigdb.New(h.deps)},
+		{"game", game.New(h.deps)},
+		{"userstats", userstats.New(h.deps)},
+		{"log", log.New(h.deps)},
+		{"prune", prune.New(h.deps)},
+		{"lfg", lfg.New(h.deps)},
+		{"roulette", roulette.New(h.deps)},
 		{"welcome", welcome.New(h.deps)},
 	}
 
@@ -223,17 +223,17 @@ func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 	}
 }
 
-// InitializeModuleServices initializes services that need the Discord session.
+// InitializeModuleServices hydrates services with the Discord session.
 // Called after the Discord session is established.
 func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	// Update dependencies with session
 	h.deps.Session = s
 	
-	// Initialize services for all modules
+	// Hydrate services for all modules with the Discord session
 	for _, module := range h.modules {
 		if service := module.Service(); service != nil {
-			if err := service.InitializeService(s); err != nil {
-				return fmt.Errorf("failed to initialize service: %w", err)
+			if err := service.HydrateServiceDiscordSession(s); err != nil {
+				return fmt.Errorf("failed to hydrate service with Discord session: %w", err)
 			}
 		}
 	}

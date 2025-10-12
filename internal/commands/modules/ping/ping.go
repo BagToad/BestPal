@@ -10,7 +10,7 @@ import (
 type PingModule struct{}
 
 // New creates a new ping module
-func New() *PingModule {
+func New(deps *types.Dependencies) *PingModule {
 	return &PingModule{}
 }
 

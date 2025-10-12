@@ -15,11 +15,23 @@ type Command struct {
 	Development        bool
 }
 
+// BaseService provides common session hydration functionality for all services
+type BaseService struct {
+	Session *discordgo.Session // Exported for external hydration
+}
+
+// HydrateServiceDiscordSession hydrates the service with a Discord session
+func (b *BaseService) HydrateServiceDiscordSession(s *discordgo.Session) error {
+	b.Session = s
+	return nil
+}
+
 // ModuleService represents a service that requires session initialization
 // and may have recurring scheduled tasks
 type ModuleService interface {
-	// InitializeService initializes the service with a Discord session
-	InitializeService(s *discordgo.Session) error
+	// HydrateServiceDiscordSession hydrates the service with a Discord session
+	// This is called after the Discord session is established
+	HydrateServiceDiscordSession(s *discordgo.Session) error
 	
 	// MinuteFuncs returns functions to be called every minute
 	// Returns nil if no minute-based scheduling is needed

@@ -196,3 +196,25 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 
 	ws.config.Logger.Info("Finished cleaning up New Pals roles")
 }
+
+// InitializeService initializes the welcome service with a Discord session
+func (ws *WelcomeService) InitializeService(session *discordgo.Session) error {
+	ws.session = session
+	return nil
+}
+
+// MinuteFuncs returns functions to be called every minute
+func (ws *WelcomeService) MinuteFuncs() []func() error {
+	return []func() error{
+		func() error {
+			ws.CleanNewPalsRoleFromOldMembers()
+			ws.CheckAndWelcomeNewPals()
+			return nil
+		},
+	}
+}
+
+// HourFuncs returns nil as this service has no hourly tasks
+func (ws *WelcomeService) HourFuncs() []func() error {
+	return nil
+}

@@ -738,3 +738,24 @@ func (s *PairingService) notifyFailedPairing(guildID, reason string) {
 		s.config.Logger.Errorf("Error sending failed pairing notification: %v", err)
 	}
 }
+
+// InitializeService initializes the pairing service with a Discord session
+func (s *PairingService) InitializeService(session *discordgo.Session) error {
+	s.session = session
+	return nil
+}
+
+// MinuteFuncs returns functions to be called every minute
+func (s *PairingService) MinuteFuncs() []func() error {
+	return []func() error{
+		func() error {
+			s.CheckAndExecuteScheduledPairings()
+			return nil
+		},
+	}
+}
+
+// HourFuncs returns nil as this service has no hourly tasks
+func (s *PairingService) HourFuncs() []func() error {
+	return nil
+}

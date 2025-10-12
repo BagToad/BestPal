@@ -9,7 +9,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Module implements the CommandModule interface for roulette commands
+// RouletteModule implements the CommandModule interface for roulette commands
 type RouletteModule struct {
 	config         *config.Config
 	db             *database.DB
@@ -167,33 +167,11 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 	}
 }
 
-// InitializeService initializes the pairing service with a Discord session
-func (m *RouletteModule) InitializeService(s *discordgo.Session) error {
-	m.pairingService = NewPairingService(s, m.config, m.db)
-	return nil
-}
-
-// MinuteFuncs returns functions to be called every minute
-func (m *RouletteModule) MinuteFuncs() []func() error {
-	return []func() error{
-		func() error {
-			m.pairingService.CheckAndExecuteScheduledPairings()
-			return nil
-		},
-	}
-}
-
-// HourFuncs returns nil as this module has no hourly tasks
-func (m *RouletteModule) HourFuncs() []func() error {
-	return nil
-}
-
 // Service returns the module's service that needs session initialization
 func (m *RouletteModule) Service() types.ModuleService {
-	return m
-}
-
-// PairingService returns the pairing service for external use (e.g., scheduler)
-func (m *RouletteModule) PairingService() *PairingService {
+	if m.pairingService == nil {
+		// Initialize service on first access
+		m.pairingService = NewPairingService(nil, m.config, m.db)
+	}
 	return m.pairingService
 }

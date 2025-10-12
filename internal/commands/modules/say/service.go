@@ -134,6 +134,24 @@ func (s *Service) CheckDue() error {
 	return s.CheckAndSendDue(s.session)
 }
 
+// InitializeService initializes the service with a Discord session
+func (s *Service) InitializeService(session *discordgo.Session) error {
+	s.session = session
+	return nil
+}
+
+// MinuteFuncs returns functions to be called every minute
+func (s *Service) MinuteFuncs() []func() error {
+	return []func() error{
+		s.CheckDue,
+	}
+}
+
+// HourFuncs returns nil as this service has no hourly tasks
+func (s *Service) HourFuncs() []func() error {
+	return nil
+}
+
 // helper for inline min without pulling math
 func min(a, b int) int {
 	if a < b {

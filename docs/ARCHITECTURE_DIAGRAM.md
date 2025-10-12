@@ -4,9 +4,9 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│              modular_handler.go (~230 lines)                 │
+│              module_handler.go (~230 lines)                  │
 │  ┌──────────────────────────────────────────────────────┐  │
-│  │ NewModularHandler()                                   │  │
+│  │ NewModuleHandler()                                    │  │
 │  │   - Initialize dependencies                           │  │
 │  │   - Register all modules                              │  │
 │  └──────────────────────────────────────────────────────┘  │
@@ -42,11 +42,11 @@ All logic for each command in its module
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                      bot.go                              │
-│  Creates: ModularHandler(config)                         │
+│  Creates: ModuleHandler(config)                          │
 └────────────────────┬─────────────────────────────────────┘
                      ↓
 ┌──────────────────────────────────────────────────────────┐
-│             ModularHandler                               │
+│             ModuleHandler                                │
 │  Creates Dependencies:                                   │
 │    - Config                                              │
 │    - Database                                            │
@@ -108,7 +108,7 @@ modules/mycommand/
    ↓
 3. bot.onInteractionCreate() called
    ↓
-4. ModularHandler.HandleInteraction(session, interaction)
+4. ModuleHandler.HandleInteraction(session, interaction)
    ↓
 5. Handler looks up command by name in registry
    ↓
@@ -135,7 +135,7 @@ modules/mycommand/
 3. If service needed:
    └── Create service.go in same directory
    ↓
-4. Add 2 lines to modular_handler.go:
+4. Add 2 lines to module_handler.go:
    - Import statement
    - Module registration
    ↓

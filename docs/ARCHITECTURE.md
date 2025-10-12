@@ -32,7 +32,7 @@ internal/commands/
 │   ├── lfg/                  # Complex with modals/components
 │   ├── roulette/             # Complex with pairing service
 │   └── ...                   # Other command modules
-└── modular_handler.go        # Handler that orchestrates modules
+└── module_handler.go         # Handler that orchestrates modules
 ```
 
 ## Core Components
@@ -106,12 +106,12 @@ func (m *Module) GetService() *Service {
 }
 ```
 
-### ModularHandler
+### ModuleHandler
 
 The handler orchestrates all modules:
 
 ```go
-func NewModularHandler(cfg *config.Config) *ModularHandler {
+func NewModuleHandler(cfg *config.Config) *ModuleHandler {
     // Initialize shared dependencies
     deps := &types.Dependencies{
         Config:     cfg,
@@ -130,7 +130,7 @@ func NewModularHandler(cfg *config.Config) *ModularHandler {
     
     // ... register other modules
     
-    return &ModularHandler{
+    return &ModuleHandler{
         Commands: commands,
         deps:     deps,
         // ... store module references if services needed
@@ -143,7 +143,7 @@ func NewModularHandler(cfg *config.Config) *ModularHandler {
 1. User triggers `/command` in Discord
 2. Discord sends interaction to bot
 3. `bot.onInteractionCreate()` receives the interaction
-4. Calls `ModularHandler.HandleInteraction()`
+4. Calls `ModuleHandler.HandleInteraction()`
 5. Handler looks up command in registry
 6. Executes `Command.HandlerFunc()`
 7. Module's handler processes the request
@@ -181,7 +181,7 @@ func NewModularHandler(cfg *config.Config) *ModularHandler {
 
 3. **Register in handler**:
    ```go
-   // internal/commands/modular_handler.go
+   // internal/commands/module_handler.go
    import "gamerpal/internal/commands/modules/newcmd"
    
    func (h *ModularHandler) registerModules() {

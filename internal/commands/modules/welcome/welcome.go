@@ -32,12 +32,28 @@ func (m *WelcomeModule) InitializeService(s *discordgo.Session) error {
 	return nil
 }
 
-// GetService returns the module's service that needs session initialization
-func (m *WelcomeModule) GetService() types.ModuleService {
+// MinuteFuncs returns functions to be called every minute
+func (m *WelcomeModule) MinuteFuncs() []func() error {
+	return []func() error{
+		func() error {
+			m.service.CleanNewPalsRoleFromOldMembers()
+			m.service.CheckAndWelcomeNewPals()
+			return nil
+		},
+	}
+}
+
+// HourFuncs returns nil as this module has no hourly tasks
+func (m *WelcomeModule) HourFuncs() []func() error {
+	return nil
+}
+
+// Service returns the module's service that needs session initialization
+func (m *WelcomeModule) Service() types.ModuleService {
 	return m
 }
 
-// GetWelcomeService returns the welcome service for scheduler access
-func (m *WelcomeModule) GetWelcomeService() *WelcomeService {
+// WelcomeService returns the welcome service for scheduler access
+func (m *WelcomeModule) WelcomeService() *WelcomeService {
 	return m.service
 }

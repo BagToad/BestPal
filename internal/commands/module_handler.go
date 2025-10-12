@@ -231,7 +231,7 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	
 	// Initialize services for all modules
 	for _, module := range h.modules {
-		if service := module.GetService(); service != nil {
+		if service := module.Service(); service != nil {
 			if err := service.InitializeService(s); err != nil {
 				return fmt.Errorf("failed to initialize service: %w", err)
 			}
@@ -239,4 +239,29 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	}
 	
 	return nil
+}
+
+// RegisterModuleSchedulers registers recurring tasks from all modules with the scheduler.
+// Called after services are initialized.
+func (h *ModuleHandler) RegisterModuleSchedulers(scheduler interface {
+	RegisterNewMinuteFunc(fn func() error)
+	RegisterNewHourFunc(fn func() error)
+}) {
+	for _, module := range h.modules {
+		if service := module.Service(); service != nil {
+			// Register minute functions
+			if minuteFuncs := service.MinuteFuncs(); minuteFuncs != nil {
+				for _, fn := range minuteFuncs {
+					scheduler.RegisterNewMinuteFunc(fn)
+				}
+			}
+			
+			// Register hour functions
+			if hourFuncs := service.HourFuncs(); hourFuncs != nil {
+				for _, fn := range hourFuncs {
+					scheduler.RegisterNewHourFunc(fn)
+				}
+			}
+		}
+	}
 }

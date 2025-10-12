@@ -25,6 +25,7 @@ type ScheduledMessage struct {
 // Service holds scheduled messages in memory only
 type Service struct {
 	cfg      *config.Config
+	session  *discordgo.Session
 	mu       sync.Mutex
 	messages []ScheduledMessage
 	nextID   atomic.Int64
@@ -35,6 +36,11 @@ func NewService(cfg *config.Config) *Service {
 	svc := &Service{cfg: cfg, messages: make([]ScheduledMessage, 0, 16)}
 	svc.nextID.Store(1)
 	return svc
+}
+
+// SetSession sets the Discord session for the service
+func (s *Service) SetSession(session *discordgo.Session) {
+	s.session = session
 }
 
 // Add inserts a new scheduled message (kept in-memory only)
@@ -118,6 +124,14 @@ func (s *Service) CheckAndSendDue(session *discordgo.Session) error {
 		return fmt.Errorf("%d scheduled send errors (first: %v)", len(errs), errs[0])
 	}
 	return nil
+}
+
+// CheckDue checks and sends due scheduled messages using the stored session
+func (s *Service) CheckDue() error {
+	if s.session == nil {
+		return fmt.Errorf("session not initialized")
+	}
+	return s.CheckAndSendDue(s.session)
 }
 
 // helper for inline min without pulling math

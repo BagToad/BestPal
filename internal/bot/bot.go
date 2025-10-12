@@ -12,9 +12,6 @@ import (
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/lfg"
-	"gamerpal/internal/commands/modules/roulette"
-	"gamerpal/internal/commands/modules/say"
-	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -100,39 +97,10 @@ func (b *Bot) Start() error {
 	// Create and initialize scheduler
 	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.commandModuleHandler.GetDB())
 
-	// Add services to scheduler
-	// Welcome service minute check (via welcome module)
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if welcomeMod, ok := b.commandModuleHandler.GetModule("welcome").(*welcome.WelcomeModule); ok {
-			if welcomeService := welcomeMod.GetWelcomeService(); welcomeService != nil {
-				// TODO: These services should return errors
-				welcomeService.CleanNewPalsRoleFromOldMembers()
-				welcomeService.CheckAndWelcomeNewPals()
-			}
-		}
-		return nil
-	})
+	// Register module schedulers (modules declare their own recurring tasks)
+	b.commandModuleHandler.RegisterModuleSchedulers(b.scheduler)
 
-	// Pairing service minute check (via roulette module)
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if rouletteMod, ok := b.commandModuleHandler.GetModule("roulette").(*roulette.RouletteModule); ok {
-			if pairingService := rouletteMod.GetPairingService(); pairingService != nil {
-				pairingService.CheckAndExecuteScheduledPairings()
-			}
-		}
-		return nil
-	})
-
-	// Scheduled say service minute check
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		if sayMod, ok := b.commandModuleHandler.GetModule("say").(*say.SayModule); ok {
-			if sayService := sayMod.GetSayService(); sayService != nil {
-				return sayService.CheckAndSendDue(b.session)
-			}
-		}
-		return nil
-	})
-
+	// Register config log rotation (not part of a module)
 	b.scheduler.RegisterNewHourFunc(func() error {
 		return b.config.RotateAndPruneLogs()
 	})

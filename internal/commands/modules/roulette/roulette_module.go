@@ -173,12 +173,27 @@ func (m *RouletteModule) InitializeService(s *discordgo.Session) error {
 	return nil
 }
 
-// GetService returns the module's service that needs session initialization
-func (m *RouletteModule) GetService() types.ModuleService {
+// MinuteFuncs returns functions to be called every minute
+func (m *RouletteModule) MinuteFuncs() []func() error {
+	return []func() error{
+		func() error {
+			m.pairingService.CheckAndExecuteScheduledPairings()
+			return nil
+		},
+	}
+}
+
+// HourFuncs returns nil as this module has no hourly tasks
+func (m *RouletteModule) HourFuncs() []func() error {
+	return nil
+}
+
+// Service returns the module's service that needs session initialization
+func (m *RouletteModule) Service() types.ModuleService {
 	return m
 }
 
-// GetPairingService returns the pairing service for external use (e.g., scheduler)
-func (m *RouletteModule) GetPairingService() *PairingService {
+// PairingService returns the pairing service for external use (e.g., scheduler)
+func (m *RouletteModule) PairingService() *PairingService {
 	return m.pairingService
 }

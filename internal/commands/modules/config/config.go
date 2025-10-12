@@ -190,6 +190,6 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *ConfigModule) GetService() types.ModuleService {
+func (m *ConfigModule) Service() types.ModuleService {
 return nil
 }

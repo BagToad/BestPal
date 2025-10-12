@@ -384,6 +384,6 @@ func (m *LogModule) sendErrorFollowup(s *discordgo.Session, i *discordgo.Interac
 }
 
 // GetServices returns nil as this module has no services requiring initialization
-func (m *LogModule) GetService() types.ModuleService {
+func (m *LogModule) Service() types.ModuleService {
 return nil
 }

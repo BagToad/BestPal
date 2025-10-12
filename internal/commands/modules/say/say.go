@@ -398,7 +398,30 @@ func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.
 	}
 }
 
-// GetServices returns nil as this module has no services requiring initialization
-func (m *SayModule) GetService() types.ModuleService {
-return nil
+// Service returns the module as the service
+func (m *SayModule) Service() types.ModuleService {
+	return m
+}
+
+// InitializeService initializes the service with a Discord session
+func (m *SayModule) InitializeService(s *discordgo.Session) error {
+	m.service.SetSession(s)
+	return nil
+}
+
+// MinuteFuncs returns functions to be called every minute
+func (m *SayModule) MinuteFuncs() []func() error {
+	return []func() error{
+		m.service.CheckDue,
+	}
+}
+
+// HourFuncs returns nil as this module has no hourly tasks
+func (m *SayModule) HourFuncs() []func() error {
+	return nil
+}
+
+// SayService returns the say service for external use (e.g., scheduler)
+func (m *SayModule) SayService() *Service {
+	return m.service
 }

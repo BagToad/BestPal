@@ -72,7 +72,7 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 	}
 }
 
-// GetServices returns nil as this module has no services requiring initialization
+// Service returns nil as this module has no services requiring initialization
 func (m *PruneModule) Service() types.ModuleService {
 return nil
 }

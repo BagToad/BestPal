@@ -150,7 +150,7 @@ func (m *IntroModule) getAllActiveThreads(s *discordgo.Session, channelID string
 	return allThreads, nil
 }
 
-// GetServices returns nil as this module has no services requiring initialization
+// Service returns nil as this module has no services requiring initialization
 func (m *IntroModule) Service() types.ModuleService {
 return nil
 }

@@ -35,7 +35,7 @@ func (m *PingModule) handlePing(s *discordgo.Session, i *discordgo.InteractionCr
 	})
 }
 
-// GetServices returns nil as this module has no services requiring initialization
+// Service returns nil as this module has no services requiring initialization
 func (m *PingModule) Service() types.ModuleService {
 return nil
 }

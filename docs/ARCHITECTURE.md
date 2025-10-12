@@ -184,7 +184,7 @@ func NewModuleHandler(cfg *config.Config) *ModuleHandler {
    // internal/commands/module_handler.go
    import "gamerpal/internal/commands/modules/newcmd"
    
-   func (h *ModularHandler) registerModules() {
+   func (h *ModuleHandler) registerModules() {
        // ...
        newcmdModule := &newcmd.Module{}
        newcmdModule.Register(h.Commands, h.deps)

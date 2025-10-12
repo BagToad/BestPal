@@ -15,7 +15,8 @@ type WelcomeModule struct {
 // New creates a new WelcomeModule instance
 func New(deps *types.Dependencies) types.CommandModule {
 	return &WelcomeModule{
-		config: deps.Config,
+		config:  deps.Config,
+		service: NewWelcomeService(nil, deps.Config),
 	}
 }
 
@@ -26,9 +27,5 @@ func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dep
 
 // Service returns the module's service that needs session initialization
 func (m *WelcomeModule) Service() types.ModuleService {
-	if m.service == nil {
-		// Initialize service on first access
-		m.service = NewWelcomeService(nil, m.config)
-	}
 	return m.service
 }

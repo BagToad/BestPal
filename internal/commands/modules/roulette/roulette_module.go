@@ -28,8 +28,8 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 	m.db = deps.DB
 	m.igdbClient = deps.IGDBClient
 
-	// PairingService will be initialized later when session is available
-	// (see GetService and InitializeService methods)
+	// Initialize PairingService
+	m.pairingService = NewPairingService(nil, m.config, m.db)
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 
@@ -169,9 +169,5 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 
 // Service returns the module's service that needs session initialization
 func (m *RouletteModule) Service() types.ModuleService {
-	if m.pairingService == nil {
-		// Initialize service on first access
-		m.pairingService = NewPairingService(nil, m.config, m.db)
-	}
 	return m.pairingService
 }

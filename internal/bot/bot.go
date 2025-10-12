@@ -11,19 +11,18 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"gamerpal/internal/commands"
+	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
-	"gamerpal/internal/pairing"
 	"gamerpal/internal/scheduler"
-	"gamerpal/internal/welcome"
 )
 
 // Bot represents the Discord bot
 type Bot struct {
-	session             *discordgo.Session
-	config              *config.Config
-	slashCommandHandler *commands.SlashCommandHandler
-	scheduler           *scheduler.Scheduler
+	session              *discordgo.Session
+	config               *config.Config
+	commandModuleHandler *commands.ModuleHandler
+	scheduler            *scheduler.Scheduler
 }
 
 // New creates a new Bot instance
@@ -34,13 +33,13 @@ func New(cfg *config.Config) (*Bot, error) {
 		return nil, fmt.Errorf("error creating Discord session: %w", err)
 	}
 
-	// Create command handler
-	handler := commands.NewSlashCommandHandler(cfg)
+	// Create modular command handler
+	handler := commands.NewModuleHandler(cfg)
 
 	bot := &Bot{
-		session:             session,
-		config:              cfg,
-		slashCommandHandler: handler,
+		session:              session,
+		config:               cfg,
+		commandModuleHandler: handler,
 	}
 
 	// Set intents - we need guild, member, message, and message content intents
@@ -86,37 +85,22 @@ func (b *Bot) Start() error {
 	}
 
 	// Register slash commands
-	if err := b.slashCommandHandler.RegisterCommands(b.session); err != nil {
+	if err := b.commandModuleHandler.RegisterCommands(b.session); err != nil {
 		return fmt.Errorf("error registering commands: %w", err)
 	}
 
-	// Initialize pairing service with session
-	b.slashCommandHandler.InitializePairingService(b.session)
+	// Initialize module services that need the Discord session
+	if err := b.commandModuleHandler.InitializeModuleServices(b.session); err != nil {
+		return fmt.Errorf("error initializing module services: %w", err)
+	}
 
 	// Create and initialize scheduler
-	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.slashCommandHandler.GetDB())
+	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.commandModuleHandler.GetDB())
 
-	// Add services to scheduler
-	welcomeService := welcome.NewWelcomeService(b.session, b.config)
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		// TODO: These services should return errors
-		welcomeService.CleanNewPalsRoleFromOldMembers()
-		welcomeService.CheckAndWelcomeNewPals()
-		return nil
-	})
+	// Register module schedulers (modules declare their own recurring tasks)
+	b.commandModuleHandler.RegisterModuleSchedulers(b.scheduler)
 
-	pairingService := pairing.NewPairingService(b.session, b.config, b.slashCommandHandler.GetDB())
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		// TODO: These services should return errors
-		pairingService.CheckAndExecuteScheduledPairings()
-		return nil
-	})
-
-	// Scheduled say service minute check
-	b.scheduler.RegisterNewMinuteFunc(func() error {
-		return b.slashCommandHandler.ScheduleSayService.CheckAndSendDue(b.session)
-	})
-
+	// Register config log rotation (not part of a module)
 	b.scheduler.RegisterNewHourFunc(func() error {
 		return b.config.RotateAndPruneLogs()
 	})
@@ -138,7 +122,7 @@ func (b *Bot) Start() error {
 
 	// Cleanup: Unregister commands, optionally
 	if os.Getenv("UNREGISTER_COMMANDS") == "true" {
-		b.slashCommandHandler.UnregisterCommands(b.session)
+		b.commandModuleHandler.UnregisterCommands(b.session)
 	}
 
 	return nil
@@ -155,7 +139,7 @@ func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 			return
 		}
 		// Use shared rebuild helper (includes archived threads)
-		if total, active, archived, err := commands.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
+		if total, active, archived, err := lfg.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
 			b.config.Logger.Warnf("LFG preload: %v", err)
 		} else {
 			b.config.Logger.Infof("LFG preload: cached %d threads (active=%d, archived=%d)", total, active, archived)
@@ -194,19 +178,18 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 	// Slash commands
 	if i.Type == discordgo.InteractionApplicationCommand {
 		if i.ApplicationCommandData().Name != "" {
-			b.slashCommandHandler.HandleInteraction(s, i)
+			b.commandModuleHandler.HandleInteraction(s, i)
 		}
 		return
 	}
 	// Component interactions
 	if i.Type == discordgo.InteractionMessageComponent {
-		// Delegate to LFG handler (currently only component using)
-		b.slashCommandHandler.HandleLFGComponent(s, i)
+		b.commandModuleHandler.HandleComponentInteraction(s, i)
 		return
 	}
 	// Modal submit
 	if i.Type == discordgo.InteractionModalSubmit {
-		b.slashCommandHandler.HandleLFGModalSubmit(s, i)
+		b.commandModuleHandler.HandleModalSubmit(s, i)
 		return
 	}
 }

@@ -1,6 +1,7 @@
 package welcome
 
 import (
+	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"slices"
@@ -13,7 +14,7 @@ import (
 
 // WelcomeService handles welcome messages and related functionality
 type WelcomeService struct {
-	session *discordgo.Session
+	types.BaseService
 	config  *config.Config
 	nextRun time.Time
 	lastRun time.Time
@@ -24,7 +25,6 @@ func NewWelcomeService(config *config.Config) *WelcomeService {
 	timeBetweenRuns := config.GetNewPalsTimeBetweenWelcomeMessages()
 
 	return &WelcomeService{
-		session: nil, // Will be hydrated later
 		config:  config,
 		nextRun: time.Now().Add(timeBetweenRuns),
 		lastRun: time.Now(),
@@ -33,7 +33,7 @@ func NewWelcomeService(config *config.Config) *WelcomeService {
 
 // WelcomeNewPals sends a welcome message in the welcome channel to new members
 func (ws *WelcomeService) CheckAndWelcomeNewPals() {
-	if ws.session == nil {
+	if ws.Session == nil {
 		ws.config.Logger.Warn("Discord session not initialized, skipping welcome process")
 		return
 	}
@@ -65,7 +65,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}()
 
 	// Fetch the list of members in the guild
-	members, err := utils.GetAllHumanGuildMembers(ws.session, gamerPalsServerID)
+	members, err := utils.GetAllHumanGuildMembers(ws.Session, gamerPalsServerID)
 	if err != nil {
 		ws.config.Logger.Error("Failed to fetch guild members: %v", err)
 		return
@@ -107,7 +107,7 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	)
 
 	// Send the welcome message in the welcome channel
-	_, err = ws.session.ChannelMessageSend(welcomeChannelID, welcomeMessage)
+	_, err = ws.Session.ChannelMessageSend(welcomeChannelID, welcomeMessage)
 	if err != nil {
 		ws.config.Logger.Error("Failed to send welcome message:", err)
 		ws.config.Logger.Error("I would have sent the message: ", welcomeMessage)
@@ -132,15 +132,15 @@ func (ws *WelcomeService) cleanOldWelcomeMessages() {
 	ws.config.Logger.Infof("Cleaning up old welcome messages in channel: %s", welcomeChannelID)
 
 	// Fetch the messages in the welcome channel
-	messages, err := ws.session.ChannelMessages(welcomeChannelID, 100, "", "", "")
+	messages, err := ws.Session.ChannelMessages(welcomeChannelID, 100, "", "", "")
 	if err != nil {
 		ws.config.Logger.Error("Failed to fetch messages from welcome channel:", err)
 		return
 	}
 
 	for _, message := range messages[1:] { // Skip the most recent message
-		if message.Author.ID == ws.session.State.User.ID {
-			err := ws.session.ChannelMessageDelete(welcomeChannelID, message.ID)
+		if message.Author.ID == ws.Session.State.User.ID {
+			err := ws.Session.ChannelMessageDelete(welcomeChannelID, message.ID)
 			if err != nil {
 				ws.config.Logger.Error("Failed to delete old welcome message:", err)
 			}
@@ -150,7 +150,7 @@ func (ws *WelcomeService) cleanOldWelcomeMessages() {
 
 // CleanNewPalsRoleFromOldMembers removes the New Pals role from members who have had it for too long
 func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
-	if ws.session == nil {
+	if ws.Session == nil {
 		ws.config.Logger.Warn("Discord session not initialized, skipping New Pals cleanup")
 		return
 	}
@@ -178,7 +178,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	ws.config.Logger.Infof("Cleaning up New Pals role from members older than %s", newPalsKeepRoleDuration.String())
 
 	// Fetch all members in the guild
-	members, err := utils.GetAllHumanGuildMembers(ws.session, guildID)
+	members, err := utils.GetAllHumanGuildMembers(ws.Session, guildID)
 	if err != nil {
 		ws.config.Logger.Error("Failed to fetch guild members:", err)
 		return
@@ -192,7 +192,7 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 		// Check how long the member has had the role
 		roleExpirationTime := member.JoinedAt.Add(newPalsKeepRoleDuration)
 		if time.Now().After(roleExpirationTime) {
-			err := ws.session.GuildMemberRoleRemove(guildID, member.User.ID, newPalsRoleID)
+			err := ws.Session.GuildMemberRoleRemove(guildID, member.User.ID, newPalsRoleID)
 			if err != nil {
 				ws.config.Logger.Error("Failed to remove New Pals role from member %s (%s): %v",
 					member.User.Username, member.User.ID, err)
@@ -205,12 +205,6 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	}
 
 	ws.config.Logger.Info("Finished cleaning up New Pals roles")
-}
-
-// HydrateServiceDiscordSession hydrates the welcome service with a Discord session
-func (ws *WelcomeService) HydrateServiceDiscordSession(session *discordgo.Session) error {
-	ws.session = session
-	return nil
 }
 
 // MinuteFuncs returns functions to be called every minute

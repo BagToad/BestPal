@@ -2,6 +2,7 @@ package say
 
 import (
 	"fmt"
+	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"sort"
@@ -24,8 +25,8 @@ type ScheduledMessage struct {
 
 // Service holds scheduled messages in memory only
 type Service struct {
+	types.BaseService
 	cfg      *config.Config
-	session  *discordgo.Session
 	mu       sync.Mutex
 	messages []ScheduledMessage
 	nextID   atomic.Int64
@@ -38,9 +39,9 @@ func NewService(cfg *config.Config) *Service {
 	return svc
 }
 
-// SetSession sets the Discord session for the service
+// SetSession sets the Discord session for the service (deprecated, use HydrateServiceDiscordSession)
 func (s *Service) SetSession(session *discordgo.Session) {
-	s.session = session
+	s.Session = session
 }
 
 // Add inserts a new scheduled message (kept in-memory only)
@@ -128,16 +129,10 @@ func (s *Service) CheckAndSendDue(session *discordgo.Session) error {
 
 // CheckDue checks and sends due scheduled messages using the stored session
 func (s *Service) CheckDue() error {
-	if s.session == nil {
+	if s.Session == nil {
 		return fmt.Errorf("session not initialized")
 	}
-	return s.CheckAndSendDue(s.session)
-}
-
-// HydrateServiceDiscordSession hydrates the service with a Discord session
-func (s *Service) HydrateServiceDiscordSession(session *discordgo.Session) error {
-	s.session = session
-	return nil
+	return s.CheckAndSendDue(s.Session)
 }
 
 // MinuteFuncs returns functions to be called every minute

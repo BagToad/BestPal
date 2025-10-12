@@ -202,8 +202,8 @@ func (m *GameModule) newGameEmbed(options gameEmbedOptions) *discordgo.MessageEm
 	return embed
 }
 
-// searchGame searches for a game using IGDB API and returns an embed
-func (m *GameModule) searchGame( gameName string) (*igdb.Game, error) {
+// searchGame searches for a game using IGDB API and returns a game object
+func (m *GameModule) searchGame(gameName string) (*igdb.Game, error) {
 	gameFields := []string{"name", "summary", "first_release_date", "cover", "websites", "multiplayer_modes", "genres"}
 
 	// Get an exact match first
@@ -228,7 +228,8 @@ func (m *GameModule) searchGame( gameName string) (*igdb.Game, error) {
 	return games[0], nil
 }
 
-func (m *GameModule) newGameEmbedOptionsFromGame( game *igdb.Game) gameEmbedOptions {
+// newGameEmbedOptionsFromGame creates embed options from an IGDB game object
+func (m *GameModule) newGameEmbedOptionsFromGame(game *igdb.Game) gameEmbedOptions {
 	options := gameEmbedOptions{
 		Name:             game.Name,
 		Summary:          game.Summary,

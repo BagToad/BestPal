@@ -18,7 +18,7 @@ func NewEmbed() *discordgo.MessageEmbed {
 	}
 }
 
-// NewErrorEmbed creates a new error embed with the given title and description
+// NewOKEmbed creates a new OK embed with the given title and description
 func NewOKEmbed(title, description string) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{
 		Title:       title,

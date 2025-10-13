@@ -192,4 +192,9 @@ func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.Interaction
 		b.commandModuleHandler.HandleModalSubmit(s, i)
 		return
 	}
+	// Autocomplete
+	if i.Type == discordgo.InteractionApplicationCommandAutocomplete {
+		b.commandModuleHandler.HandleAutocomplete(s, i)
+		return
+	}
 }

@@ -203,6 +203,21 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 	}
 }
 
+// HandleAutocomplete routes autocomplete requests to appropriate module handlers
+func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Check which command is being autocompleted
+	commandName := i.ApplicationCommandData().Name
+	
+	// Currently only game-thread command (in LFG module) uses autocomplete
+	if commandName == "game-thread" {
+		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+			lfgMod.HandleAutocomplete(s, i)
+		} else {
+			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
+		}
+	}
+}
+
 // UnregisterCommands removes all registered commands
 func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")

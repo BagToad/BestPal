@@ -39,6 +39,7 @@ func (m *GameModule) Register(cmds map[string]*types.Command, deps *types.Depend
 			},
 		},
 		HandlerFunc: m.handleGame,
+		Development: true, // Marked for deprecation
 	}
 }
 

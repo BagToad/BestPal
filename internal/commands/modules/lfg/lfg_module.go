@@ -111,6 +111,25 @@ func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		},
 		HandlerFunc: m.handleLFG,
 	}
+
+	// Register game-thread command
+	cmds["game-thread"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "game-thread",
+			Description: "Find a game thread by searching the LFG forum",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionString,
+					Name:         "search-query",
+					Description:  "Game name to search for",
+					Required:     true,
+					Autocomplete: true,
+				},
+			},
+		},
+		HandlerFunc: m.handleGameThread,
+	}
 }
 
 // HandleComponent handles component interactions for LFG
@@ -121,6 +140,11 @@ func (m *LfgModule) HandleComponent(s *discordgo.Session, i *discordgo.Interacti
 // HandleModalSubmit handles modal submissions for LFG
 func (m *LfgModule) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGModalSubmit(s, i)
+}
+
+// HandleAutocomplete handles autocomplete interactions for LFG commands
+func (m *LfgModule) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	m.handleGameThreadAutocomplete(s, i)
 }
 
 // Service returns nil as this module has no services requiring initialization

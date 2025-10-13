@@ -114,6 +114,7 @@ func newTestConfig(t *testing.T) *config.Config {
 
 ### Key Configuration Variables
 - `GAMERPAL_BOT_TOKEN` / `bot_token`: Discord bot token (required)
+  - **Note:** The README.md references `DISCORD_BOT_TOKEN`, but the code actually uses `GAMERPAL_BOT_TOKEN`. This is an existing documentation inconsistency.
 - `GAMERPAL_IGDB_CLIENT_ID` / `igdb_client_id`: IGDB API client ID
 - `GAMERPAL_IGDB_CLIENT_SECRET` / `igdb_client_secret`: IGDB API client secret
 - `GAMERPAL_IGDB_CLIENT_TOKEN` / `igdb_client_token`: IGDB access token

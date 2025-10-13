@@ -126,6 +126,12 @@ func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Depende
 					Required:     true,
 					Autocomplete: true,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "ephemeral",
+					Description: "Whether to show the response only to you (default: true)",
+					Required:    false,
+				},
 			},
 		},
 		HandlerFunc: m.handleGameThread,

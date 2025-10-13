@@ -149,10 +149,17 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
-	// Extract search query from command options
+	// Extract command options
 	var searchQuery string
-	if len(i.ApplicationCommandData().Options) > 0 {
-		searchQuery = i.ApplicationCommandData().Options[0].StringValue()
+	ephemeral := true // Default to true
+	
+	for _, opt := range i.ApplicationCommandData().Options {
+		switch opt.Name {
+		case "search-query":
+			searchQuery = opt.StringValue()
+		case "ephemeral":
+			ephemeral = opt.BoolValue()
+		}
 	}
 
 	searchQuery = strings.TrimSpace(searchQuery)
@@ -172,13 +179,19 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 	// Search for thread in cache
 	searchRes, found := LFGCacheSearch(normalized)
 	
+	// Determine flags based on ephemeral setting
+	var flags discordgo.MessageFlags
+	if ephemeral {
+		flags = discordgo.MessageFlagsEphemeral
+	}
+	
 	if !found || (searchRes.ExactThreadID == "" && len(searchRes.PartialThreadIDs) == 0) {
 		embed := utils.NewNoResultsEmbed(fmt.Sprintf("No game thread found for **\"%s\"**", searchQuery))
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Embeds: []*discordgo.MessageEmbed{embed},
-				Flags:  discordgo.MessageFlagsEphemeral,
+				Flags:  flags,
 			},
 		})
 		return
@@ -204,7 +217,7 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Embeds: []*discordgo.MessageEmbed{embed},
-				Flags:  discordgo.MessageFlagsEphemeral,
+				Flags:  flags,
 			},
 		})
 		return
@@ -216,7 +229,7 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Embeds: []*discordgo.MessageEmbed{embed},
-			Flags:  discordgo.MessageFlagsEphemeral,
+			Flags:  flags,
 		},
 	})
 }

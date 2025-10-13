@@ -168,6 +168,7 @@ func (b *Bot) randomStatus() string {
 		"Join r/GamerPals!",
 		"Trying to delete myself...",
 		"Making friends...",
+		"Eating bugs...",
 	}
 
 	return randomStuff[rand.IntN(len(randomStuff))]

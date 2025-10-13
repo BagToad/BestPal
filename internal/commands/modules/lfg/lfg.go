@@ -17,13 +17,15 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// In-memory cache of game name (normalized lowercase) -> thread channel ID
+// In-memory cache of game name (normalized lowercase) -> thread info
 // This is simplistic; future optimization could add eviction / persistence.
 var lfgThreadCache = struct {
 	sync.RWMutex
-	nameToThreadID map[string]string
+	nameToThreadID   map[string]string // normalized name -> thread ID
+	nameToOriginal   map[string]string // normalized name -> original name (with casing)
 }{
 	nameToThreadID: make(map[string]string),
+	nameToOriginal: make(map[string]string),
 }
 
 // LFGCacheSet allows other packages to seed the cache.
@@ -31,6 +33,7 @@ func LFGCacheSet(normalizedName, threadID string) {
 	lfgThreadCache.Lock()
 	defer lfgThreadCache.Unlock()
 	lfgThreadCache.nameToThreadID[normalizedName] = threadID
+	// Note: original name is not set here; consider updating if needed
 }
 
 type LFGCacheSearchResult struct {
@@ -194,6 +197,17 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 				Flags:  flags,
 			},
 		})
+		
+		// Log to log channel
+		userMention := "Member"
+		if i.Member != nil {
+			userMention = i.Member.Mention()
+		}
+		logMsg := fmt.Sprintf("%s used `/game-thread` with query **\"%s\"** (ephemeral: %t)\n\n**Result:** No thread found", userMention, searchQuery, ephemeral)
+		if err := utils.LogToChannel(m.config, s, logMsg); err != nil {
+			m.config.Logger.Errorf("Failed to log game-thread result: %v", err)
+		}
+		
 		return
 	}
 
@@ -210,6 +224,7 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 		// Thread no longer exists or is invalid, clean up cache
 		lfgThreadCache.Lock()
 		delete(lfgThreadCache.nameToThreadID, normalized)
+		delete(lfgThreadCache.nameToOriginal, normalized)
 		lfgThreadCache.Unlock()
 		
 		embed := utils.NewNoResultsEmbed(fmt.Sprintf("No game thread found for **\"%s\"**", searchQuery))
@@ -220,11 +235,22 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 				Flags:  flags,
 			},
 		})
+		
+		// Log to log channel
+		userMention := "Member"
+		if i.Member != nil {
+			userMention = i.Member.Mention()
+		}
+		logMsg := fmt.Sprintf("%s used `/game-thread` with query **\"%s\"** (ephemeral: %t)\n\n**Result:** No thread found (stale cache entry)", userMention, searchQuery, ephemeral)
+		if err := utils.LogToChannel(m.config, s, logMsg); err != nil {
+			m.config.Logger.Errorf("Failed to log game-thread result: %v", err)
+		}
+		
 		return
 	}
 
 	// Return the thread link
-	embed := utils.NewOKEmbed("🎮 Game Thread Found", fmt.Sprintf("Found thread: %s\n\n[Click here to view](%s)", ch.Name, threadLink(ch)))
+	embed := utils.NewOKEmbed("🎮 Game Thread Lookup", threadLink(ch))
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -232,6 +258,16 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 			Flags:  flags,
 		},
 	})
+	
+	// Log to log channel
+	userMention := "Member"
+	if i.Member != nil {
+		userMention = i.Member.Mention()
+	}
+	logMsg := fmt.Sprintf("%s used `/game-thread` with query **\"%s\"** (ephemeral: %t)\n\n**Result:** Found thread %s", userMention, searchQuery, ephemeral, ch.Mention())
+	if err := utils.LogToChannel(m.config, s, logMsg); err != nil {
+		m.config.Logger.Errorf("Failed to log game-thread result: %v", err)
+	}
 }
 
 // handleGameThreadAutocomplete handles autocomplete requests for the game-thread command
@@ -257,42 +293,51 @@ func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discor
 	// If input is empty, show up to 25 random/recent threads
 	if currentInput == "" {
 		count := 0
-		for name := range lfgThreadCache.nameToThreadID {
+		for norm := range lfgThreadCache.nameToThreadID {
 			if count >= 25 {
 				break
 			}
+			originalName := lfgThreadCache.nameToOriginal[norm]
+			if originalName == "" {
+				originalName = norm // Fallback to normalized if not found
+			}
 			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-				Name:  name,
-				Value: name,
+				Name:  originalName,
+				Value: originalName,
 			})
 			count++
 		}
 	} else {
 		// Search for matching threads (exact and partial matches)
 		type matchScore struct {
-			name  string
-			score int
+			norm         string
+			originalName string
+			score        int
 		}
 		var matches []matchScore
 		
-		for name := range lfgThreadCache.nameToThreadID {
-			nameLower := strings.ToLower(name)
+		for norm := range lfgThreadCache.nameToThreadID {
+			nameLower := norm // already lowercase in cache
+			originalName := lfgThreadCache.nameToOriginal[norm]
+			if originalName == "" {
+				originalName = norm // Fallback
+			}
 			
 			// Exact match gets highest priority
 			if nameLower == currentInput {
-				matches = append(matches, matchScore{name: name, score: 1000})
+				matches = append(matches, matchScore{norm: norm, originalName: originalName, score: 1000})
 				continue
 			}
 			
 			// Starts with gets second priority
 			if strings.HasPrefix(nameLower, currentInput) {
-				matches = append(matches, matchScore{name: name, score: 500})
+				matches = append(matches, matchScore{norm: norm, originalName: originalName, score: 500})
 				continue
 			}
 			
 			// Contains gets third priority
 			if strings.Contains(nameLower, currentInput) {
-				matches = append(matches, matchScore{name: name, score: 100})
+				matches = append(matches, matchScore{norm: norm, originalName: originalName, score: 100})
 				continue
 			}
 			
@@ -300,7 +345,7 @@ func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discor
 			words := strings.Fields(nameLower)
 			for _, word := range words {
 				if strings.HasPrefix(word, currentInput) {
-					matches = append(matches, matchScore{name: name, score: 200})
+					matches = append(matches, matchScore{norm: norm, originalName: originalName, score: 200})
 					break
 				}
 			}
@@ -311,7 +356,7 @@ func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discor
 			if a.score != b.score {
 				return b.score - a.score // Higher score first
 			}
-			return strings.Compare(a.name, b.name) // Alphabetical for tie-break
+			return strings.Compare(a.originalName, b.originalName) // Alphabetical for tie-break
 		})
 		
 		// Take top 25 matches
@@ -320,8 +365,8 @@ func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discor
 				break
 			}
 			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-				Name:  match.name,
-				Value: match.name,
+				Name:  match.originalName,
+				Value: match.originalName,
 			})
 		}
 	}
@@ -343,6 +388,7 @@ func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total
 
 	// Temporary local map to avoid partial results on failure.
 	temp := make(map[string]string)
+	tempOriginal := make(map[string]string)
 
 	// 1. Active threads (guild-wide endpoint, filter by parent)
 	active, aErr := s.GuildThreadsActive(guildID)
@@ -353,6 +399,7 @@ func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total
 		if th.ParentID == forumID {
 			norm := strings.ToLower(th.Name)
 			temp[norm] = th.ID
+			tempOriginal[norm] = th.Name
 			activeCount++
 		}
 	}
@@ -371,6 +418,7 @@ func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total
 			norm := strings.ToLower(th.Name)
 			if _, exists := temp[norm]; !exists { // don't double count (if any)
 				temp[norm] = th.ID
+				tempOriginal[norm] = th.Name
 				archivedCount++
 			}
 		}
@@ -393,9 +441,13 @@ func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total
 	lfgThreadCache.Lock()
 	for k := range lfgThreadCache.nameToThreadID { // clear existing
 		delete(lfgThreadCache.nameToThreadID, k)
+		delete(lfgThreadCache.nameToOriginal, k)
 	}
 	for k, v := range temp {
 		lfgThreadCache.nameToThreadID[k] = v
+	}
+	for k, v := range tempOriginal {
+		lfgThreadCache.nameToOriginal[k] = v
 	}
 	total = len(lfgThreadCache.nameToThreadID)
 	lfgThreadCache.Unlock()

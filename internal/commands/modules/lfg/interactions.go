@@ -1,7 +1,6 @@
 package lfg
 
 import (
-	"encoding/json"
 	"fmt"
 	"gamerpal/internal/games"
 	"gamerpal/internal/utils"
@@ -162,23 +161,29 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 		})
 	}
 
-	// Dump full search result as indented JSON (may be large)
-	if b, err := json.MarshalIndent(searchRes, "", "  "); err == nil {
-		jsonStr := string(b)
-		userMention := "Member"
-		if i.Member != nil {
-			userMention = i.Member.Mention()
-		}
+	// Log the search and threads shown to user
+	userMention := "Member"
+	if i.Member != nil {
+		userMention = i.Member.Mention()
+	}
 
-		logMessage := fmt.Sprintf("%s searched for \"%s\", and here are the results:\n", userMention, gameName)
-		err = utils.LogToChannel(m.config, s, logMessage)
-		if err != nil {
-			m.config.Logger.Errorf("LFG: failed to log search results: %v", err)
-		}
-		err = utils.LogToChannelWithFile(m.config, s, jsonStr)
-		if err != nil {
-			m.config.Logger.Errorf("LFG: failed to log search results file: %v", err)
-		}
+	var threadsShown []string
+	if exactThreadChannel != nil {
+		threadsShown = append(threadsShown, exactThreadChannel.Name)
+	}
+	for _, suggestion := range partialThreadSuggestions {
+		threadsShown = append(threadsShown, suggestion.Name)
+	}
+
+	logDescription := fmt.Sprintf("%s searched for **\"%s\"**", userMention, gameName)
+	if len(threadsShown) > 0 {
+		logDescription += fmt.Sprintf("\n\n**Threads shown:**\n• %s", strings.Join(threadsShown, "\n• "))
+	} else {
+		logDescription += "\n\n**No threads found**"
+	}
+
+	if err := utils.LogToChannel(m.config, s, logDescription); err != nil {
+		m.config.Logger.Errorf("LFG: failed to log search results: %v", err)
 	}
 
 	embed := foundThreadsEmbed(fields)
@@ -259,15 +264,29 @@ func (m *LfgModule) handleMoreSuggestions(s *discordgo.Session, i *discordgo.Int
 
 	// Build suggestion list text with year (from first_release_date) when available
 	var listBuilder strings.Builder
+	var gameNames []string
 	for i, g := range picked {
 		yearStr := ""
 		if g.FirstReleaseDate > 0 { // epoch seconds
 			y := time.Unix(int64(g.FirstReleaseDate), 0).UTC().Year()
 			yearStr = fmt.Sprintf(" (%d)", y)
 		}
-		listBuilder.WriteString(fmt.Sprintf("%d. %s%s\n", i+1, g.Name, yearStr))
+		gameName := fmt.Sprintf("%s%s", g.Name, yearStr)
+		listBuilder.WriteString(fmt.Sprintf("%d. %s\n", i+1, gameName))
+		gameNames = append(gameNames, gameName)
 	}
 	listBuilder.WriteString("\nClick a numbered button (1-5) below to create a thread for that game.")
+
+	// Log the game suggestions shown to the user
+	userMention := "Member"
+	if i.Member != nil {
+		userMention = i.Member.Mention()
+	}
+	logDescription := fmt.Sprintf("%s clicked to create a thread for **\"%s\"**\n\n**Game suggestions shown:**\n• %s",
+		userMention, gameName, strings.Join(gameNames, "\n• "))
+	if err := utils.LogToChannel(m.config, s, logDescription); err != nil {
+		m.config.Logger.Errorf("LFG: failed to log game suggestions: %v", err)
+	}
 
 	embed := createThreadSuggestionsEmbed(listBuilder.String())
 	embedSlice := []*discordgo.MessageEmbed{embed}
@@ -310,24 +329,9 @@ func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discor
 
 	norm := strings.ToLower(game.Name)
 	if ch, exists := m.findCachedExactThread(s, forumID, norm); exists {
+		m.logThreadCreationOutcome(s, i, game.Name, ch, false)
 		finalizeSuggestionThreadResponse(s, i, ch, false)
 		return
-	}
-
-	// Log the selected game JSON for auditing
-	memberMention := "Member"
-	if i.Member != nil {
-		memberMention = i.Member.Mention()
-	}
-	if b, err := json.MarshalIndent(game, "", "  "); err == nil {
-		logMessage := fmt.Sprintf("%s selected game ID %d (\"%s\"):", memberMention, game.ID, game.Name)
-		if err := utils.LogToChannel(m.config, s, logMessage); err != nil {
-			m.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
-		}
-
-		if err := utils.LogToChannelWithFile(m.config, s, string(b)); err != nil {
-			m.config.Logger.Errorf("LFG: failed to log selected game: %v", err)
-		}
 	}
 
 	ch, err := m.createLFGThreadFromExactMatch(s, forumID, norm, game)
@@ -335,6 +339,7 @@ func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discor
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
 		return
 	}
+	m.logThreadCreationOutcome(s, i, game.Name, ch, true)
 	finalizeSuggestionThreadResponse(s, i, ch, true)
 }
 
@@ -343,4 +348,24 @@ func finalizeSuggestionThreadResponse(s *discordgo.Session, i *discordgo.Interac
 	embed := threadCreatedEmbed(ch, created)
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice}})
+}
+
+// logThreadCreationOutcome logs when a user selects a game and the outcome
+func (m *LfgModule) logThreadCreationOutcome(s *discordgo.Session, i *discordgo.InteractionCreate, gameName string, ch *discordgo.Channel, created bool) {
+	userMention := "Member"
+	if i.Member != nil {
+		userMention = i.Member.Mention()
+	}
+
+	outcome := "returned existing thread"
+	if created {
+		outcome = "created new thread"
+	}
+
+	logDescription := fmt.Sprintf("%s selected **\"%s\"**\n\n**Outcome:** %s\n**Thread:** %s",
+		userMention, gameName, outcome, ch.Mention())
+
+	if err := utils.LogToChannel(m.config, s, logDescription); err != nil {
+		m.config.Logger.Errorf("LFG: failed to log thread creation outcome: %v", err)
+	}
 }

@@ -18,6 +18,7 @@ global config file.
 | `/game` | Look up information about a video game from IGDB |
 | `/time` | Time-related utilities for converting dates to Discord timestamps |
 | `/lfg now` | Mark yourself as looking now inside an LFG thread |
+| `/game-thread` | Find a game thread by searching the LFG forum (with autocomplete) |
 
 ### Moderator Commands (Ban Members Permission)
 | Command | Description |

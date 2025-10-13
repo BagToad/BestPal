@@ -169,10 +169,10 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 
 	var threadsShown []string
 	if exactThreadChannel != nil {
-		threadsShown = append(threadsShown, exactThreadChannel.Name)
+		threadsShown = append(threadsShown, exactThreadChannel.Mention())
 	}
 	for _, suggestion := range partialThreadSuggestions {
-		threadsShown = append(threadsShown, suggestion.Name)
+		threadsShown = append(threadsShown, suggestion.Mention())
 	}
 
 	logDescription := fmt.Sprintf("%s searched for **\"%s\"**", userMention, gameName)

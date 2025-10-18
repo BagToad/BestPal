@@ -1,101 +1,110 @@
 # Best Pal
 
-Built for [r/GamerPals](https://www.reddit.com/r/GamerPals). Join the discord at [discord.gg/gamerpals](https://discord.gg/gamerpals).
+Discord bot for the [r/GamerPals](https://www.reddit.com/r/GamerPals) community.
+Join: [discord.gg/gamerpals](https://discord.gg/gamerpals)
 
-It's a work in progress, and probably always will be.
-
-Note that this bot is coded to only work with a single server per bot instance since channel IDs are all set in a
-global config file.
+Modular architecture: each feature lives in `internal/commands/modules/<name>`.
+Single‑guild by design (`config.yaml` holds IDs).
 
 ## Slash Commands
 
-### Public Commands (Everyone)
+### Public (Everyone)
 | Command | Description |
 |---------|-------------|
-| `/ping` | Check if the bot is responsive |
-| `/intro` | Look up a user's latest introduction post from the introductions forum |
-| `/help` | Display all available commands |
-| `/game` | Look up information about a video game from IGDB |
-| `/time` | Time-related utilities for converting dates to Discord timestamps |
-| `/lfg now` | Mark yourself as looking now inside an LFG thread |
-| `/game-thread` | Find a game thread by searching the LFG forum (with autocomplete) |
+| `/ping` | Bot health check |
+| `/help` | List available commands |
+| `/intro` | Find a user's intro forum post |
+| `/game` | IGDB game lookup |
+| `/time` | Convert dates → Discord timestamps |
+| `/game-thread` | Autocomplete search for LFG game threads |
+| `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
+| `/roulette signup` | Sign up for roulette pairing |
+| `/roulette nah` | Remove yourself from pairing |
+| `/roulette games-add` | Add games to your pairing list |
+| `/roulette games-remove` | Remove games from your pairing list |
+| `/roulette help` | Show roulette help |
 
-### Moderator Commands (Ban Members Permission)
+### Moderator (Ban Members Permission)
 | Command | Description |
 |---------|-------------|
-| `/userstats` | Show member statistics for the server |
-| `/say` | Send an anonymous message to a specified channel |
-| `/schedulesay` | Schedule an anonymous message to be sent later |
-| `/listscheduledsays` | List the next 20 scheduled messages |
+| `/say` | Send an anonymous message to a channel |
+| `/schedulesay` | Schedule an anonymous message |
+| `/listscheduledsays` | List next scheduled messages |
 | `/cancelscheduledsay` | Cancel a scheduled message by ID |
-| `/lfg-admin setup-find-a-thread` | Set up the LFG find-a-thread panel |
-| `/lfg-admin setup-looking-now` | Set up the 'Looking NOW' feed channel |
-| `/lfg-admin refresh-thread-cache` | Rebuild the LFG thread cache |
+| `/lfg setup-find-a-thread` | Set up the LFG find-a-thread panel |
+| `/lfg setup-looking-now` | Set up the "Looking NOW" feed channel |
+| `/lfg refresh-thread-cache` | Rebuild LFG thread cache (includes archived) |
+| `/userstats` | Show server member statistics |
 
-### Administrator Commands
+### Administrator (Administrator Permission)
 | Command | Description |
 |---------|-------------|
-| `/prune-inactive` | Remove users without any roles (dry run by default) |
+| `/prune-inactive` | Remove users with no roles (dry-run by default) |
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
+| `/roulette-admin help` | Show admin roulette help |
+| `/roulette-admin debug` | Debug info about roulette system |
+| `/roulette-admin pair` | Schedule or execute pairing (supports time / immediate / dryrun) |
+| `/roulette-admin simulate-pairing` | Simulate pairing with fake users |
+| `/roulette-admin reset` | Delete all existing pairing channels |
+| `/roulette-admin delete-schedule` | Remove the scheduled pairing time |
 
-### Super-Admin Commands (DM Only)
+### Super-Admin (DM Only; IDs listed in `config.yaml`)
 | Command | Description |
 |---------|-------------|
-| `/config` | View or modify the bot configuration |
-| `/refresh-igdb` | Refresh the IGDB client token |
-| `/log` | Log file management commands |
+| `/config` | View / modify bot configuration |
+| `/refresh-igdb` | Refresh IGDB API token |
+| `/log` | Retrieve / manage bot logs |
+
+### Service / Background Modules (No direct slash commands)
+| Module | Purpose |
+|--------|---------|
+| `welcome` | Scheduled member welcome tasks |
+| `say` | Dispatch scheduled anonymous messages |
+| `roulette` | Automated pairing execution when scheduled |
 
 ## Quick Start
 
 ### Prerequisites
+| Item | Why |
+|------|-----|
+| Go 1.23+ | Build & run the bot |
+| Discord bot token | Auth to Discord API |
+| IGDB client id/secret | Game lookup & metadata features |
 
-- Go 1.23 or higher
-- A Discord bot token (see [Discord Developer Portal](https://discord.com/developers/applications))
+### Adding a Module (Summary)
+Create `internal/commands/modules/<name>/`, implement `New` + `Register`, optional `Service()`, then add to `registerModules()`.
 
-## Development
+## Architecture
 
-### Building
+Reference docs: `docs/ARCHITECTURE.md` (concepts), `docs/ARCHITECTURE_DIAGRAM.md` (visuals).
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/bagtoad/bestpal.git
-   cd bestpal
-   ```
+### Core Pieces
+| File/Dir | Role |
+|----------|------|
+| `internal/commands/module_handler.go` | Registers modules & routes interactions |
+| `internal/commands/types/` | Interfaces: `CommandModule`, `ModuleService`, `Dependencies` |
+| `internal/commands/modules/` | One folder per feature (slash commands + helpers) |
 
-2. Configure your bot:
-   ```bash
-   cp config.example.yaml config.yaml
-   # Edit config.yaml with your bot token
-   ```
+### Module Pattern
+Each module provides:
+1. `New(deps *types.Dependencies)` – construct module with shared resources.
+2. `Register(cmds map[string]*types.Command, deps *types.Dependencies)` – define slash command(s).
+3. (Optional) `Service() types.ModuleService` – background lifecycle hooks.
 
-3. Build and run:
-   ```bash
-   make run
-   ```
+### Services
+| Module | Service Functionality |
+|--------|-----------------------|
+| `say` | Scheduled message dispatch |
+| `roulette` | Pairing scheduling/execution engine |
+| `welcome` | New member welcome workflow |
 
-## Configuration
+### Interaction Routing
+UI interactions (modals/components) for complex modules (e.g. LFG) are forwarded directly to the module for cohesion. This keeps embedding/modal logic local to the feature.
 
-The bot uses environment variables for configuration:
+## Deployment
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DISCORD_BOT_TOKEN` | Your Discord bot token | *required* |
-
-## Bot Permissions
-
-The bot requires the following permissions:
-- ✅ **Use Slash Commands**
-- ✅ **View Channels**
-- ✅ **Send Messages**
-- ✅ **Read Server Members** (for user statistics and prune functionality)
-- ✅ **Kick Members** (for prune functionality)
-
-## Adding New Commands
-
-To add a new slash command:
-
-1. Add the command definition to `NewSlashHandler()` in `internal/commands/handler.go`
-2. Create a new file in `internal/commands/` with your command handler (following the pattern `handle{CommandName}`)
+Add `deploy-dev` label to a PR → CI deploys branch to dev bot automatically (no manual config). Production deploy uses same pipeline without the label.
+If config changes required, coordinate via Discord before merging.
 
 ## Contributing
 
@@ -110,7 +119,8 @@ However, given the complexity of deploying the changes requiring a bot token, IG
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Copyright (c) 2023 Kynan Ware all rights reserved.
+
 
 ## Support
 

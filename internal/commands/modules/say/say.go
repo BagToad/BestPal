@@ -183,8 +183,6 @@ func (m *SayModule) handleSay(s *discordgo.Session, i *discordgo.InteractionCrea
 		}
 	}
 
-	messageContent = fmt.Sprintf("**On behalf of moderator:**\n\n%s\n\n**Do not reply to this message, replies or not monitored**", messageContent)
-
 	// Validate inputs
 	if targetChannelID == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -458,6 +456,8 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 		})
 		return
 	}
+
+	messageContent = fmt.Sprintf("**On behalf of moderator:**\n\n%s\n\n**Do not reply to this message, replies or not monitored**", messageContent)
 
 	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
 	if err != nil {

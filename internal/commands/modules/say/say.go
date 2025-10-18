@@ -134,7 +134,7 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 				{
 					Type:        discordgo.ApplicationCommandOptionUser,
 					Name:        "user",
-					Description: "The user for LillyBot to send the DM to",
+					Description: "The user to send the DM to",
 					Required:    true,
 				},
 				{

@@ -99,10 +99,14 @@ To add a new slash command:
 
 ## Contributing
 
+Generally, you can follow this approach:
+
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
 4. Submit a pull request
+
+However, given the complexity of deploying the changes requiring a bot token, IGDB token, config file, etc. it's dramatically easier for you to contribute if you test your changes using the development bot instance by adding the `deploy-dev` labels to PRs. Adding this label will automatically deploy your branch to the developement bot instance without you needing to configure anything. If you don't have access to label PRs, please reach out in the GamerPals discord server at https://discord.gg/gamerpals. If you need to make manual config changes on either the production bot or developement bot, that's another reason to reach out in the Discord.
 
 ## License
 

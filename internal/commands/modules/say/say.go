@@ -38,13 +38,7 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 					Type:        discordgo.ApplicationCommandOptionChannel,
 					Name:        "channel",
 					Description: "The channel to send the message to",
-					Required:    false,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user",
-					Description: "The user to send the message to",
-					Required:    false,
+					Required:    true,
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
@@ -129,146 +123,65 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		},
 		HandlerFunc: m.handleCancelScheduledSay,
 	}
+
+	cmds["directsay"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "directsay",
+			Description:              "Have LillyBot directly message a user",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "The user for LillyBot to send the DM to",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "message",
+					Description: "The message content",
+					Required:    true,
+				},
+			},
+		},
+		HandlerFunc: m.handleDirectSay,
+	}
 }
 
 // Service returns the module as the service
 func (m *SayModule) Service() types.ModuleService {
 	return m.service
 }
-
 func (m *SayModule) handleSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Parse command options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 2 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Missing required parameters. Please specify user or channel and message.",
+				Content: "❌ Missing required parameters. Please specify both channel and message.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 
-	// Determining which handler function to call
-	var target_user *discordgo.User
-	var target_channel *discordgo.Channel
-	var message string
-	var suppress bool
+	// Get channel and message from options
+	var targetChannelID string
+	var messageContent string
+	var suppressModMessage bool
 
 	for _, option := range options {
 		switch option.Name {
-		case "user":
-			target_user = option.UserValue(s)
 		case "channel":
-			target_channel = option.ChannelValue(s)
+			targetChannelID = option.ChannelValue(s).ID
 		case "message":
-			message = option.StringValue()
+			messageContent = option.StringValue()
 		case "suppressmodmessage":
-			suppress = option.BoolValue()
+			suppressModMessage = option.BoolValue()
 		}
 	}
-
-	if target_user == nil && target_channel == nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Missing required parameter. Please specify either a user or channel",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	if target_user != nil && target_channel != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Please specify only one: user **or** channel",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	if target_channel != nil {
-		handleSayChannel(s, i, target_channel, message, suppress)
-	} else {
-		handleSayUser(s, i, target_user, message, suppress)
-	}
-}
-
-func handleSayUser(s *discordgo.Session, i *discordgo.InteractionCreate, u *discordgo.User, m string, suppress bool) {
-	// Get user ID and message from arguments
-	var targetUserID string = u.ID
-	var messageContent string = m
-	var suppressModMessage bool = suppress
-
-	targetUserChannel, err := s.UserChannelCreate(targetUserID)
-	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("❌ Could not DM %s. They may have DMs disabled.", u.Username),
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	if !suppressModMessage {
-		messageContent = fmt.Sprintf("**On behalf of moderator**\n\n%s", messageContent)
-	}
-
-	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
-	if err != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: fmt.Sprintf("❌ Failed to send DM to %s.", u.Username),
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-	}
-
-	// Create confirmation embed for the admin
-	embed := &discordgo.MessageEmbed{
-		Title:       "✅ Message Sent Successfully",
-		Description: fmt.Sprintf("Your anonymous message has been sent to %s", u.Username),
-		Color:       utils.Colors.Ok(),
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "User",
-				Value:  u.Username,
-				Inline: true,
-			},
-			{
-				Name:   "Message ID",
-				Value:  sentMessage.ID,
-				Inline: true,
-			},
-			{
-				Name:   "Message Content",
-				Value:  fmt.Sprintf("```%s```", messageContent),
-				Inline: false,
-			},
-		},
-	}
-
-	// Respond to the admin with confirmation (ephemeral)
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Embeds: []*discordgo.MessageEmbed{embed},
-			Flags:  discordgo.MessageFlagsEphemeral,
-		},
-	})
-}
-
-func handleSayChannel(s *discordgo.Session, i *discordgo.InteractionCreate, c *discordgo.Channel, m string, suppress bool) {
-	// Get channel ID and message from arguments
-	var targetChannelID string = c.ID
-	var messageContent string = m
-	var suppressModMessage bool = suppress
 
 	// Validate inputs
 	if targetChannelID == "" {
@@ -504,4 +417,87 @@ func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.
 	} else {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("No scheduled say with ID %d found", idVal), Flags: discordgo.MessageFlagsEphemeral}})
 	}
+}
+
+func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Parse command options
+	options := i.ApplicationCommandData().Options
+	if len(options) < 2 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Missing required parameters. Please specify both user and message.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	// Get user ID and message from arguments
+	var targetUser *discordgo.User
+	var messageContent string
+
+	for _, option := range options {
+		switch option.Name {
+		case "user":
+			targetUser = option.UserValue(s)
+		case "message":
+			messageContent = option.StringValue()
+		}
+	}
+
+	targetUserChannel, err := s.UserChannelCreate(targetUser.ID)
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ Could not DM %s. They may have DMs disabled.", targetUser.Username),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
+	if err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ Failed to send DM to %s.", targetUser.Username),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	}
+
+	// Create confirmation embed for the admin
+	embed := &discordgo.MessageEmbed{
+		Title:       "✅ Message Sent Successfully",
+		Description: fmt.Sprintf("Your anonymous message has been sent to %s", targetUser.Username),
+		Color:       utils.Colors.Ok(),
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "User",
+				Value:  targetUser.Username,
+				Inline: true,
+			},
+			{
+				Name:   "Message ID",
+				Value:  sentMessage.ID,
+				Inline: true,
+			},
+			{
+				Name:   "Message Content",
+				Value:  fmt.Sprintf("```%s```", messageContent),
+				Inline: false,
+			},
+		},
+	}
+
+	// Respond to the admin with confirmation (ephemeral)
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
+		},
+	})
 }

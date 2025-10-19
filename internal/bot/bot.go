@@ -42,8 +42,8 @@ func New(cfg *config.Config) (*Bot, error) {
 		commandModuleHandler: handler,
 	}
 
-	// Set intents - we need guild, member, message, and message content intents
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent
+	// Set intents - we need guild, member, message, message content, direct message intents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)

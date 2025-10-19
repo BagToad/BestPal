@@ -123,6 +123,30 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		},
 		HandlerFunc: m.handleCancelScheduledSay,
 	}
+
+	cmds["directsay"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "directsay",
+			Description:              "Have LillyBot directly message a user",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "The user to send the DM to",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "message",
+					Description: "The message content",
+					Required:    true,
+				},
+			},
+		},
+		HandlerFunc: m.handleDirectSay,
+	}
 }
 
 // Service returns the module as the service
@@ -393,4 +417,89 @@ func (m *SayModule) handleCancelScheduledSay(s *discordgo.Session, i *discordgo.
 	} else {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: fmt.Sprintf("No scheduled say with ID %d found", idVal), Flags: discordgo.MessageFlagsEphemeral}})
 	}
+}
+
+func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Parse command options
+	options := i.ApplicationCommandData().Options
+	if len(options) < 2 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Missing required parameters. Please specify both user and message.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	// Get user ID and message from arguments
+	var targetUser *discordgo.User
+	var messageContent string
+
+	for _, option := range options {
+		switch option.Name {
+		case "user":
+			targetUser = option.UserValue(s)
+		case "message":
+			messageContent = option.StringValue()
+		}
+	}
+
+	targetUserChannel, err := s.UserChannelCreate(targetUser.ID)
+	if err != nil {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ Could not DM %s. They may have DMs disabled.", targetUser.Username),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	messageContent = fmt.Sprintf("**On behalf of moderator:**\n\n%s\n\n**Do not reply to this message, replies are not monitored**", messageContent)
+
+	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
+	if err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ Failed to send DM to %s.", targetUser.Username),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+	}
+
+	// Create confirmation embed for the admin
+	embed := &discordgo.MessageEmbed{
+		Title:       "✅ Message Sent Successfully",
+		Description: fmt.Sprintf("Your anonymous message has been sent to %s", targetUser.Username),
+		Color:       utils.Colors.Ok(),
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "User",
+				Value:  targetUser.Username,
+				Inline: true,
+			},
+			{
+				Name:   "Message ID",
+				Value:  sentMessage.ID,
+				Inline: true,
+			},
+			{
+				Name:   "Message Content",
+				Value:  fmt.Sprintf("```%s```", messageContent),
+				Inline: false,
+			},
+		},
+	}
+
+	// Respond to the admin with confirmation (ephemeral)
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{embed},
+			Flags:  discordgo.MessageFlagsEphemeral,
+		},
+	})
 }

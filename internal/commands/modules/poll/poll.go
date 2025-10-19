@@ -56,18 +56,19 @@ func (m *PollModule) handleQuickPoll(s *discordgo.Session, i *discordgo.Interact
 
 	var optionCount int = int(options[0].IntValue())
 
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "✅ Creating quick-poll!",
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+
 	// Create message for the bot to react to
-	msg, err := s.FollowupMessageCreate(i.Interaction, false, &discordgo.WebhookParams{
+	msg, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: "📠 Quick Poll Created! **React below to vote!**",
 	})
 	if err != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Failed to create poll message.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
 		return
 	}
 

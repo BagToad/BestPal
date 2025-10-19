@@ -23,7 +23,7 @@ func (m *LfgModule) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionC
 	ch, err := s.Channel(i.ChannelID)
 	if err != nil || ch == nil || ch.ParentID != forumID {
 		forumChannelID := m.config.GetGamerPalsLFGForumChannelID()
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ This command must be used inside the desired games forum in <#%s>.", forumChannelID))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ This command must be used inside a thread in the game forum <#%s>.", forumChannelID))})
 		return
 	}
 

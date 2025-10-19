@@ -9,6 +9,7 @@ import (
 	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/commands/modules/log"
 	"gamerpal/internal/commands/modules/ping"
+	"gamerpal/internal/commands/modules/poll"
 	"gamerpal/internal/commands/modules/prune"
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/roulette"
@@ -93,6 +94,7 @@ func (h *ModuleHandler) registerModules() {
 		{"lfg", lfg.New(h.deps)},
 		{"roulette", roulette.New(h.deps)},
 		{"welcome", welcome.New(h.deps)},
+		{"poll", poll.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -102,7 +104,7 @@ func (h *ModuleHandler) registerModules() {
 				rm.SetIGDBClientRef(&h.igdbClient)
 			}
 		}
-		
+
 		m.module.Register(h.commands, h.deps)
 		h.modules[m.name] = m.module
 	}
@@ -112,7 +114,8 @@ func (h *ModuleHandler) registerModules() {
 // This is used for external access (scheduler, bot event handlers).
 //
 // Example usage:
-//   sayMod, ok := handler.GetModule("say").(*say.SayModule)
+//
+//	sayMod, ok := handler.GetModule("say").(*say.SayModule)
 func (h *ModuleHandler) GetModule(name string) types.CommandModule {
 	return h.modules[name]
 }
@@ -207,7 +210,7 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check which command is being autocompleted
 	commandName := i.ApplicationCommandData().Name
-	
+
 	// Currently only game-thread command (in LFG module) uses autocomplete
 	if commandName == "game-thread" {
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
@@ -243,7 +246,7 @@ func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	// Update dependencies with session
 	h.deps.Session = s
-	
+
 	// Hydrate services for all modules with the Discord session
 	for _, module := range h.modules {
 		if service := module.Service(); service != nil {
@@ -252,7 +255,7 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -270,7 +273,7 @@ func (h *ModuleHandler) RegisterModuleSchedulers(scheduler interface {
 					scheduler.RegisterNewMinuteFunc(fn)
 				}
 			}
-			
+
 			// Register hour functions
 			if hourFuncs := service.HourFuncs(); hourFuncs != nil {
 				for _, fn := range hourFuncs {

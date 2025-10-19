@@ -72,8 +72,8 @@ func (m *PollModule) handleQuickPoll(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	var emojiArray []string = []string{
-		"1️⃣", " 2️⃣", "3️⃣", " 4️⃣", " 5️⃣",
-		" 6️⃣", "7️⃣", " 8️⃣", "9️⃣", "🔟",
+		"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣",
+		"6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟",
 	}
 
 	for j := 0; j < optionCount && j < len(emojiArray); j++ {

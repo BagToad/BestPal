@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -447,7 +448,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 
 	targetUserChannel, err := s.UserChannelCreate(targetUser.ID)
 	if err != nil {
-		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: fmt.Sprintf("❌ Could not DM %s. They may have DMs disabled.", targetUser.Username),
@@ -502,4 +503,24 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 			Flags:  discordgo.MessageFlagsEphemeral,
 		},
 	})
+
+	// Log to the bestpal log channel
+	logMsg := heredoc.Docf(`
+		[DirectSay Sent]
+		User: %s (%s)
+		Moderator: %s (%s)
+		Length: %d
+		Preview: %.10q
+	`,
+		targetUser.String(),
+		targetUser.ID,
+		i.Member.User.String(),
+		i.Member.User.ID,
+		len(messageContent),
+		messageContent[:min(10, len(messageContent))],
+	)
+
+	if err := utils.LogToChannel(m.service.cfg, s, logMsg); err != nil {
+		m.service.cfg.Logger.Errorf("failed logging direct say: %v", err)
+	}
 }

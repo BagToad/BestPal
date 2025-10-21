@@ -3,6 +3,7 @@ package say
 import (
 	"fmt"
 	"gamerpal/internal/commands/types"
+	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"strings"
 	"time"
@@ -13,12 +14,14 @@ import (
 
 // Module implements the CommandModule interface for say commands
 type SayModule struct {
+	config  *config.Config
 	service *Service
 }
 
 // New creates a new say module
 func New(deps *types.Dependencies) *SayModule {
 	return &SayModule{
+		config:  deps.Config,
 		service: NewService(deps.Config),
 	}
 }
@@ -458,7 +461,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 		return
 	}
 
-	messageContent = fmt.Sprintf("**On behalf of moderator:**\n\n%s\n\n**Do not reply to this message, replies are not monitored**", messageContent)
+	messageContent = fmt.Sprintf("**On behalf of a GamerPals Moderator:**\n\n%s\n\n**Do not reply to this message, replies are not monitored**", messageContent)
 
 	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
 	if err != nil {

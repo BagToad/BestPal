@@ -439,7 +439,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 	// Get user ID and message from arguments
 	var targetUser *discordgo.User
 	var messageContent string
-	var helpDeskID string = m.config.GetGamerPalsHelpDeskChannelID()
+	helpDeskID := m.config.GetGamerPalsHelpDeskChannelID()
 
 	for _, option := range options {
 		switch option.Name {

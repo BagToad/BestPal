@@ -439,6 +439,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 	// Get user ID and message from arguments
 	var targetUser *discordgo.User
 	var messageContent string
+	var helpDeskID string = m.config.GetGamerPalsHelpDeskChannelID()
 
 	for _, option := range options {
 		switch option.Name {
@@ -462,6 +463,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 	}
 
 	messageContent = fmt.Sprintf("**On behalf of a GamerPals Moderator:**\n\n%s\n\n**Do not reply to this message, replies are not monitored**", messageContent)
+	messageContent = fmt.Sprintf("%s\n\n**If you need any assistance, please visit the GamerPals <#%s> channel.**", messageContent, helpDeskID)
 
 	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
 	if err != nil {

@@ -463,7 +463,7 @@ func (m *SayModule) handleDirectSay(s *discordgo.Session, i *discordgo.Interacti
 	}
 
 	messageContent = fmt.Sprintf("**On behalf of a GamerPals Moderator:**\n\n%s\n\n**Do not reply to this message, replies are not monitored**", messageContent)
-	messageContent = fmt.Sprintf("%s\n\n**If you need any assistance, please visit the GamerPals <#%s> channel.**", messageContent, helpDeskID)
+	messageContent = fmt.Sprintf("%s\n\n**If you need any assistance, please visit the GamerPals <#%s> channel and open a ticket.**", messageContent, helpDeskID)
 
 	sentMessage, err := s.ChannelMessageSend(targetUserChannel.ID, messageContent)
 	if err != nil {

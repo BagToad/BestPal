@@ -46,6 +46,10 @@ func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 	return c.v.GetString("gamerpals_introductions_forum_channel_id")
 }
 
+func (c *Config) GetGamerPalsHelpDeskChannelID() string {
+	return c.v.GetString("gamerpals_help_desk_channel_id")
+}
+
 func (c *Config) GetGamerPalsLFGForumChannelID() string {
 	return c.v.GetString("gamerpals_lfg_forum_channel_id")
 }

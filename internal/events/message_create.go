@@ -1,6 +1,7 @@
 package events
 
 import (
+	"fmt"
 	"gamerpal/internal/config"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,7 +17,8 @@ func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *conf
 	channel, err := s.Channel(m.ChannelID)
 	if err == nil {
 		if channel.Type == discordgo.ChannelTypeDM {
-			s.ChannelMessageSend(m.ChannelID, "**DMs are not monitored. For help please see the help-desk channel in the GamerPals Discord**")
+			helpDeskID := cfg.GetGamerPalsHelpDeskChannelID()
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("**DMs are not monitored. For help please see <#%s> in the GamerPals Discord**", helpDeskID))
 		}
 	}
 

@@ -93,15 +93,20 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	newPalsMentionsString := strings.Join(newPalsMentions, " ")
 
 	welcomeMessage := heredoc.Docf(`
-	%s
+		%s
 
-	Hi!! Welcome! :green_heart:
+		Hi!! Welcome! 💚
 
-	I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
+		I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
 
-	If you prefer to jump right into the main chat with the regulars, please do!
+		If you prefer to jump right into the main chat with the regulars, please do!
 
-	Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
+		Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
+
+		Here are a few key areas of the server you might be looking for as a new member:
+		<#1375605443933507694> - Post an introduction here to let others find you!
+		<#1414445853816524830> - Right click & follow *and/or* comment on the games you like to keep up with LFG posts for your favs!
+		<#1414752418758918144> - Check out our current events & niche clubs where you can meet new friends with shared interests
 	`,
 		newPalsMentionsString,
 	)

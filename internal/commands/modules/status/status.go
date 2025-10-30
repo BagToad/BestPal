@@ -49,14 +49,6 @@ func (m *StatusModule) handleStatus(s *discordgo.Session, i *discordgo.Interacti
 		}
 	}
 
-	if text == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{Content: "❌ You must provide status text.", Flags: discordgo.MessageFlagsEphemeral},
-		})
-		return
-	}
-
 	if len([]rune(text)) > 128 { // Discord activity name limit safeguard
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

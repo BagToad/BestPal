@@ -14,6 +14,7 @@ import (
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/roulette"
 	"gamerpal/internal/commands/modules/say"
+	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/time"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
@@ -95,6 +96,7 @@ func (h *ModuleHandler) registerModules() {
 		{"roulette", roulette.New(h.deps)},
 		{"welcome", welcome.New(h.deps)},
 		{"poll", poll.New(h.deps)},
+		{"status", status.New(h.deps)},
 	}
 
 	for _, m := range modules {

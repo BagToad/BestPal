@@ -65,6 +65,14 @@ func (m *StatusModule) handleStatus(s *discordgo.Session, i *discordgo.Interacti
 		return
 	}
 
+	// Log the attempt and who requested it
+	mentionText := "Member"
+	if i.Member != nil {
+		mentionText = i.Member.User.Mention()
+	}
+
+	m.config.Logger.Infof("Updating status to: %s (requested by: %s)", text, mentionText)
+
 	// Attempt to update presence
 	if err := s.UpdateGameStatus(0, text); err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

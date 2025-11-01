@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -165,7 +166,32 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 }
 
 // normalizeName produces the canonical comparison form of a thread name.
-func normalizeName(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+func normalizeName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	prevSpace := false
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevSpace = false
+			continue
+		}
+		if r == ' ' { // preserve single spaces
+			if !prevSpace {
+				b.WriteRune(' ')
+				prevSpace = true
+			}
+			continue
+		}
+		// Drop punctuation/symbols entirely (do not insert spaces) so internal punctuation like
+		// "R.E.P.O" normalizes to "repo" (query "repo" matches exact) and "No-Man's" -> "nomans".
+		// This favors contiguous matching; users typing without punctuation get expected hits.
+	}
+	return strings.TrimSpace(b.String())
+}
 
 // latestTieBreak returns true if a should replace b as latest given CreatedAt then ID lexicographic.
 func latestTieBreak(a, b *ThreadMeta) bool {

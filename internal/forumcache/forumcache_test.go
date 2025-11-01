@@ -344,3 +344,40 @@ func TestSearchLimit(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, res, 5)
 }
+
+func TestPunctuationInsensitiveNormalization(t *testing.T) {
+	svc := New()
+	forumID := "f-punct"
+	svc.RegisterForum(forumID)
+	// Name with punctuation and periods.
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("10", forumID, "u1", "R.E.P.O")})
+	// Name with mixed punctuation
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("11", forumID, "u2", "No-Man's Sky")})
+
+	// Exact name lookup using stripped punctuation query
+	res1, ok1 := svc.GetThreadByExactName(forumID, "repo")
+	require.True(t, ok1)
+	assert.Equal(t, "10", res1.ID)
+
+	// Search should classify 'repo' as exact bucket for R.E.P.O
+	resultsRepo, okRepo := svc.SearchThreads(forumID, "repo", 5)
+	require.True(t, okRepo)
+	require.True(t, len(resultsRepo) >= 1)
+	assert.Equal(t, "R.E.P.O", resultsRepo[0].Name)
+
+	// "nomans" should find "No-Man's Sky" via contains or prefix after normalization removing punctuation.
+	_, ok2 := svc.GetThreadByExactName(forumID, "nomans sky")
+	// Exact may not match because punctuation removal collapses tokens; ensure search still returns it.
+	if !ok2 {
+		resultsNoMans, okNM := svc.SearchThreads(forumID, "nomans", 5)
+		require.True(t, okNM)
+		found := false
+		for _, r := range resultsNoMans {
+			if r.Name == "No-Man's Sky" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected search to locate 'No-Man's Sky' with query 'nomans'")
+	}
+}

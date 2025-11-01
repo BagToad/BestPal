@@ -77,7 +77,6 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 		targetUser = i.Member.User
 	}
 
-	// Acknowledge the interaction immediately as this might take time
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})

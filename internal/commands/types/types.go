@@ -62,6 +62,6 @@ type Dependencies struct {
 	Config     *config.Config
 	DB         *database.DB
 	IGDBClient *igdb.Client
-	Session    *discordgo.Session  // Set after bot initialization
-	ForumCache *forumcache.Service // Hydrated and registered by bot
+	Session    *discordgo.Session
+	ForumCache *forumcache.Service
 }

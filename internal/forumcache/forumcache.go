@@ -56,6 +56,32 @@ type Service struct {
 	session *discordgo.Session     // hydrated after bot connects
 }
 
+// threadLister abstracts active + archived thread listing for RefreshForum logic.
+// Returns raw slices of channels to keep the interface independent of discordgo response structs.
+type threadLister interface {
+	ListActiveThreads(guildID string) ([]*discordgo.Channel, error)
+	ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error)
+}
+
+// sessionLister adapts a discordgo.Session to threadLister.
+type sessionLister struct{ *discordgo.Session }
+
+func (sl sessionLister) ListActiveThreads(guildID string) ([]*discordgo.Channel, error) {
+	active, err := sl.GuildThreadsActive(guildID)
+	if err != nil || active == nil {
+		return nil, err
+	}
+	return active.Threads, nil
+}
+
+func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error) {
+	archived, err := sl.ThreadsArchived(forumID, before, limit)
+	if err != nil || archived == nil {
+		return nil, false, err
+	}
+	return archived.Threads, archived.HasMore, nil
+}
+
 // New creates a new Service.
 func New() *Service {
 	return &Service{forums: make(map[string]*forumIndex)}
@@ -78,42 +104,44 @@ func (s *Service) RefreshForum(guildID, forumID string) error {
 	if s.session == nil {
 		return fmt.Errorf("forum cache not hydrated with session")
 	}
-	s.RegisterForum(forumID) // ensure exists
+	return s.refreshForumWithLister(guildID, forumID, sessionLister{s.session})
+}
+
+// refreshForumWithLister contains the core logic, parameterized by a threadLister for test seams.
+func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister) error {
+	s.RegisterForum(forumID)
 	idx := s.forums[forumID]
 
-	// Local temp maps to avoid partial writes.
 	tempThreads := make(map[string]*ThreadMeta)
 	tempOwnerLatest := make(map[string]*ThreadMeta)
 
-	// 1. Active threads (guild-wide list) filter by ParentID.
-	active, err := s.session.GuildThreadsActive(guildID)
+	activeThreads, err := l.ListActiveThreads(guildID)
 	if err != nil {
 		idx.mu.Lock()
 		idx.fullSyncErrs++
 		idx.mu.Unlock()
 		return fmt.Errorf("listing active threads failed: %w", err)
 	}
-	for _, th := range active.Threads {
+	for _, th := range activeThreads {
 		if th.ParentID != forumID {
 			continue
 		}
 		s.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, th)
 	}
 
-	// 2. Archived threads (paginate) – best effort, ignore errors mid-way.
 	var before *time.Time
 	for {
-		archived, aErr := s.session.ThreadsArchived(forumID, before, 50)
-		if aErr != nil || archived == nil || len(archived.Threads) == 0 {
+		archivedThreads, hasMore, aErr := l.ListArchivedThreads(forumID, before, 50)
+		if aErr != nil || len(archivedThreads) == 0 {
 			break
 		}
-		for _, th := range archived.Threads {
+		for _, th := range archivedThreads {
 			s.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, th)
 		}
-		if !archived.HasMore {
+		if !hasMore {
 			break
 		}
-		last := archived.Threads[len(archived.Threads)-1]
+		last := archivedThreads[len(archivedThreads)-1]
 		if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil {
 			t := ts
 			before = &t
@@ -122,7 +150,6 @@ func (s *Service) RefreshForum(guildID, forumID string) error {
 		}
 	}
 
-	// Commit under lock.
 	now := time.Now()
 	idx.mu.Lock()
 	idx.threads = tempThreads
@@ -316,7 +343,8 @@ func (s *Service) OnThreadDelete(_ *discordgo.Session, e *discordgo.ThreadDelete
 	idx.mu.Unlock()
 }
 
-// OnThreadListSync can refresh known subset – here we just mark anomalies if forum not registered; otherwise treat as soft rebuild for listed threads only.
+// OnThreadListSync can refresh known subset – here we just mark anomalies if forum not registered;
+// otherwise treat as soft rebuild for listed threads only.
 func (s *Service) OnThreadListSync(_ *discordgo.Session, e *discordgo.ThreadListSync) {
 	if e == nil {
 		return

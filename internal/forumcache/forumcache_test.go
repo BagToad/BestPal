@@ -1,6 +1,7 @@
 package forumcache
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -31,9 +32,10 @@ func TestSeedMetaOwnerLatest(t *testing.T) {
 	// Use temp maps like RefreshForum would.
 	tempThreads := make(map[string]*ThreadMeta)
 	tempOwnerLatest := make(map[string]*ThreadMeta)
+	tempNameExact := make(map[string]*ThreadMeta)
 
-	service.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, mockThread("100", forumID, "ownerA", "first", false))
-	service.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, mockThread("200", forumID, "ownerA", "second", false))
+	service.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, mockThread("100", forumID, "ownerA", "first", false))
+	service.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, mockThread("200", forumID, "ownerA", "second", false))
 
 	require.Len(t, tempThreads, 2)
 	latest, ok := tempOwnerLatest["ownerA"]
@@ -46,6 +48,7 @@ func TestSeedMetaOwnerLatest(t *testing.T) {
 	idx.mu.Lock()
 	idx.threads = tempThreads
 	idx.ownerLatest = tempOwnerLatest
+	idx.nameExact = tempNameExact
 	idx.mu.Unlock()
 
 	res, ok := service.GetLatestUserThread(forumID, "ownerA")
@@ -256,4 +259,88 @@ func TestRefreshForum_ArchivedEarlyErrorStops(t *testing.T) {
 	assert.False(t, existsX)
 	stats, _ := svc.Stats(forumID)
 	assert.Equal(t, 2, stats.Threads)
+}
+
+// --- Name index & search tests merged from name_index_test.go ---
+
+func mockThreadSimple(id, forumID, ownerID, name string) *discordgo.Channel {
+	return &discordgo.Channel{ID: id, ParentID: forumID, GuildID: "g", OwnerID: ownerID, Name: name}
+}
+
+func TestExactNameLookup(t *testing.T) {
+	svc := New()
+	forumID := "f-exact"
+	svc.RegisterForum(forumID)
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("10", forumID, "u1", "Elden Ring")})
+	res, ok := svc.GetThreadByExactName(forumID, "elden ring")
+	require.True(t, ok)
+	assert.Equal(t, "10", res.ID)
+}
+
+func TestDuplicateExactNameLatestSelection(t *testing.T) {
+	svc := New()
+	forumID := "f-dup"
+	svc.RegisterForum(forumID)
+	// Older
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("100", forumID, "u1", "Zelda")})
+	// Newer (higher snowflake ID)
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("200", forumID, "u2", "Zelda")})
+	res, ok := svc.GetThreadByExactName(forumID, "ZELDA")
+	require.True(t, ok)
+	assert.Equal(t, "200", res.ID)
+	// Delete newer, fallback to older
+	svc.OnThreadDelete(nil, &discordgo.ThreadDelete{Channel: mockThreadSimple("200", forumID, "u2", "Zelda")})
+	res2, ok2 := svc.GetThreadByExactName(forumID, "zelda")
+	require.True(t, ok2)
+	assert.Equal(t, "100", res2.ID)
+}
+
+func TestRenameUpdatesExactIndex(t *testing.T) {
+	svc := New()
+	forumID := "f-rename"
+	svc.RegisterForum(forumID)
+	ch := mockThreadSimple("300", forumID, "u1", "Old Name")
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: ch})
+	// Simulate update event with new name
+	chUpdated := *ch
+	chUpdated.Name = "New Name"
+	svc.OnThreadUpdate(nil, &discordgo.ThreadUpdate{Channel: &chUpdated})
+	_, oldOk := svc.GetThreadByExactName(forumID, "old name")
+	assert.False(t, oldOk, "old name should be gone from exact index")
+	res, newOk := svc.GetThreadByExactName(forumID, "new name")
+	require.True(t, newOk)
+	assert.Equal(t, "300", res.ID)
+}
+
+func TestSearchClassificationOrdering(t *testing.T) {
+	svc := New()
+	forumID := "f-search"
+	svc.RegisterForum(forumID)
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("10", forumID, "u1", "Elden")})
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("11", forumID, "u2", "Elden Ring")})
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("12", forumID, "u3", "Lore of Elden")})
+	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("13", forumID, "u4", "Something Eldenish")})
+
+	results, ok := svc.SearchThreads(forumID, "elden", 10)
+	require.True(t, ok)
+	// Expect order: exact (Elden), prefix (Elden Ring), boundary (Lore of Elden), contains (Something Eldenish)
+	require.Len(t, results, 4)
+	assert.Equal(t, "Elden", results[0].Name)
+	assert.Equal(t, "Elden Ring", results[1].Name)
+	assert.Equal(t, "Lore of Elden", results[2].Name)
+	assert.Equal(t, "Something Eldenish", results[3].Name)
+}
+
+func TestSearchLimit(t *testing.T) {
+	svc := New()
+	forumID := "f-limit"
+	svc.RegisterForum(forumID)
+	for i := 0; i < 30; i++ {
+		id := fmt.Sprintf("%d", 100+i)
+		name := fmt.Sprintf("Game %d", i)
+		svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple(id, forumID, "u", name)})
+	}
+	res, ok := svc.SearchThreads(forumID, "game", 5)
+	require.True(t, ok)
+	require.Len(t, res, 5)
 }

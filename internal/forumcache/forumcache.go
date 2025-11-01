@@ -2,6 +2,8 @@ package forumcache
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +42,7 @@ type forumIndex struct {
 	mu            sync.RWMutex
 	threads       map[string]*ThreadMeta // threadID -> meta
 	ownerLatest   map[string]*ThreadMeta // ownerID -> latest thread
+	nameExact     map[string]*ThreadMeta // normalized name -> latest thread with that name
 	lastFullSync  time.Time
 	lastEventTime time.Time
 	fullSyncErrs  int
@@ -95,7 +98,7 @@ func (s *Service) RegisterForum(forumID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, exists := s.forums[forumID]; !exists {
-		s.forums[forumID] = &forumIndex{threads: make(map[string]*ThreadMeta), ownerLatest: make(map[string]*ThreadMeta)}
+		s.forums[forumID] = &forumIndex{threads: make(map[string]*ThreadMeta), ownerLatest: make(map[string]*ThreadMeta), nameExact: make(map[string]*ThreadMeta)}
 	}
 }
 
@@ -114,6 +117,7 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 
 	tempThreads := make(map[string]*ThreadMeta)
 	tempOwnerLatest := make(map[string]*ThreadMeta)
+	tempNameExact := make(map[string]*ThreadMeta)
 
 	activeThreads, err := l.ListActiveThreads(guildID)
 	if err != nil {
@@ -126,7 +130,7 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 		if th.ParentID != forumID {
 			continue
 		}
-		s.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, th)
+		s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, th)
 	}
 
 	var before *time.Time
@@ -136,7 +140,7 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 			break
 		}
 		for _, th := range archivedThreads {
-			s.seedMeta(tempThreads, tempOwnerLatest, guildID, forumID, th)
+			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, th)
 		}
 		if !hasMore {
 			break
@@ -154,13 +158,31 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 	idx.mu.Lock()
 	idx.threads = tempThreads
 	idx.ownerLatest = tempOwnerLatest
+	idx.nameExact = tempNameExact
 	idx.lastFullSync = now
 	idx.mu.Unlock()
 	return nil
 }
 
+// normalizeName produces the canonical comparison form of a thread name.
+func normalizeName(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
+
+// latestTieBreak returns true if a should replace b as latest given CreatedAt then ID lexicographic.
+func latestTieBreak(a, b *ThreadMeta) bool {
+	if b == nil {
+		return true
+	}
+	if a.CreatedAt.After(b.CreatedAt) {
+		return true
+	}
+	if a.CreatedAt.Equal(b.CreatedAt) && a.ID > b.ID {
+		return true
+	}
+	return false
+}
+
 // seedMeta converts a discordgo.Channel thread into ThreadMeta and seeds maps.
-func (s *Service) seedMeta(tempThreads map[string]*ThreadMeta, tempOwnerLatest map[string]*ThreadMeta, guildID, forumID string, th *discordgo.Channel) {
+func (s *Service) seedMeta(tempThreads map[string]*ThreadMeta, tempOwnerLatest map[string]*ThreadMeta, tempNameExact map[string]*ThreadMeta, guildID, forumID string, th *discordgo.Channel) {
 	if th == nil {
 		return
 	}
@@ -176,9 +198,14 @@ func (s *Service) seedMeta(tempThreads map[string]*ThreadMeta, tempOwnerLatest m
 		LastMessage: th.LastMessageID,
 	}
 	tempThreads[th.ID] = meta
-	// Owner latest selection: prefer newer CreatedAt; if equal timestamps use lexicographically larger ID as deterministic tie-break.
-	if prev, ok := tempOwnerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
+	// Owner latest selection (CreatedAt then ID tie-break)
+	if prev := tempOwnerLatest[meta.OwnerID]; latestTieBreak(meta, prev) {
 		tempOwnerLatest[meta.OwnerID] = meta
+	}
+	// Exact name selection (duplicate names allowed; pick latest)
+	norm := normalizeName(meta.Name)
+	if prev := tempNameExact[norm]; latestTieBreak(meta, prev) {
+		tempNameExact[norm] = meta
 	}
 }
 
@@ -237,6 +264,98 @@ func (s *Service) Stats(forumID string) (ForumStats, bool) {
 	}, true
 }
 
+// GetThreadByExactName returns the latest thread whose normalized name exactly matches.
+func (s *Service) GetThreadByExactName(forumID, name string) (*ThreadMeta, bool) {
+	norm := normalizeName(name)
+	s.mu.RLock()
+	idx, exists := s.forums[forumID]
+	s.mu.RUnlock()
+	if !exists {
+		return nil, false
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	meta, ok := idx.nameExact[norm]
+	return meta, ok
+}
+
+// SearchThreads performs a scored search (exact > prefix > word boundary > contains) over cached threads.
+// Returns up to limit results (if limit <=0 default to 25).
+func (s *Service) SearchThreads(forumID, query string, limit int) ([]*ThreadMeta, bool) {
+	q := normalizeName(query)
+	if q == "" {
+		return nil, false
+	}
+	if limit <= 0 {
+		limit = 25
+	}
+	s.mu.RLock()
+	idx, exists := s.forums[forumID]
+	s.mu.RUnlock()
+	if !exists {
+		return nil, false
+	}
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	// Buckets
+	exact := make([]*ThreadMeta, 0)
+	prefix := make([]*ThreadMeta, 0)
+	boundary := make([]*ThreadMeta, 0)
+	contains := make([]*ThreadMeta, 0)
+
+	for _, meta := range idx.threads {
+		norm := normalizeName(meta.Name)
+		if norm == q {
+			exact = append(exact, meta)
+			continue
+		}
+		if strings.HasPrefix(norm, q) {
+			prefix = append(prefix, meta)
+			continue
+		}
+		// word boundary: any token equals query
+		tokens := strings.Fields(norm)
+		matchedBoundary := false
+		for _, tk := range tokens {
+			if tk == q {
+				matchedBoundary = true
+				break
+			}
+		}
+		if matchedBoundary {
+			boundary = append(boundary, meta)
+			continue
+		}
+		if strings.Contains(norm, q) {
+			contains = append(contains, meta)
+		}
+	}
+
+	// Sort each bucket by CreatedAt desc then ID desc.
+	sorter := func(sl []*ThreadMeta) {
+		sort.Slice(sl, func(i, j int) bool {
+			if sl[i].CreatedAt.Equal(sl[j].CreatedAt) {
+				return sl[i].ID > sl[j].ID
+			}
+			return sl[i].CreatedAt.After(sl[j].CreatedAt)
+		})
+	}
+	sorter(exact)
+	sorter(prefix)
+	sorter(boundary)
+	sorter(contains)
+
+	merged := make([]*ThreadMeta, 0, len(exact)+len(prefix)+len(boundary)+len(contains))
+	merged = append(merged, exact...)
+	merged = append(merged, prefix...)
+	merged = append(merged, boundary...)
+	merged = append(merged, contains...)
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged, true
+}
+
 // --- Event Handlers (called from bot) ---
 
 // OnThreadCreate updates cache with new thread if forum registered.
@@ -265,8 +384,12 @@ func (s *Service) OnThreadCreate(_ *discordgo.Session, e *discordgo.ThreadCreate
 	}
 	idx.mu.Lock()
 	idx.threads[meta.ID] = meta
-	if prev, ok := idx.ownerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
+	if prev := idx.ownerLatest[meta.OwnerID]; latestTieBreak(meta, prev) {
 		idx.ownerLatest[meta.OwnerID] = meta
+	}
+	norm := normalizeName(meta.Name)
+	if prev := idx.nameExact[norm]; latestTieBreak(meta, prev) {
+		idx.nameExact[norm] = meta
 	}
 	idx.eventAdds++
 	idx.lastEventTime = time.Now()
@@ -288,11 +411,42 @@ func (s *Service) OnThreadUpdate(_ *discordgo.Session, e *discordgo.ThreadUpdate
 	}
 	idx.mu.Lock()
 	if meta, ok := idx.threads[thread.ID]; ok {
+		oldNorm := normalizeName(meta.Name)
 		meta.Name = thread.Name
 		meta.Archived = thread.ThreadMetadata != nil && thread.ThreadMetadata.Archived
 		meta.LastMessage = thread.LastMessageID
-		// Owner latest recalculation only if IDs differ (rare if ownership changes) – simple approach: re-evaluate.
-		// If ownership changes we would recompute latest; current implementation assumes stable ownership.
+		newNorm := normalizeName(meta.Name)
+		if oldNorm != newNorm {
+			// If this meta was the representative of oldNorm, find replacement.
+			if cur := idx.nameExact[oldNorm]; cur == meta {
+				var replacement *ThreadMeta
+				for _, t := range idx.threads {
+					if t == meta {
+						continue
+					}
+					if normalizeName(t.Name) != oldNorm {
+						continue
+					}
+					if latestTieBreak(t, replacement) {
+						replacement = t
+					}
+				}
+				if replacement != nil {
+					idx.nameExact[oldNorm] = replacement
+				} else {
+					delete(idx.nameExact, oldNorm)
+				}
+			}
+			// Update new norm representative.
+			if prev := idx.nameExact[newNorm]; latestTieBreak(meta, prev) {
+				idx.nameExact[newNorm] = meta
+			}
+		} else {
+			// Name unchanged; ensure representative tie-break still honored (e.g., metadata changed not affecting ordering).
+			if prev := idx.nameExact[oldNorm]; latestTieBreak(meta, prev) {
+				idx.nameExact[oldNorm] = meta
+			}
+		}
 	} else {
 		// anomaly: update for unknown thread
 		idx.anomalies++
@@ -319,13 +473,12 @@ func (s *Service) OnThreadDelete(_ *discordgo.Session, e *discordgo.ThreadDelete
 	if meta, ok := idx.threads[thread.ID]; ok {
 		delete(idx.threads, thread.ID)
 		if cur, ok2 := idx.ownerLatest[meta.OwnerID]; ok2 && cur.ID == meta.ID {
-			// Need to find next latest for this owner.
 			var replacement *ThreadMeta
 			for _, t := range idx.threads {
 				if t.OwnerID != meta.OwnerID {
 					continue
 				}
-				if replacement == nil || t.CreatedAt.After(replacement.CreatedAt) || (t.CreatedAt.Equal(replacement.CreatedAt) && t.ID > replacement.ID) {
+				if latestTieBreak(t, replacement) {
 					replacement = t
 				}
 			}
@@ -333,6 +486,24 @@ func (s *Service) OnThreadDelete(_ *discordgo.Session, e *discordgo.ThreadDelete
 				idx.ownerLatest[meta.OwnerID] = replacement
 			} else {
 				delete(idx.ownerLatest, meta.OwnerID)
+			}
+		}
+		// Name exact fallback.
+		norm := normalizeName(meta.Name)
+		if cur := idx.nameExact[norm]; cur == meta {
+			var replacement *ThreadMeta
+			for _, t := range idx.threads {
+				if normalizeName(t.Name) != norm {
+					continue
+				}
+				if latestTieBreak(t, replacement) {
+					replacement = t
+				}
+			}
+			if replacement != nil {
+				idx.nameExact[norm] = replacement
+			} else {
+				delete(idx.nameExact, norm)
 			}
 		}
 	} else {
@@ -365,16 +536,22 @@ func (s *Service) OnThreadListSync(_ *discordgo.Session, e *discordgo.ThreadList
 		}
 		tempThreads := make(map[string]*ThreadMeta)
 		tempOwnerLatest := make(map[string]*ThreadMeta)
+		tempNameExact := make(map[string]*ThreadMeta)
 		for _, th := range threads {
-			s.seedMeta(tempThreads, tempOwnerLatest, th.GuildID, forumID, th)
+			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, th.GuildID, forumID, th)
 		}
 		idx.mu.Lock()
 		for id, meta := range tempThreads {
 			idx.threads[id] = meta
 		}
 		for owner, meta := range tempOwnerLatest {
-			if prev, ok := idx.ownerLatest[owner]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
+			if prev := idx.ownerLatest[owner]; latestTieBreak(meta, prev) {
 				idx.ownerLatest[owner] = meta
+			}
+		}
+		for norm, meta := range tempNameExact {
+			if prev := idx.nameExact[norm]; latestTieBreak(meta, prev) {
+				idx.nameExact[norm] = meta
 			}
 		}
 		idx.lastEventTime = time.Now()

@@ -109,6 +109,15 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 
 	// 1. Attempt to find existing thread from cache (validated)
 	exactThreadChannel, _ := m.findCachedExactThread(s, forumID, normalized)
+	if exactThreadChannel != nil {
+		// We have an existing thread; short-circuit without hitting IGDB.
+		// Log outcome and present the thread immediately.
+		m.logThreadCreationOutcome(s, i, gameName, exactThreadChannel, false)
+		embed := threadCreatedEmbed(exactThreadChannel, false)
+		embedSlice := []*discordgo.MessageEmbed{embed}
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Embeds: &embedSlice})
+		return
+	}
 
 	// 2. Perform search (exact + suggestions)
 	searchRes, err := games.ExactMatchWithSuggestions(m.igdbClient, gameName)

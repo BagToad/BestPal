@@ -27,17 +27,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// ModuleHandler manages command modules and routes interactions.
-//
-// External Access Requirements:
-// Some modules need to be accessed from outside the command system:
-//
-// 1. Say Module - Accessed by scheduler (bot.go:124-131) for scheduled messages
-// 2. Roulette Module - Accessed by scheduler (bot.go:111-122) for automated pairing
-// 3. LFG Module - Accessed by bot event handler (bot.go:216-224) for modal/component interactions
-// 4. Welcome Module - Accessed by scheduler (bot.go) for new member welcoming
-//
-// These are accessed via GetModule[T]() for type-safe access.
+// ModuleHandler manages command modules, routing interactions and exposing select modules externally.
 type ModuleHandler struct {
 	commands   map[string]*types.Command
 	modules    map[string]types.CommandModule

@@ -4,10 +4,22 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/utils"
-	"sort"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+)
+
+// Test hook variables (overridable in tests). Defaults call discordgo / utils directly.
+var (
+	introRespond = func(s *discordgo.Session, inter *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		return s.InteractionRespond(inter, resp)
+	}
+	introEdit = func(s *discordgo.Session, inter *discordgo.Interaction, edit *discordgo.WebhookEdit) (*discordgo.Message, error) {
+		return s.InteractionResponseEdit(inter, edit)
+	}
+	introLog = func(cfg *types.Dependencies, s *discordgo.Session, msg string) error {
+		return utils.LogToChannel(cfg.Config, s, msg)
+	}
 )
 
 // Module implements the CommandModule interface for the intro command
@@ -46,7 +58,7 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 	// Get the introductions forum channel ID from config
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Introductions forum channel is not configured.",
@@ -66,97 +78,41 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 	}
 
 	// Acknowledge the interaction immediately as this might take time
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 
-	// Attempt fast-path via shared ForumCache
+	// Cache-only lookup path (no API fallback). On miss we log and return not-found.
 	if m.config.ForumCache != nil {
 		if meta, ok := m.config.ForumCache.GetLatestUserThread(introsChannelID, targetUser.ID); ok && meta != nil {
 			postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, meta.ID)
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(postURL)})
+			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr(postURL),
+			})
 			return
 		}
-		// If miss, opportunistically trigger a refresh (best‑effort, async)
-		go func(guildID, forumID, userID string) {
-			_ = m.config.ForumCache.RefreshForum(guildID, forumID)
-		}(i.GuildID, introsChannelID, targetUser.ID)
+		// Miss: just log stats (no refresh) and allow user-facing not-found message.
+		go func(guildID, forumID, userID, userTag string) {
+			stats, ok := m.config.ForumCache.Stats(forumID)
+			var statsLine string
+			if ok {
+				statsLine = fmt.Sprintf("threads=%d owners=%d last_full_sync=%s adds=%d updates=%d deletes=%d anomalies=%d", stats.Threads, stats.OwnersTracked, stats.LastFullSync.Format(time.RFC3339), stats.EventAdds, stats.EventUpdates, stats.EventDeletes, stats.Anomalies)
+			} else {
+				statsLine = "stats_unavailable"
+			}
+			logMsg := fmt.Sprintf("[IntroCacheMiss] user=%s (%s) forum=%s guild=%s %s", userTag, userID, forumID, guildID, statsLine)
+			if err := introLog(m.config, s, logMsg); err != nil {
+				m.config.Config.Logger.Warnf("failed to log intro cache miss: %v", err)
+			}
+		}(i.GuildID, introsChannelID, targetUser.ID, targetUser.String())
 	}
 
-	// Fallback: existing slower scan logic (active + archived)
-	threads, err := m.getAllActiveThreads(s, introsChannelID, i.GuildID)
-	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing introductions forum: %v", err))})
-		return
-	}
-	var userThreads []*discordgo.Channel
-	for _, thread := range threads {
-		if thread.OwnerID == targetUser.ID {
-			userThreads = append(userThreads, thread)
-		}
-	}
-	if len(userThreads) == 0 {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention()))})
-		return
-	}
-	sort.Slice(userThreads, func(iIdx, jIdx int) bool { return userThreads[iIdx].ID > userThreads[jIdx].ID })
-	latestThread := userThreads[0]
-	postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, latestThread.ID)
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(postURL)})
-
-	// Seed cache with discovered thread if cache exists and miss just occurred
-	if m.config.ForumCache != nil {
-		go func(metaThreadID, forumID, guildID, ownerID string) {
-			// Minimal single-thread refresh approach: full refresh to be consistent
-			_ = m.config.ForumCache.RefreshForum(guildID, forumID)
-		}(latestThread.ID, introsChannelID, i.GuildID, targetUser.ID)
-	}
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
+	})
 }
 
 // getAllActiveThreads gets all active threads from a forum channel
-func (m *IntroModule) getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
-	var allThreads []*discordgo.Channel
-
-	// For forum channels, get the channel and its threads directly
-	// Note: Discord API might require different approaches depending on the version
-	// Let's try to get the channel itself first to verify it's a forum channel
-	channel, err := s.Channel(channelID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
-	}
-
-	if channel.Type != discordgo.ChannelTypeGuildForum {
-		return nil, fmt.Errorf("channel %s is not a forum channel", channelID)
-	}
-
-	// Get active threads that are part of this forum
-	activeThreads, err := s.GuildThreadsActive(guildID)
-	if err != nil {
-		// If we can't get active threads, try a different approach
-		return nil, fmt.Errorf("failed to get active threads: %w", err)
-	}
-
-	// Filter threads that belong to our forum channel
-	for _, thread := range activeThreads.Threads {
-		if thread.ParentID == channelID {
-			allThreads = append(allThreads, thread)
-		}
-	}
-
-	// Try to get archived threads if available (single page best-effort)
-	publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
-	if err == nil && publicArchived != nil {
-		allThreads = append(allThreads, publicArchived.Threads...)
-	}
-
-	// Sort by creation just once for determinism in fallback path (snowflake order)
-	sort.Slice(allThreads, func(iA, jA int) bool { return allThreads[iA].ID > allThreads[jA].ID })
-
-	// Artificial minor sleep to reduce immediate hammering on large forums if invoked repeatedly (rudimentary backoff)
-	time.Sleep(50 * time.Millisecond)
-
-	return allThreads, nil
-}
 
 // Service returns nil as this module has no services requiring initialization
 func (m *IntroModule) Service() types.ModuleService {

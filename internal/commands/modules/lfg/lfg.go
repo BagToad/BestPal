@@ -385,15 +385,7 @@ func rebuildLFGThreadCache(s *discordgo.Session, guildID, forumID string) (total
 		return 0, 0, 0, fmt.Errorf("missing guild or forum ID")
 	}
 
-	// Prefer generic forum cache if available via session's state (bot injects service into dependencies)
-	// We can't access dependencies directly here; attempt to retrieve from a global registry pattern in future.
-	// For now we fall back to direct enumeration using forumcache if attached to session (stored in State, not standard). Simplify: just rebuild using direct API then seed local name maps.
-
-	// Attempt: if a generic cache exists attached to session via Context (not implemented) skip.
-	// Fallback original behavior retained for completeness.
-
-	// Use forumcache service if present in any module (best-effort). We search active threads only for accuracy then one archived page.
-	// (Simplification: keep previous logic but mark counts properly.)
+	// Fetch only active threads plus first archived page to balance performance and cache freshness.
 
 	temp := make(map[string]string)
 	tempOriginal := make(map[string]string)

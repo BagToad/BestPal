@@ -176,8 +176,8 @@ func (s *Service) seedMeta(tempThreads map[string]*ThreadMeta, tempOwnerLatest m
 		LastMessage: th.LastMessageID,
 	}
 	tempThreads[th.ID] = meta
-	// Owner latest selection – choose newest CreatedAt (or lexicographically larger ID fallback).
-	if prev, ok := tempOwnerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || meta.ID > prev.ID {
+	// Owner latest selection: prefer newer CreatedAt; if equal timestamps use lexicographically larger ID as deterministic tie-break.
+	if prev, ok := tempOwnerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
 		tempOwnerLatest[meta.OwnerID] = meta
 	}
 }
@@ -265,7 +265,7 @@ func (s *Service) OnThreadCreate(_ *discordgo.Session, e *discordgo.ThreadCreate
 	}
 	idx.mu.Lock()
 	idx.threads[meta.ID] = meta
-	if prev, ok := idx.ownerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || meta.ID > prev.ID {
+	if prev, ok := idx.ownerLatest[meta.OwnerID]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
 		idx.ownerLatest[meta.OwnerID] = meta
 	}
 	idx.eventAdds++
@@ -325,7 +325,7 @@ func (s *Service) OnThreadDelete(_ *discordgo.Session, e *discordgo.ThreadDelete
 				if t.OwnerID != meta.OwnerID {
 					continue
 				}
-				if replacement == nil || t.CreatedAt.After(replacement.CreatedAt) || t.ID > replacement.ID {
+				if replacement == nil || t.CreatedAt.After(replacement.CreatedAt) || (t.CreatedAt.Equal(replacement.CreatedAt) && t.ID > replacement.ID) {
 					replacement = t
 				}
 			}
@@ -373,7 +373,7 @@ func (s *Service) OnThreadListSync(_ *discordgo.Session, e *discordgo.ThreadList
 			idx.threads[id] = meta
 		}
 		for owner, meta := range tempOwnerLatest {
-			if prev, ok := idx.ownerLatest[owner]; !ok || meta.CreatedAt.After(prev.CreatedAt) || meta.ID > prev.ID {
+			if prev, ok := idx.ownerLatest[owner]; !ok || meta.CreatedAt.After(prev.CreatedAt) || (meta.CreatedAt.Equal(prev.CreatedAt) && meta.ID > prev.ID) {
 				idx.ownerLatest[owner] = meta
 			}
 		}

@@ -40,6 +40,7 @@ func seedThread(fc *forumcache.Service, forumID, guildID, userID, threadID strin
 }
 
 func withHooks(t *testing.T, cap *hookCapture, fn func()) {
+	t.Helper()
 	origRespond, origEdit, origLog := introRespond, introEdit, introLog
 	introRespond = func(_ *discordgo.Session, _ *discordgo.Interaction, _ *discordgo.InteractionResponse) error {
 		cap.responds++

@@ -90,20 +90,18 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 			})
 			return
 		}
-		// Miss: just log stats (no refresh) and allow user-facing not-found message.
-		go func(guildID, forumID, userID, userTag string) {
-			stats, ok := m.config.ForumCache.Stats(forumID)
-			var statsLine string
-			if ok {
-				statsLine = fmt.Sprintf("threads=%d owners=%d last_full_sync=%s adds=%d updates=%d deletes=%d anomalies=%d", stats.Threads, stats.OwnersTracked, stats.LastFullSync.Format(time.RFC3339), stats.EventAdds, stats.EventUpdates, stats.EventDeletes, stats.Anomalies)
-			} else {
-				statsLine = "stats_unavailable"
-			}
-			logMsg := fmt.Sprintf("[IntroCacheMiss] user=%s (%s) forum=%s guild=%s %s", userTag, userID, forumID, guildID, statsLine)
-			if err := introLog(m.config, s, logMsg); err != nil {
-				m.config.Config.Logger.Warnf("failed to log intro cache miss: %v", err)
-			}
-		}(i.GuildID, introsChannelID, targetUser.ID, targetUser.String())
+		// Miss: log stats (no refresh)
+		stats, ok := m.config.ForumCache.Stats(introsChannelID)
+		var statsLine string
+		if ok {
+			statsLine = fmt.Sprintf("threads=%d owners=%d last_full_sync=%s adds=%d updates=%d deletes=%d anomalies=%d", stats.Threads, stats.OwnersTracked, stats.LastFullSync.Format(time.RFC3339), stats.EventAdds, stats.EventUpdates, stats.EventDeletes, stats.Anomalies)
+		} else {
+			statsLine = "stats_unavailable"
+		}
+		logMsg := fmt.Sprintf("[IntroCacheMiss] user=%s (%s) forum=%s guild=%s %s", targetUser.String(), targetUser.ID, introsChannelID, i.GuildID, statsLine)
+		if err := introLog(m.config, s, logMsg); err != nil {
+			m.config.Config.Logger.Warnf("failed to log intro cache miss: %v", err)
+		}
 	}
 
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{

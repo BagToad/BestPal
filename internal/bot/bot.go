@@ -63,9 +63,15 @@ func New(cfg *config.Config) (*Bot, error) {
 	})
 
 	// Forum thread lifecycle events wired into cache service
-	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) { handler.GetForumCache().OnThreadCreate(s, e) })
-	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadUpdate) { handler.GetForumCache().OnThreadUpdate(s, e) })
-	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadDelete) { handler.GetForumCache().OnThreadDelete(s, e) })
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) {
+		handler.GetForumCache().OnThreadCreate(s, e)
+	})
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadUpdate) {
+		handler.GetForumCache().OnThreadUpdate(s, e)
+	})
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadDelete) {
+		handler.GetForumCache().OnThreadDelete(s, e)
+	})
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadListSync) {
 		handler.GetForumCache().OnThreadListSync(s, e)
 	})

@@ -3,6 +3,7 @@ package types
 import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/forumcache"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -32,11 +33,11 @@ type ModuleService interface {
 	// HydrateServiceDiscordSession hydrates the service with a Discord session
 	// This is called after the Discord session is established
 	HydrateServiceDiscordSession(s *discordgo.Session) error
-	
+
 	// MinuteFuncs returns functions to be called every minute
 	// Returns nil if no minute-based scheduling is needed
 	MinuteFuncs() []func() error
-	
+
 	// HourFuncs returns functions to be called every hour
 	// Returns nil if no hour-based scheduling is needed
 	HourFuncs() []func() error
@@ -50,7 +51,7 @@ type ModuleService interface {
 type CommandModule interface {
 	// Register adds the module's commands to the provided map
 	Register(commands map[string]*Command, deps *Dependencies)
-	
+
 	// Service returns the service that needs session initialization
 	// Returns nil if the module has no service requiring initialization
 	Service() ModuleService
@@ -61,5 +62,6 @@ type Dependencies struct {
 	Config     *config.Config
 	DB         *database.DB
 	IGDBClient *igdb.Client
-	Session    *discordgo.Session // Set after bot initialization
+	Session    *discordgo.Session  // Set after bot initialization
+	ForumCache *forumcache.Service // Hydrated and registered by bot
 }

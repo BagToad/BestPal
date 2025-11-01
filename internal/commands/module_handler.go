@@ -21,6 +21,7 @@ import (
 	"gamerpal/internal/commands/types"
 	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/forumcache"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -47,12 +48,17 @@ type ModuleHandler struct {
 }
 
 // NewModuleHandler creates a new module-based command handler
-func NewModuleHandler(cfg *internalConfig.Config) *ModuleHandler {
+func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *ModuleHandler {
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
 	db, err := database.NewDB(cfg.GetDatabasePath())
 	if err != nil {
 		cfg.Logger.Warn("Warning: Failed to initialize database: %v", err)
+	}
+
+	fc := forumcache.New()
+	if session != nil {
+		fc.HydrateSession(session)
 	}
 
 	h := &ModuleHandler{
@@ -65,7 +71,8 @@ func NewModuleHandler(cfg *internalConfig.Config) *ModuleHandler {
 			Config:     cfg,
 			DB:         db,
 			IGDBClient: igdbClient,
-			Session:    nil, // Set later
+			Session:    session,
+			ForumCache: fc,
 		},
 	}
 
@@ -126,6 +133,9 @@ func (h *ModuleHandler) GetModule(name string) types.CommandModule {
 func (h *ModuleHandler) GetDB() *database.DB {
 	return h.db
 }
+
+// GetForumCache exposes the forum cache service for event handlers.
+func (h *ModuleHandler) GetForumCache() *forumcache.Service { return h.deps.ForumCache }
 
 // RegisterCommands registers all slash commands with Discord
 func (h *ModuleHandler) RegisterCommands(s *discordgo.Session) error {
@@ -246,8 +256,10 @@ func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 // InitializeModuleServices hydrates services with the Discord session.
 // Called after the Discord session is established.
 func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
-	// Update dependencies with session
 	h.deps.Session = s
+	if h.deps.ForumCache != nil {
+		h.deps.ForumCache.HydrateSession(s)
+	}
 
 	// Hydrate services for all modules with the Discord session
 	for _, module := range h.modules {

@@ -11,7 +11,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"gamerpal/internal/commands"
-	"gamerpal/internal/commands/modules/lfg"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -34,7 +33,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 
 	// Create modular command handler
-	handler := commands.NewModuleHandler(cfg)
+	handler := commands.NewModuleHandler(cfg, session)
 
 	bot := &Bot{
 		session:              session,
@@ -63,6 +62,14 @@ func New(cfg *config.Config) (*Bot, error) {
 		events.OnGuildMemberAdd(s, r, cfg)
 	})
 
+	// Forum thread lifecycle events wired into cache service
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) { handler.GetForumCache().OnThreadCreate(s, e) })
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadUpdate) { handler.GetForumCache().OnThreadUpdate(s, e) })
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadDelete) { handler.GetForumCache().OnThreadDelete(s, e) })
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadListSync) {
+		handler.GetForumCache().OnThreadListSync(s, e)
+	})
+
 	return bot, nil
 }
 
@@ -87,6 +94,14 @@ func (b *Bot) Start() error {
 	// Register slash commands
 	if err := b.commandModuleHandler.RegisterCommands(b.session); err != nil {
 		return fmt.Errorf("error registering commands: %w", err)
+	}
+
+	// Register forums with cache service (from config)
+	if introForum := b.config.GetGamerPalsIntroductionsForumChannelID(); introForum != "" {
+		b.commandModuleHandler.GetForumCache().RegisterForum(introForum)
+	}
+	if lfgForum := b.config.GetGamerPalsLFGForumChannelID(); lfgForum != "" {
+		b.commandModuleHandler.GetForumCache().RegisterForum(lfgForum)
 	}
 
 	// Initialize module services that need the Discord session
@@ -132,17 +147,25 @@ func (b *Bot) Start() error {
 func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 	b.config.Logger.Infof("Bot received ready signal! Logged in as: %s#%s\n", r.User.Username, r.User.Discriminator)
 
-	// Preload LFG forum threads into cache (best-effort)
+	// Preload registered forums into generic cache (best-effort)
 	go func() {
-		forumID := b.config.GetGamerPalsLFGForumChannelID()
-		if forumID == "" {
+		guildID := b.config.GetGamerPalsServerID()
+		if guildID == "" {
 			return
 		}
-		// Use shared rebuild helper (includes archived threads)
-		if total, active, archived, err := lfg.RebuildLFGThreadCacheWrapper(s, b.config.GetGamerPalsServerID(), forumID); err != nil {
-			b.config.Logger.Warnf("LFG preload: %v", err)
-		} else {
-			b.config.Logger.Infof("LFG preload: cached %d threads (active=%d, archived=%d)", total, active, archived)
+		if introForum := b.config.GetGamerPalsIntroductionsForumChannelID(); introForum != "" {
+			if err := b.commandModuleHandler.GetForumCache().RefreshForum(guildID, introForum); err != nil {
+				b.config.Logger.Warnf("Intro forum preload failed: %v", err)
+			} else {
+				b.config.Logger.Infof("Intro forum preload complete")
+			}
+		}
+		if lfgForum := b.config.GetGamerPalsLFGForumChannelID(); lfgForum != "" {
+			if err := b.commandModuleHandler.GetForumCache().RefreshForum(guildID, lfgForum); err != nil {
+				b.config.Logger.Warnf("LFG forum preload failed: %v", err)
+			} else {
+				b.config.Logger.Infof("LFG forum preload complete")
+			}
 		}
 	}()
 

@@ -83,7 +83,10 @@ func TestIntroCacheHitDefaultEphemeral(t *testing.T) {
 	})
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guild1/700")
-	assert.Empty(t, cap.logs, "no log on hit")
+	require.Len(t, cap.logs, 1)
+	assert.Contains(t, cap.logs[0], "[IntroLookupSuccess]")
+	assert.Contains(t, cap.logs[0], "ThreadID: 700")
+	assert.Contains(t, cap.logs[0], "Forum: forumA")
 	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
 	assert.True(t, cap.lastRespondEphemeral[0], "default response should be ephemeral")
 }
@@ -115,8 +118,9 @@ func TestIntroCacheMissExplicitNonEphemeral(t *testing.T) {
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "No introduction post found")
 	require.Len(t, cap.logs, 1)
-	assert.Contains(t, cap.logs[0], "[IntroCacheMiss]")
-	assert.Contains(t, cap.logs[0], "forum=forumB")
+	assert.Contains(t, cap.logs[0], "[IntroLookupFailure]")
+	assert.Contains(t, cap.logs[0], "Reason: cache_miss")
+	assert.Contains(t, cap.logs[0], "Forum: forumB")
 	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
 	assert.False(t, cap.lastRespondEphemeral[0], "response should be non-ephemeral when option false")
 }
@@ -133,10 +137,12 @@ func TestIntroConfigMissingDefaultEphemeral(t *testing.T) {
 		inter := buildInteraction("guild3", "userZ")
 		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
-	// Should respond but not edit (since early return) and no logs.
+	// Should respond but not edit (since early return) and log failure.
 	assert.Equal(t, 1, cap.responds)
 	assert.Equal(t, 0, cap.edits)
-	assert.Empty(t, cap.logs)
+	require.Len(t, cap.logs, 1)
+	assert.Contains(t, cap.logs[0], "[IntroLookupFailure]")
+	assert.Contains(t, cap.logs[0], "Reason: channel_not_configured")
 	require.Len(t, cap.lastRespondEphemeral, 1)
 	assert.True(t, cap.lastRespondEphemeral[0], "config missing error should honor default ephemeral")
 }
@@ -173,7 +179,10 @@ func TestUserIntroCacheHitAlwaysEphemeral(t *testing.T) {
 	})
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guildUC/900")
-	assert.Empty(t, cap.logs)
+	require.Len(t, cap.logs, 1)
+	assert.Contains(t, cap.logs[0], "[IntroLookupSuccess]")
+	assert.Contains(t, cap.logs[0], "ThreadID: 900")
+	assert.Contains(t, cap.logs[0], "Forum: forumUC")
 	// First respond should be ephemeral
 	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
 	assert.True(t, cap.lastRespondEphemeral[0])
@@ -194,8 +203,9 @@ func TestUserIntroCacheMissAlwaysEphemeral(t *testing.T) {
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "No introduction post found")
 	require.Len(t, cap.logs, 1)
-	assert.Contains(t, cap.logs[0], "[IntroCacheMiss]")
-	assert.Contains(t, cap.logs[0], "forum=forumUM")
+	assert.Contains(t, cap.logs[0], "[IntroLookupFailure]")
+	assert.Contains(t, cap.logs[0], "Reason: cache_miss")
+	assert.Contains(t, cap.logs[0], "Forum: forumUM")
 	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
 	assert.True(t, cap.lastRespondEphemeral[0])
 }
@@ -214,7 +224,9 @@ func TestUserIntroConfigMissingAlwaysEphemeral(t *testing.T) {
 	})
 	assert.Equal(t, 1, cap.responds)
 	assert.Equal(t, 0, cap.edits)
-	assert.Empty(t, cap.logs)
+	require.Len(t, cap.logs, 1)
+	assert.Contains(t, cap.logs[0], "[IntroLookupFailure]")
+	assert.Contains(t, cap.logs[0], "Reason: channel_not_configured")
 	require.Len(t, cap.lastRespondEphemeral, 1)
 	assert.True(t, cap.lastRespondEphemeral[0])
 }

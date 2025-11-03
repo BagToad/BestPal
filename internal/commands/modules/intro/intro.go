@@ -6,6 +6,7 @@ import (
 	"gamerpal/internal/utils"
 	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -74,7 +75,45 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 // and responds to the interaction accordingly.
 func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, ephemeral bool) {
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
+
+	// Resolve actor (the user performing the lookup) for logging purposes.
+	var actor *discordgo.User
+	if i.Member != nil && i.Member.User != nil {
+		actor = i.Member.User
+	} else if i.User != nil {
+		actor = i.User
+	}
+
 	if introsChannelID == "" {
+		failureMsg := heredoc.Doc(fmt.Sprintf(`
+			[IntroLookupFailure]
+			Reason: channel_not_configured
+			Actor: %s (%s)
+			Target: %s (%s)
+			Guild: %s
+			Ephemeral: %t
+		`,
+			func() string {
+				if actor != nil {
+					return actor.String()
+				} else {
+					return "<unknown>"
+				}
+			}(),
+			func() string {
+				if actor != nil {
+					return actor.ID
+				} else {
+					return "<unknown>"
+				}
+			}(),
+			targetUser.String(), targetUser.ID,
+			i.GuildID,
+			ephemeral,
+		))
+		if err := introLog(m.config, s, failureMsg); err != nil {
+			m.config.Config.Logger.Warnf("failed to log intro lookup failure: %v", err)
+		}
 		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -96,22 +135,131 @@ func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.Interaction
 	if m.config.ForumCache != nil {
 		if meta, ok := m.config.ForumCache.GetLatestUserThread(introsChannelID, targetUser.ID); ok && meta != nil {
 			postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, meta.ID)
+			// Success log
+			successMsg := heredoc.Doc(fmt.Sprintf(`
+				[IntroLookupSuccess]
+				Actor: %s (%s)
+				Target: %s (%s)
+				Guild: %s
+				Forum: %s
+				Ephemeral: %t
+				ThreadID: %s
+				ThreadName: %s
+				CreatedAt: %s
+				URL: %s
+			`,
+				func() string {
+					if actor != nil {
+						return actor.String()
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				func() string {
+					if actor != nil {
+						return actor.ID
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				targetUser.String(), targetUser.ID,
+				i.GuildID,
+				introsChannelID,
+				ephemeral,
+				meta.ID,
+				meta.Name,
+				meta.CreatedAt.Format(time.RFC3339),
+				postURL,
+			))
+			if err := introLog(m.config, s, successMsg); err != nil {
+				m.config.Config.Logger.Warnf("failed to log intro success: %v", err)
+			}
 			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 				Content: utils.StringPtr(postURL),
 			})
 			return
 		}
-		// Miss: log stats (no refresh)
+
+		// Failure (cache miss)
 		stats, ok := m.config.ForumCache.Stats(introsChannelID)
-		var statsLine string
-		if ok {
-			statsLine = fmt.Sprintf("threads=%d owners=%d last_full_sync=%s adds=%d updates=%d deletes=%d anomalies=%d", stats.Threads, stats.OwnersTracked, stats.LastFullSync.Format(time.RFC3339), stats.EventAdds, stats.EventUpdates, stats.EventDeletes, stats.Anomalies)
-		} else {
-			statsLine = "stats_unavailable"
-		}
-		logMsg := fmt.Sprintf("[IntroCacheMiss] user=%s (%s) forum=%s guild=%s %s", targetUser.String(), targetUser.ID, introsChannelID, i.GuildID, statsLine)
-		if err := introLog(m.config, s, logMsg); err != nil {
-			m.config.Config.Logger.Warnf("failed to log intro cache miss: %v", err)
+		failureMsg := func() string {
+			if ok {
+				return heredoc.Doc(fmt.Sprintf(`
+					[IntroLookupFailure]
+					Reason: cache_miss
+					Actor: %s (%s)
+					Target: %s (%s)
+					Guild: %s
+					Forum: %s
+					Ephemeral: %t
+					Stats:
+					  Threads: %d
+					  OwnersTracked: %d
+					  LastFullSync: %s
+					  EventAdds: %d
+					  EventUpdates: %d
+					  EventDeletes: %d
+					  Anomalies: %d
+				`,
+					func() string {
+						if actor != nil {
+							return actor.String()
+						} else {
+							return "<unknown>"
+						}
+					}(),
+					func() string {
+						if actor != nil {
+							return actor.ID
+						} else {
+							return "<unknown>"
+						}
+					}(),
+					targetUser.String(), targetUser.ID,
+					i.GuildID,
+					introsChannelID,
+					ephemeral,
+					stats.Threads,
+					stats.OwnersTracked,
+					stats.LastFullSync.Format(time.RFC3339),
+					stats.EventAdds,
+					stats.EventUpdates,
+					stats.EventDeletes,
+					stats.Anomalies,
+				))
+			}
+			return heredoc.Doc(fmt.Sprintf(`
+				[IntroLookupFailure]
+				Reason: cache_miss
+				Actor: %s (%s)
+				Target: %s (%s)
+				Guild: %s
+				Forum: %s
+				Ephemeral: %t
+				Stats: unavailable
+			`,
+				func() string {
+					if actor != nil {
+						return actor.String()
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				func() string {
+					if actor != nil {
+						return actor.ID
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				targetUser.String(), targetUser.ID,
+				i.GuildID,
+				introsChannelID,
+				ephemeral,
+			))
+		}()
+		if err := introLog(m.config, s, failureMsg); err != nil {
+			m.config.Config.Logger.Warnf("failed to log intro failure: %v", err)
 		}
 	}
 

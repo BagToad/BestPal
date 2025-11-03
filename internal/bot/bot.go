@@ -5,9 +5,9 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
-	"sync/atomic"
 
 	"github.com/bwmarrin/discordgo"
 

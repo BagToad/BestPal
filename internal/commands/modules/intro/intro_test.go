@@ -14,10 +14,11 @@ import (
 
 // hookCapture collects calls made via overridable hook functions.
 type hookCapture struct {
-	responds int
-	edits    int
-	lastEdit string
-	logs     []string
+	responds             int
+	edits                int
+	lastEdit             string
+	logs                 []string
+	lastRespondEphemeral []bool // track whether each respond used ephemeral flag
 }
 
 // buildInteraction constructs minimal interaction with guild + member.
@@ -42,8 +43,13 @@ func seedThread(fc *forumcache.Service, forumID, guildID, userID, threadID strin
 func withHooks(t *testing.T, cap *hookCapture, fn func()) {
 	t.Helper()
 	origRespond, origEdit, origLog := introRespond, introEdit, introLog
-	introRespond = func(_ *discordgo.Session, _ *discordgo.Interaction, _ *discordgo.InteractionResponse) error {
+	introRespond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 		cap.responds++
+		if resp != nil && resp.Data != nil && (resp.Data.Flags&discordgo.MessageFlagsEphemeral) != 0 {
+			cap.lastRespondEphemeral = append(cap.lastRespondEphemeral, true)
+		} else {
+			cap.lastRespondEphemeral = append(cap.lastRespondEphemeral, false)
+		}
 		return nil
 	}
 	introEdit = func(_ *discordgo.Session, _ *discordgo.Interaction, edit *discordgo.WebhookEdit) (*discordgo.Message, error) {
@@ -61,7 +67,7 @@ func withHooks(t *testing.T, cap *hookCapture, fn func()) {
 	fn()
 }
 
-func TestIntroCacheHit(t *testing.T) {
+func TestIntroCacheHitDefaultEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumA"})
 	fc := forumcache.New()
 	fc.RegisterForum("forumA")
@@ -72,15 +78,17 @@ func TestIntroCacheHit(t *testing.T) {
 	mod.Register(cmds, deps)
 	cap := &hookCapture{}
 	withHooks(t, cap, func() {
-		inter := buildInteraction("guild1", "user1")
+		inter := buildInteraction("guild1", "user1") // no ephemeral option -> default true
 		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guild1/700")
 	assert.Empty(t, cap.logs, "no log on hit")
+	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
+	assert.True(t, cap.lastRespondEphemeral[0], "default response should be ephemeral")
 }
 
-func TestIntroCacheMiss(t *testing.T) {
+func TestIntroCacheMissExplicitNonEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumB", "gamerpals_log_channel_id": "logChan"})
 	fc := forumcache.New() // no threads seeded
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -89,7 +97,19 @@ func TestIntroCacheMiss(t *testing.T) {
 	mod.Register(cmds, deps)
 	cap := &hookCapture{}
 	withHooks(t, cap, func() {
-		inter := buildInteraction("guild2", "userX")
+		inter := &discordgo.InteractionCreate{
+			Interaction: &discordgo.Interaction{
+				Type:    discordgo.InteractionApplicationCommand,
+				GuildID: "guild2",
+				Member:  &discordgo.Member{User: &discordgo.User{ID: "userX", Username: "userX"}},
+				Data: discordgo.ApplicationCommandInteractionData{
+					Name: "intro",
+					Options: []*discordgo.ApplicationCommandInteractionDataOption{
+						{Name: "ephemeral", Type: discordgo.ApplicationCommandOptionBoolean, Value: false},
+					},
+				},
+			},
+		}
 		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
 	require.Equal(t, 1, cap.edits)
@@ -97,9 +117,11 @@ func TestIntroCacheMiss(t *testing.T) {
 	require.Len(t, cap.logs, 1)
 	assert.Contains(t, cap.logs[0], "[IntroCacheMiss]")
 	assert.Contains(t, cap.logs[0], "forum=forumB")
+	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
+	assert.False(t, cap.lastRespondEphemeral[0], "response should be non-ephemeral when option false")
 }
 
-func TestIntroConfigMissing(t *testing.T) {
+func TestIntroConfigMissingDefaultEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{}) // no forum id
 	fc := forumcache.New()
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -115,6 +137,8 @@ func TestIntroConfigMissing(t *testing.T) {
 	assert.Equal(t, 1, cap.responds)
 	assert.Equal(t, 0, cap.edits)
 	assert.Empty(t, cap.logs)
+	require.Len(t, cap.lastRespondEphemeral, 1)
+	assert.True(t, cap.lastRespondEphemeral[0], "config missing error should honor default ephemeral")
 }
 
 // buildUserContextInteraction builds a minimal user context command interaction selecting targetUserID.
@@ -133,7 +157,7 @@ func buildUserContextInteraction(guildID, invokingUserID, targetUserID string) *
 	}
 }
 
-func TestUserIntroCacheHit(t *testing.T) {
+func TestUserIntroCacheHitAlwaysEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUC"})
 	fc := forumcache.New()
 	fc.RegisterForum("forumUC")
@@ -150,9 +174,12 @@ func TestUserIntroCacheHit(t *testing.T) {
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guildUC/900")
 	assert.Empty(t, cap.logs)
+	// First respond should be ephemeral
+	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
+	assert.True(t, cap.lastRespondEphemeral[0])
 }
 
-func TestUserIntroCacheMiss(t *testing.T) {
+func TestUserIntroCacheMissAlwaysEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUM", "gamerpals_log_channel_id": "logChan"})
 	fc := forumcache.New()
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -169,9 +196,11 @@ func TestUserIntroCacheMiss(t *testing.T) {
 	require.Len(t, cap.logs, 1)
 	assert.Contains(t, cap.logs[0], "[IntroCacheMiss]")
 	assert.Contains(t, cap.logs[0], "forum=forumUM")
+	require.GreaterOrEqual(t, len(cap.lastRespondEphemeral), 1)
+	assert.True(t, cap.lastRespondEphemeral[0])
 }
 
-func TestUserIntroConfigMissing(t *testing.T) {
+func TestUserIntroConfigMissingAlwaysEphemeral(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]interface{}{})
 	fc := forumcache.New()
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -186,4 +215,6 @@ func TestUserIntroConfigMissing(t *testing.T) {
 	assert.Equal(t, 1, cap.responds)
 	assert.Equal(t, 0, cap.edits)
 	assert.Empty(t, cap.logs)
+	require.Len(t, cap.lastRespondEphemeral, 1)
+	assert.True(t, cap.lastRespondEphemeral[0])
 }

@@ -48,6 +48,12 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 					Description: "The user whose introduction to look up (defaults to yourself)",
 					Required:    false,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "ephemeral",
+					Description: "Whether the reply should be ephemeral (default: true)",
+					Required:    false,
+				},
 			},
 		},
 		HandlerFunc: m.handleIntroSlash,
@@ -66,14 +72,14 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 
 // introLookup performs the introduction post lookup for the specified target user,
 // and responds to the interaction accordingly.
-func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
+func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, ephemeral bool) {
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {
 		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Introductions forum channel is not configured.",
-				Flags:   discordgo.MessageFlagsEphemeral,
+				Flags:   chooseEphemeralFlag(ephemeral),
 			},
 		})
 		return
@@ -81,6 +87,9 @@ func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.Interaction
 
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: chooseEphemeralFlag(ephemeral),
+		},
 	})
 
 	// Cache-only lookup path (no API fallback). On miss we log and return not-found.
@@ -115,17 +124,30 @@ func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.Interaction
 func (m *IntroModule) handleIntroSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var targetUser *discordgo.User
 	options := i.ApplicationCommandData().Options
-	if len(options) > 0 && options[0].Name == "user" {
-		targetUser = options[0].UserValue(s)
-	} else if i.Member != nil {
+	ephemeral := true // default
+	for _, opt := range options {
+		if opt.Name == "user" {
+			targetUser = opt.UserValue(s)
+		}
+		if opt.Name == "ephemeral" {
+			ephemeral = opt.BoolValue()
+		}
+	}
+	if targetUser == nil && i.Member != nil {
 		targetUser = i.Member.User
 	}
 	if targetUser == nil {
 		// Fallback – shouldn't occur for slash commands, but handle defensively.
-		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to resolve target user.", Flags: discordgo.MessageFlagsEphemeral}})
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unable to resolve target user.",
+				Flags:   chooseEphemeralFlag(ephemeral),
+			},
+		})
 		return
 	}
-	m.introLookup(s, i, targetUser)
+	m.introLookup(s, i, targetUser, ephemeral)
 }
 
 // User context command handler – target user resolved from interaction TargetID.
@@ -146,10 +168,17 @@ func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.
 		})
 		return
 	}
-	m.introLookup(s, i, targetUser)
+	// User context command is always ephemeral per requirements.
+	m.introLookup(s, i, targetUser, true)
 }
 
-// getAllActiveThreads gets all active threads from a forum channel
+// chooseEphemeralFlag returns the ephemeral flag if true, else 0.
+func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
+	if ephemeral {
+		return discordgo.MessageFlagsEphemeral
+	}
+	return 0
+}
 
 // Service returns nil as this module has no services requiring initialization
 func (m *IntroModule) Service() types.ModuleService {

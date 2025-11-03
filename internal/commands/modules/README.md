@@ -17,7 +17,7 @@ Each module encapsulates:
 | **time** | `/time` | Medium | Date/time parsing, Discord timestamps |
 | **say** | `/say`, `/schedulesay`, `/listscheduledsays`, `/cancelscheduledsay` | Complex | Service for scheduled messages |
 | **help** | `/help` | Simple | Command documentation |
-| **intro** | `/intro` | Simple | Forum introduction lookup |
+| **intro** | `/intro`, user app context: `Lookup intro` | Simple | Forum introduction lookup (slash + right-click user) |
 | **config** | `/config` | Medium | Bot configuration (SuperAdmin) |
 | **refreshigdb** | `/refresh-igdb` | Simple | IGDB token refresh |
 | **game** | `/game` | Medium | IGDB game search |

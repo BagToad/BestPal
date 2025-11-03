@@ -36,6 +36,7 @@ func New(deps *types.Dependencies) *IntroModule {
 func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps
 
+	// Slash command version
 	cmds["intro"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "intro",
@@ -49,13 +50,23 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 				},
 			},
 		},
-		HandlerFunc: m.handleIntro,
+		HandlerFunc: m.handleIntroSlash,
+	}
+
+	// User context (right-click / tap user) command version – enables quick lookup without typing.
+	// For user & message context commands Discord allows spaces and capitalization.
+	cmds["Lookup intro"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name: "Lookup intro",
+			Type: discordgo.UserApplicationCommand,
+		},
+		HandlerFunc: m.handleIntroUserContext,
 	}
 }
 
-// handleIntro handles the intro slash command
-func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Get the introductions forum channel ID from config
+// introLookup performs the introduction post lookup for the specified target user,
+// and responds to the interaction accordingly.
+func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
 	if introsChannelID == "" {
 		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
@@ -66,15 +77,6 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 			},
 		})
 		return
-	}
-
-	// Get the target user (defaults to the command invoker if not specified)
-	var targetUser *discordgo.User
-	options := i.ApplicationCommandData().Options
-	if len(options) > 0 && options[0].Name == "user" {
-		targetUser = options[0].UserValue(s)
-	} else {
-		targetUser = i.Member.User
 	}
 
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
@@ -107,6 +109,44 @@ func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.Interaction
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 		Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
 	})
+}
+
+// Slash command handler – determines target from optional "user" option.
+func (m *IntroModule) handleIntroSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var targetUser *discordgo.User
+	options := i.ApplicationCommandData().Options
+	if len(options) > 0 && options[0].Name == "user" {
+		targetUser = options[0].UserValue(s)
+	} else if i.Member != nil {
+		targetUser = i.Member.User
+	}
+	if targetUser == nil {
+		// Fallback – shouldn't occur for slash commands, but handle defensively.
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to resolve target user.", Flags: discordgo.MessageFlagsEphemeral}})
+		return
+	}
+	m.introLookup(s, i, targetUser)
+}
+
+// User context command handler – target user resolved from interaction TargetID.
+func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	targetID := data.TargetID
+	var targetUser *discordgo.User
+	if data.Resolved != nil && data.Resolved.Users != nil {
+		targetUser = data.Resolved.Users[targetID]
+	}
+	if targetUser == nil {
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unable to resolve selected user.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	m.introLookup(s, i, targetUser)
 }
 
 // getAllActiveThreads gets all active threads from a forum channel

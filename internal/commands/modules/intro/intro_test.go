@@ -73,7 +73,7 @@ func TestIntroCacheHit(t *testing.T) {
 	cap := &hookCapture{}
 	withHooks(t, cap, func() {
 		inter := buildInteraction("guild1", "user1")
-		mod.handleIntro(&discordgo.Session{}, inter)
+		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guild1/700")
@@ -90,7 +90,7 @@ func TestIntroCacheMiss(t *testing.T) {
 	cap := &hookCapture{}
 	withHooks(t, cap, func() {
 		inter := buildInteraction("guild2", "userX")
-		mod.handleIntro(&discordgo.Session{}, inter)
+		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
 	require.Equal(t, 1, cap.edits)
 	assert.Contains(t, cap.lastEdit, "No introduction post found")
@@ -109,9 +109,80 @@ func TestIntroConfigMissing(t *testing.T) {
 	cap := &hookCapture{}
 	withHooks(t, cap, func() {
 		inter := buildInteraction("guild3", "userZ")
-		mod.handleIntro(&discordgo.Session{}, inter)
+		mod.handleIntroSlash(&discordgo.Session{}, inter)
 	})
 	// Should respond but not edit (since early return) and no logs.
+	assert.Equal(t, 1, cap.responds)
+	assert.Equal(t, 0, cap.edits)
+	assert.Empty(t, cap.logs)
+}
+
+// buildUserContextInteraction builds a minimal user context command interaction selecting targetUserID.
+func buildUserContextInteraction(guildID, invokingUserID, targetUserID string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{
+		Interaction: &discordgo.Interaction{
+			Type:    discordgo.InteractionApplicationCommand,
+			GuildID: guildID,
+			Member:  &discordgo.Member{User: &discordgo.User{ID: invokingUserID, Username: "invoker"}},
+			Data: discordgo.ApplicationCommandInteractionData{
+				Name:     "Lookup intro",
+				TargetID: targetUserID,
+				Resolved: &discordgo.ApplicationCommandInteractionDataResolved{Users: map[string]*discordgo.User{targetUserID: {ID: targetUserID, Username: "target"}}},
+			},
+		},
+	}
+}
+
+func TestUserIntroCacheHit(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUC"})
+	fc := forumcache.New()
+	fc.RegisterForum("forumUC")
+	seedThread(fc, "forumUC", "guildUC", "targetUser", "900")
+	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
+	mod := New(deps)
+	cmds := map[string]*types.Command{}
+	mod.Register(cmds, deps)
+	cap := &hookCapture{}
+	withHooks(t, cap, func() {
+		inter := buildUserContextInteraction("guildUC", "invoker1", "targetUser")
+		mod.handleIntroUserContext(&discordgo.Session{}, inter)
+	})
+	require.Equal(t, 1, cap.edits)
+	assert.Contains(t, cap.lastEdit, "https://discord.com/channels/guildUC/900")
+	assert.Empty(t, cap.logs)
+}
+
+func TestUserIntroCacheMiss(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUM", "gamerpals_log_channel_id": "logChan"})
+	fc := forumcache.New()
+	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
+	mod := New(deps)
+	cmds := map[string]*types.Command{}
+	mod.Register(cmds, deps)
+	cap := &hookCapture{}
+	withHooks(t, cap, func() {
+		inter := buildUserContextInteraction("guildUM", "invoker2", "missingUser")
+		mod.handleIntroUserContext(&discordgo.Session{}, inter)
+	})
+	require.Equal(t, 1, cap.edits)
+	assert.Contains(t, cap.lastEdit, "No introduction post found")
+	require.Len(t, cap.logs, 1)
+	assert.Contains(t, cap.logs[0], "[IntroCacheMiss]")
+	assert.Contains(t, cap.logs[0], "forum=forumUM")
+}
+
+func TestUserIntroConfigMissing(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]interface{}{})
+	fc := forumcache.New()
+	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
+	mod := New(deps)
+	cmds := map[string]*types.Command{}
+	mod.Register(cmds, deps)
+	cap := &hookCapture{}
+	withHooks(t, cap, func() {
+		inter := buildUserContextInteraction("guildNX", "invoker3", "targetNX")
+		mod.handleIntroUserContext(&discordgo.Session{}, inter)
+	})
 	assert.Equal(t, 1, cap.responds)
 	assert.Equal(t, 0, cap.edits)
 	assert.Empty(t, cap.logs)

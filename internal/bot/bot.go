@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"sync/atomic"
 
 	"github.com/bwmarrin/discordgo"
 
@@ -22,6 +23,7 @@ type Bot struct {
 	config               *config.Config
 	commandModuleHandler *commands.ModuleHandler
 	scheduler            *scheduler.Scheduler
+	ready                atomic.Bool // guards interaction handling until startup completes
 }
 
 // New creates a new Bot instance
@@ -40,6 +42,9 @@ func New(cfg *config.Config) (*Bot, error) {
 		config:               cfg,
 		commandModuleHandler: handler,
 	}
+
+	// mark not ready yet (zero value false, explicit for clarity)
+	bot.ready.Store(false)
 
 	// Set intents - we need guild, member, message, message content, direct message intents
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages
@@ -134,6 +139,9 @@ func (b *Bot) Start() error {
 		b.config.Logger.Warn("error updating bot status:", err)
 	}
 
+	// Signal readiness after all initialization steps complete.
+	b.ready.Store(true)
+	b.config.Logger.Info("Initialization complete; interactions enabled")
 	b.config.Logger.Info("GamerPal bot is now running. Press CTRL+C to exit.")
 
 	// Wait for interrupt signal
@@ -205,6 +213,39 @@ func (b *Bot) randomStatus() string {
 
 // onInteractionCreate handles slash command interactions
 func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Initialization guard: reject interactions until startup has completed.
+	if !b.ready.Load() {
+		// Use the correct response type per interaction.
+		switch i.Type {
+		case discordgo.InteractionApplicationCommand, discordgo.InteractionMessageComponent, discordgo.InteractionModalSubmit:
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "⏳ Bot is starting up, try again in a few seconds.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+		case discordgo.InteractionApplicationCommandAutocomplete:
+			// Autocomplete must return an autocomplete result type, empty list is fine while starting up.
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+				Data: &discordgo.InteractionResponseData{Choices: []*discordgo.ApplicationCommandOptionChoice{}},
+			})
+		case discordgo.InteractionPing:
+			// Reply with a Pong to satisfy handshake, though this is rare here.
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponsePong})
+		default:
+			// Fallback: generic ephemeral message.
+			_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{
+					Content: "⏳ Bot is starting up, try again shortly.",
+					Flags:   discordgo.MessageFlagsEphemeral,
+				},
+			})
+		}
+		return
+	}
 	// Slash commands
 	if i.Type == discordgo.InteractionApplicationCommand {
 		if i.ApplicationCommandData().Name != "" {

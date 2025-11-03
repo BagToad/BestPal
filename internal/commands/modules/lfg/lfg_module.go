@@ -3,6 +3,7 @@ package lfg
 import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
+	"gamerpal/internal/forumcache"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -12,14 +13,12 @@ import (
 type LfgModule struct {
 	config     *config.Config
 	igdbClient *igdb.Client
+	forumCache *forumcache.Service
 }
 
 // New creates a new LFG module
 func New(deps *types.Dependencies) *LfgModule {
-	return &LfgModule{
-		config:     deps.Config,
-		igdbClient: deps.IGDBClient,
-	}
+	return &LfgModule{config: deps.Config, igdbClient: deps.IGDBClient, forumCache: deps.ForumCache}
 }
 
 // Register adds LFG commands to the command map
@@ -84,7 +83,7 @@ func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		HandlerFunc: m.handleLFG,
 	}
 
-	// Register lfg-admin command
+	// Register lfg-admin command (expanded to include cache stats)
 	cmds["lfg-admin"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "lfg-admin",
@@ -103,7 +102,12 @@ func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Depende
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
 					Name:        "refresh-thread-cache",
-					Description: "Rebuild the LFG thread name -> thread ID cache (includes archived threads)",
+					Description: "Rebuild all registered forum caches (LFG + Introductions)",
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "cache-stats",
+					Description: "Show forum cache stats (LFG + Introductions)",
 				},
 			},
 			DefaultMemberPermissions: &modPerms,

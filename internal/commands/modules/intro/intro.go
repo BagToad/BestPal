@@ -4,9 +4,23 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/utils"
-	"sort"
+	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	"github.com/bwmarrin/discordgo"
+)
+
+// Test hook variables (overridable in tests). Defaults call discordgo / utils directly.
+var (
+	introRespond = func(s *discordgo.Session, inter *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		return s.InteractionRespond(inter, resp)
+	}
+	introEdit = func(s *discordgo.Session, inter *discordgo.Interaction, edit *discordgo.WebhookEdit) (*discordgo.Message, error) {
+		return s.InteractionResponseEdit(inter, edit)
+	}
+	introLog = func(cfg *types.Dependencies, s *discordgo.Session, msg string) error {
+		return utils.LogToChannel(cfg.Config, s, msg)
+	}
 )
 
 // Module implements the CommandModule interface for the intro command
@@ -23,6 +37,7 @@ func New(deps *types.Dependencies) *IntroModule {
 func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps
 
+	// Slash command version
 	cmds["intro"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "intro",
@@ -34,123 +49,286 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 					Description: "The user whose introduction to look up (defaults to yourself)",
 					Required:    false,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionBoolean,
+					Name:        "ephemeral",
+					Description: "Whether the reply should be ephemeral (default: true)",
+					Required:    false,
+				},
 			},
 		},
-		HandlerFunc: m.handleIntro,
+		HandlerFunc: m.handleIntroSlash,
+	}
+
+	// User context (right-click / tap user) command version – enables quick lookup without typing.
+	// For user & message context commands Discord allows spaces and capitalization.
+	cmds["Lookup intro"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name: "Lookup intro",
+			Type: discordgo.UserApplicationCommand,
+		},
+		HandlerFunc: m.handleIntroUserContext,
 	}
 }
 
-// handleIntro handles the intro slash command
-func (m *IntroModule) handleIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Get the introductions forum channel ID from config
+// introLookup performs the introduction post lookup for the specified target user,
+// and responds to the interaction accordingly.
+func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, ephemeral bool) {
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
+
+	// Resolve actor (the user performing the lookup) for logging purposes.
+	var actor *discordgo.User
+	if i.Member != nil && i.Member.User != nil {
+		actor = i.Member.User
+	} else if i.User != nil {
+		actor = i.User
+	}
+
 	if introsChannelID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		failureMsg := heredoc.Doc(fmt.Sprintf(`
+			[IntroLookupFailure]
+			Reason: channel_not_configured
+			Actor: %s (%s)
+			Target: %s (%s)
+			Guild: %s
+			Ephemeral: %t
+		`,
+			func() string {
+				if actor != nil {
+					return actor.String()
+				} else {
+					return "<unknown>"
+				}
+			}(),
+			func() string {
+				if actor != nil {
+					return actor.ID
+				} else {
+					return "<unknown>"
+				}
+			}(),
+			targetUser.String(), targetUser.ID,
+			i.GuildID,
+			ephemeral,
+		))
+		if err := introLog(m.config, s, failureMsg); err != nil {
+			m.config.Config.Logger.Warnf("failed to log intro lookup failure: %v", err)
+		}
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "❌ Introductions forum channel is not configured.",
+				Flags:   chooseEphemeralFlag(ephemeral),
+			},
+		})
+		return
+	}
+
+	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: chooseEphemeralFlag(ephemeral),
+		},
+	})
+
+	// Cache-only lookup path (no API fallback). On miss we log and return not-found.
+	if m.config.ForumCache != nil {
+		if meta, ok := m.config.ForumCache.GetLatestUserThread(introsChannelID, targetUser.ID); ok && meta != nil {
+			postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, meta.ID)
+			// Success log
+			successMsg := heredoc.Doc(fmt.Sprintf(`
+				[IntroLookupSuccess]
+				Actor: %s (%s)
+				Target: %s (%s)
+				Guild: %s
+				Forum: %s
+				Ephemeral: %t
+				ThreadID: %s
+				ThreadName: %s
+				CreatedAt: %s
+				URL: %s
+			`,
+				func() string {
+					if actor != nil {
+						return actor.String()
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				func() string {
+					if actor != nil {
+						return actor.ID
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				targetUser.String(), targetUser.ID,
+				i.GuildID,
+				introsChannelID,
+				ephemeral,
+				meta.ID,
+				meta.Name,
+				meta.CreatedAt.Format(time.RFC3339),
+				postURL,
+			))
+			if err := introLog(m.config, s, successMsg); err != nil {
+				m.config.Config.Logger.Warnf("failed to log intro success: %v", err)
+			}
+			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr(postURL),
+			})
+			return
+		}
+
+		// Failure (cache miss)
+		stats, ok := m.config.ForumCache.Stats(introsChannelID)
+		failureMsg := func() string {
+			if ok {
+				return heredoc.Doc(fmt.Sprintf(`
+					[IntroLookupFailure]
+					Reason: cache_miss
+					Actor: %s (%s)
+					Target: %s (%s)
+					Guild: %s
+					Forum: %s
+					Ephemeral: %t
+					Stats:
+					  Threads: %d
+					  OwnersTracked: %d
+					  LastFullSync: %s
+					  EventAdds: %d
+					  EventUpdates: %d
+					  EventDeletes: %d
+					  Anomalies: %d
+				`,
+					func() string {
+						if actor != nil {
+							return actor.String()
+						} else {
+							return "<unknown>"
+						}
+					}(),
+					func() string {
+						if actor != nil {
+							return actor.ID
+						} else {
+							return "<unknown>"
+						}
+					}(),
+					targetUser.String(), targetUser.ID,
+					i.GuildID,
+					introsChannelID,
+					ephemeral,
+					stats.Threads,
+					stats.OwnersTracked,
+					stats.LastFullSync.Format(time.RFC3339),
+					stats.EventAdds,
+					stats.EventUpdates,
+					stats.EventDeletes,
+					stats.Anomalies,
+				))
+			}
+			return heredoc.Doc(fmt.Sprintf(`
+				[IntroLookupFailure]
+				Reason: cache_miss
+				Actor: %s (%s)
+				Target: %s (%s)
+				Guild: %s
+				Forum: %s
+				Ephemeral: %t
+				Stats: unavailable
+			`,
+				func() string {
+					if actor != nil {
+						return actor.String()
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				func() string {
+					if actor != nil {
+						return actor.ID
+					} else {
+						return "<unknown>"
+					}
+				}(),
+				targetUser.String(), targetUser.ID,
+				i.GuildID,
+				introsChannelID,
+				ephemeral,
+			))
+		}()
+		if err := introLog(m.config, s, failureMsg); err != nil {
+			m.config.Config.Logger.Warnf("failed to log intro failure: %v", err)
+		}
+	}
+
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
+	})
+}
+
+// Slash command handler – determines target from optional "user" option.
+func (m *IntroModule) handleIntroSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var targetUser *discordgo.User
+	options := i.ApplicationCommandData().Options
+	ephemeral := true // default
+	for _, opt := range options {
+		if opt.Name == "user" {
+			targetUser = opt.UserValue(s)
+		}
+		if opt.Name == "ephemeral" {
+			ephemeral = opt.BoolValue()
+		}
+	}
+	if targetUser == nil && i.Member != nil {
+		targetUser = i.Member.User
+	}
+	if targetUser == nil {
+		// Fallback – shouldn't occur for slash commands, but handle defensively.
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unable to resolve target user.",
+				Flags:   chooseEphemeralFlag(ephemeral),
+			},
+		})
+		return
+	}
+	m.introLookup(s, i, targetUser, ephemeral)
+}
+
+// User context command handler – target user resolved from interaction TargetID.
+func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	targetID := data.TargetID
+	var targetUser *discordgo.User
+	if data.Resolved != nil && data.Resolved.Users != nil {
+		targetUser = data.Resolved.Users[targetID]
+	}
+	if targetUser == nil {
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unable to resolve selected user.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
-
-	// Get the target user (defaults to the command invoker if not specified)
-	var targetUser *discordgo.User
-	options := i.ApplicationCommandData().Options
-	if len(options) > 0 && options[0].Name == "user" {
-		targetUser = options[0].UserValue(s)
-	} else {
-		targetUser = i.Member.User
-	}
-
-	// Acknowledge the interaction immediately as this might take time
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-	})
-
-	// Get all active threads from the forum channel
-	threads, err := m.getAllActiveThreads(s, introsChannelID, i.GuildID)
-	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing introductions forum: %v", err)),
-		})
-		return
-	}
-
-	// Find threads created by the target user
-	var userThreads []*discordgo.Channel
-	for _, thread := range threads {
-		if thread.OwnerID == targetUser.ID {
-			userThreads = append(userThreads, thread)
-		}
-	}
-
-	if len(userThreads) == 0 {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
-		})
-		return
-	}
-
-	// Sort threads by creation time (newest first)
-	sort.Slice(userThreads, func(i, j int) bool {
-		// Use the ID for sorting since newer Discord channels have larger IDs
-		return userThreads[i].ID > userThreads[j].ID
-	})
-
-	// Get the latest thread
-	latestThread := userThreads[0]
-
-	// Create the direct link to the forum post
-	postURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, latestThread.ID)
-
-	// Respond with just the link as requested
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(postURL),
-	})
+	// User context command is always ephemeral per requirements.
+	m.introLookup(s, i, targetUser, true)
 }
 
-// getAllActiveThreads gets all active threads from a forum channel
-func (m *IntroModule) getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
-	var allThreads []*discordgo.Channel
-
-	// For forum channels, get the channel and its threads directly
-	// Note: Discord API might require different approaches depending on the version
-	// Let's try to get the channel itself first to verify it's a forum channel
-	channel, err := s.Channel(channelID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
+// chooseEphemeralFlag returns the ephemeral flag if true, else 0.
+func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
+	if ephemeral {
+		return discordgo.MessageFlagsEphemeral
 	}
-
-	if channel.Type != discordgo.ChannelTypeGuildForum {
-		return nil, fmt.Errorf("channel %s is not a forum channel", channelID)
-	}
-
-	// Get active threads that are part of this forum
-	activeThreads, err := s.GuildThreadsActive(guildID)
-	if err != nil {
-		// If we can't get active threads, try a different approach
-		return nil, fmt.Errorf("failed to get active threads: %w", err)
-	}
-
-	// Filter threads that belong to our forum channel
-	for _, thread := range activeThreads.Threads {
-		if thread.ParentID == channelID {
-			allThreads = append(allThreads, thread)
-		}
-	}
-
-	// Try to get archived threads if available
-	publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
-	if err == nil && publicArchived != nil {
-		allThreads = append(allThreads, publicArchived.Threads...)
-	}
-
-	return allThreads, nil
+	return 0
 }
 
 // Service returns nil as this module has no services requiring initialization
 func (m *IntroModule) Service() types.ModuleService {
-return nil
+	return nil
 }

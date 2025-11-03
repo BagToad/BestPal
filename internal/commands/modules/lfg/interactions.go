@@ -125,7 +125,7 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 	}
 
 	// 3. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
-	partialThreadSuggestions := gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
+	partialThreadSuggestions := m.gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
 	// Print exact match threads first
 	var fields []*discordgo.MessageEmbedField
@@ -334,7 +334,7 @@ func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discor
 		return
 	}
 
-	ch, err := m.createLFGThreadFromExactMatch(s, forumID, norm, game)
+	ch, err := m.createLFGThreadFromExactMatch(s, forumID, game)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
 		return

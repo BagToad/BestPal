@@ -18,13 +18,13 @@
                             ↓
         ┌──────────────────┼──────────────────┐
         ↓                  ↓                  ↓
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ modules/ping/   │  │ modules/time/   │  │ modules/say/    │
-│  ping.go        │  │  time.go        │  │  say.go         │
-│  - Register()   │  │  - Register()   │  │  - Register()   │
-│  - handler      │  │  - handler      │  │  - handlers     │
-│                 │  │                 │  │  service.go     │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
+┌─────────────────┐  ┌─────────────────┐
+│ modules/ping/   │  │ modules/say/    │
+│  ping.go        │  │  say.go         │
+│  - Register()   │  │  - Register()   │
+│  - handler      │  │  - handlers     │
+│                 │  │  service.go     │
+└─────────────────┘  └─────────────────┘
 
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │ modules/lfg/    │  │ modules/        │  │ modules/game/   │
@@ -34,7 +34,7 @@
 │                 │  │  module.go      │  │                 │
 └─────────────────┘  └─────────────────┘  └─────────────────┘
 
-All logic for each command in its module
+All logic for each command in its module. (Former `modules/time/` deprecated and now development-only for removal.)
 ```
 
 ## Dependency Flow

@@ -16,7 +16,6 @@ internal/commands/
 ├── types/              # Shared interfaces and types
 ├── modules/           # Self-contained command modules
 │   ├── ping/
-│   ├── time/
 │   ├── say/          # With service
 │   └── ...
 └── modular_handler.go # Routes commands to modules
@@ -54,7 +53,6 @@ Each module is self-contained:
 | Module | Complexity | Description |
 |--------|------------|-------------|
 | `ping/` | Simple | Basic command |
-| `time/` | Medium | Command with options |
 | `say/` | Complex | Multiple commands with service |
 | `lfg/` | Advanced | Modal and component interactions |
 | `roulette/` | Advanced | External service integration |
@@ -101,11 +99,8 @@ Original 600+ line handler. Being phased out as commands migrate.
 - ~30 lines of code
 - Shows basic pattern
 
-### Medium Module (time)
-- Single file: `modules/time/time.go`
-- Complex logic, no services
-- ~170 lines of code
-- Shows options handling
+### (Removed) Time Module
+The former `time` module has been deprecated and marked development-only for automatic unregistration. Its date parsing helper remains available in `internal/utils/time.go` for any future features.
 
 ### Complex Module (say)
 - Multiple files: `say.go`, `service.go`
@@ -119,7 +114,7 @@ Original 600+ line handler. Being phased out as commands migrate.
 - [x] Architecture design
 - [x] Types package
 - [x] ModularHandler implementation
-- [x] Example modules (ping, time, say)
+- [x] Example modules (ping, say)
 - [x] Documentation
 - [x] Tests passing
 

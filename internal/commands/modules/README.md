@@ -14,7 +14,6 @@ Each module encapsulates:
 | Module | Commands | Complexity | Features |
 |--------|----------|------------|----------|
 | **ping** | `/ping` | Simple | Basic response |
-| **time** | `/time` | Medium | Date/time parsing, Discord timestamps |
 | **say** | `/say`, `/schedulesay`, `/listscheduledsays`, `/cancelscheduledsay` | Complex | Service for scheduled messages |
 | **help** | `/help` | Simple | Command documentation |
 | **intro** | `/intro`, user app context: `Lookup intro` | Simple | Forum introduction lookup (slash + right-click user). `/intro` supports optional `ephemeral` boolean (default true) to control visibility. |

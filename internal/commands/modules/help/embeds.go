@@ -33,11 +33,6 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
-				Name:   "/time",
-				Value:  "Time-related utilities\n• Use `/time datetime:2025-08-25 3:00 PM` to convert dates to Discord timestamps\n• Use `full:true` to see all Discord timestamp formats",
-				Inline: false,
-			},
-			{
 				Name:   "/lfg now",
 				Value:  "Mark yourself as looking for group in an LFG thread\n• Use `/lfg now region:Region message:Text player_count:X` to post",
 				Inline: false,

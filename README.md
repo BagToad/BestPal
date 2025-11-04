@@ -15,7 +15,6 @@ Single‑guild by design (`config.yaml` holds IDs).
 | `/help` | List available commands |
 | `/intro` | Find a user's intro forum post |
 | `/game` | IGDB game lookup |
-| `/time` | Convert dates → Discord timestamps |
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
 | `/roulette signup` | Sign up for roulette pairing |

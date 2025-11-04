@@ -84,7 +84,7 @@ func (m *SayModule) Register(cmds map[string]*types.Command, deps *types.Depende
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "timestamp",
-					Description: "Unix timestamp when to send (use /time to convert)",
+					Description: "Unix timestamp when to send (use any converter or <t:> preview)",
 					Required:    true,
 				},
 				{

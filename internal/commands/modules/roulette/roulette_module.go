@@ -82,6 +82,7 @@ func (m *RouletteModule) Register(cmds map[string]*types.Command, deps *types.De
 			},
 		},
 		HandlerFunc: m.handleRoulette,
+		Development: true,
 	}
 
 	// Register roulette-admin command

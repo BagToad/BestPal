@@ -27,7 +27,7 @@ internal/commands/
 │   └── types.go              # Shared interfaces and types
 ├── modules/
 │   ├── ping/                 # Simple command
-│   ├── time/                 # Medium complexity
+│   ├── (deprecated: time/)   # Removed; helpers live in internal/utils/time.go
 │   ├── say/                  # Complex with service
 │   ├── lfg/                  # Complex with modals/components
 │   ├── roulette/             # Complex with pairing service
@@ -125,8 +125,7 @@ func NewModuleHandler(cfg *config.Config) *ModuleHandler {
     pingModule := &ping.Module{}
     pingModule.Register(commands, deps)
     
-    timeModule := &time.Module{}
-    timeModule.Register(commands, deps)
+    // (Former time module removed – was a date parsing utility)
     
     // ... register other modules
     
@@ -213,10 +212,12 @@ func NewModuleHandler(cfg *config.Config) *ModuleHandler {
 
 See existing modules for reference:
 - **Simple**: `modules/ping/` - Basic command with no dependencies
-- **Medium**: `modules/time/` - Command with options and parsing
 - **Complex**: `modules/say/` - Multiple commands with service
 - **Advanced**: `modules/lfg/` - Modal and component interactions
 - **Service Integration**: `modules/roulette/` - External service integration
+
+Deprecated:
+- `modules/time/` (date parsing logic consolidated; command unregistered)
 
 ## Further Reading
 

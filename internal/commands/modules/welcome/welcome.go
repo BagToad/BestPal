@@ -27,10 +27,12 @@ func New(deps *types.Dependencies) types.CommandModule {
 
 // Register registers the module (no commands for this module)
 func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+	var modPerms int64 = discordgo.PermissionBanMembers
 	cmds["setwelcomemsg"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name: "setwelcomemsg",
-			Type: discordgo.MessageApplicationCommand,
+			Name:                     "setwelcomemsg",
+			Type:                     discordgo.MessageApplicationCommand,
+			DefaultMemberPermissions: &modPerms,
 			NameLocalizations: &map[discordgo.Locale]string{
 				discordgo.EnglishUS: "Set as automatic welcome message",
 				discordgo.EnglishGB: "Set as automatic welcome message",

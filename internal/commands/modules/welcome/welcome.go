@@ -38,6 +38,7 @@ func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dep
 				discordgo.EnglishGB: "Set as automatic welcome message",
 			},
 		},
+		
 		HandlerFunc: m.handleSetWelcomeMsg,
 	}
 }

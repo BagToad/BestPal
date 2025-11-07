@@ -2,6 +2,7 @@ package prune
 
 import (
 	"fmt"
+	"gamerpal/internal/forumcache"
 	"gamerpal/internal/utils"
 	"sort"
 	"strconv"
@@ -173,6 +174,7 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 	var forumID string
 	var forumChannel *discordgo.Channel
 	execute := false
+	duplicatesCleanup := false
 	for _, opt := range i.ApplicationCommandData().Options {
 		if opt.Name == "forum" {
 			forumChannel = opt.ChannelValue(s)
@@ -201,6 +203,9 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		}
 		if opt.Name == "execute" {
 			execute = opt.BoolValue()
+		}
+		if opt.Name == "duplicates_cleanup" {
+			duplicatesCleanup = opt.BoolValue()
 		}
 	}
 
@@ -237,67 +242,128 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 	var flaggedThreads []flagged
 	var unknownThreads []flagged
 
-	for _, th := range threads {
-		if !th.IsThread() {
-			continue
+	if duplicatesCleanup {
+		// Duplicates cleanup (cache + membership check): must have forumCache populated; uses guild membership API to flag departed owners.
+		if m.forumCache == nil {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr("❌ Forum cache unavailable; cannot run duplicates cleanup."),
+			})
+			return
 		}
-
-		maxMessages := 500
-
-		msgs, err := fetchMessagesLimited(s, th.ID, maxMessages)
-		if err != nil {
-			m.config.Logger.Warnf("Error fetching messages for thread %s: %v", th.ID, err)
-			continue
+		m.forumCache.RegisterForum(forumID)
+		cachedThreads, ok := m.forumCache.ListThreads(forumID)
+		if !ok || len(cachedThreads) == 0 {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr("❌ Forum cache not populated for this forum; run a refresh first."),
+			})
+			return
 		}
-		if len(msgs) == 0 {
-			flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "no messages remain"})
-			continue
+		// Build membership set to detect departed owners.
+		members, memErr := utils.GetAllGuildMembers(s, i.GuildID)
+		if memErr != nil {
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+				Content: utils.StringPtr(fmt.Sprintf("❌ Error fetching guild members for departure check: %v", memErr)),
+			})
+			return
 		}
-
-		threadCreated, err := snowflakeTime(th.ID)
-		if err != nil {
-			m.config.Logger.Warnf("Unable to parse snowflake for thread %s: %v", th.ID, err)
+		memberSet := make(map[string]struct{}, len(members))
+		for _, mbr := range members {
+			memberSet[mbr.User.ID] = struct{}{}
 		}
-
-		hasOwnerMessage := false
-		for _, m := range msgs {
-			if m.Author != nil && m.Author.ID == th.OwnerID {
-				hasOwnerMessage = true
-				break
+		// Group by owner and flag all but newest per owner and all threads for departed owners.
+		byOwner := make(map[string][]*forumcache.ThreadMeta)
+		for _, tm := range cachedThreads {
+			byOwner[tm.OwnerID] = append(byOwner[tm.OwnerID], tm)
+		}
+		for ownerID, metas := range byOwner {
+			// Owner departed: flag all threads.
+			if _, ok := memberSet[ownerID]; !ok {
+				for _, meta := range metas {
+					flaggedThreads = append(flaggedThreads, flagged{thread: &discordgo.Channel{ID: meta.ID, ParentID: forumID}, reason: "owner departed"})
+				}
+				continue
+			}
+			if len(metas) <= 1 {
+				// Only one thread for this owner; nothing to flag as duplicate.
+				continue
+			}
+			// Sort threads oldest -> newest using CreatedAt then ID for deterministic ordering.
+			// The newest (last element) is preserved; all earlier ones are flagged as duplicates.
+			sort.Slice(metas, func(i, j int) bool {
+				if metas[i].CreatedAt.Equal(metas[j].CreatedAt) {
+					return metas[i].ID < metas[j].ID // tie-break: lower ID considered older
+				}
+				return metas[i].CreatedAt.Before(metas[j].CreatedAt)
+			})
+			// Flag all but latest
+			for _, meta := range metas[:len(metas)-1] { // range over all except newest
+				flaggedThreads = append(flaggedThreads, flagged{thread: &discordgo.Channel{ID: meta.ID, ParentID: forumID}, reason: "duplicate (older thread)"})
 			}
 		}
+	} else {
+		// Original starter-missing logic
+		for _, th := range threads {
+			if !th.IsThread() {
+				continue
+			}
 
-		// Only do this if the thread has a reasonable number of messages
-		// I don't think this actually works though since the docs say MessageCount
-		// tops out at 50...
-		if forumChannel.MessageCount <= maxMessages {
-			oldest := msgs[len(msgs)-1]
+			maxMessages := 500
+
+			msgs, err := fetchMessagesLimited(s, th.ID, maxMessages)
+			if err != nil {
+				m.config.Logger.Warnf("Error fetching messages for thread %s: %v", th.ID, err)
+				continue
+			}
+			if len(msgs) == 0 {
+				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "no messages remain"})
+				continue
+			}
+
+			threadCreated, err := snowflakeTime(th.ID)
+			if err != nil {
+				m.config.Logger.Warnf("Unable to parse snowflake for thread %s: %v", th.ID, err)
+			}
+
+			hasOwnerMessage := false
+			for _, m := range msgs {
+				if m.Author != nil && m.Author.ID == th.OwnerID {
+					hasOwnerMessage = true
+					break
+				}
+			}
+
+			// Only do this if the thread has a reasonable number of messages
+			// I don't think this actually works though since the docs say MessageCount
+			// tops out at 50...
 			// This should work though...
-			if hasMore, _ := hasMoreMessages(s, th.ID, oldest.ID); hasMore {
-				unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
-				continue
-			}
-			if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
-				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
-				time.Sleep(50 * time.Millisecond)
-				continue
-			}
-			if !threadCreated.IsZero() {
-				gap := oldest.Timestamp.Sub(threadCreated)
-				if gap > 2*time.Second {
-					flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
+			if forumChannel.MessageCount <= maxMessages {
+				oldest := msgs[len(msgs)-1]
+				if hasMore, _ := hasMoreMessages(s, th.ID, oldest.ID); hasMore {
+					unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
+					continue
+				}
+				if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
+					flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "starter missing (oldest message not by owner)"})
 					time.Sleep(50 * time.Millisecond)
 					continue
 				}
+				if !threadCreated.IsZero() {
+					gap := oldest.Timestamp.Sub(threadCreated)
+					if gap > 2*time.Second {
+						flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second))})
+						time.Sleep(50 * time.Millisecond)
+						continue
+					}
+				}
+				if !hasOwnerMessage {
+					flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner has no messages in thread"})
+				}
+			} else {
+				unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
 			}
-			if !hasOwnerMessage {
-				flaggedThreads = append(flaggedThreads, flagged{thread: th, reason: "owner has no messages in thread"})
-			}
-		} else {
-			unknownThreads = append(unknownThreads, flagged{thread: th, reason: "Thread too long"})
-		}
 
-		time.Sleep(50 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 
 	sort.Slice(flaggedThreads, func(a, b int) bool { return flaggedThreads[a].thread.ID > flaggedThreads[b].thread.ID })
@@ -318,9 +384,16 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 	}
 
 	mode := "Dry Run"
+	if duplicatesCleanup {
+		mode = "Duplicates Cleanup " + mode
+	}
 	color := utils.Colors.Info()
 	if execute {
-		mode = "Executed"
+		if duplicatesCleanup {
+			mode = "Duplicates Cleanup Executed"
+		} else {
+			mode = "Executed"
+		}
 		color = utils.Colors.Warning()
 	}
 
@@ -329,7 +402,7 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		description += fmt.Sprintf("\nThreads deleted: %d\nDelete failures: %d", deletedCount, failedCount)
 	}
 
-	maxList := 20
+	maxList := 50
 	flaggedFieldValue := ""
 	for idx, f := range flaggedThreads {
 		if idx >= maxList {
@@ -365,13 +438,22 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		})
 	}
 
+	title := "Forum Prune Report"
+	if duplicatesCleanup {
+		title = "Forum Prune Report (Duplicates Cleanup)"
+	}
 	embed := &discordgo.MessageEmbed{
-		Title:       "Forum Prune Report",
+		Title:       title,
 		Description: description,
 		Color:       color,
 		Fields:      fields,
 		Footer: &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("Use /prune-forum forum:<#%s> execute:true to delete flagged threads", forumID),
+			Text: fmt.Sprintf("Use /prune-forum forum:<#%s> %sexecute:true to delete flagged threads", forumID, func() string {
+				if duplicatesCleanup {
+					return "duplicates_cleanup:true "
+				}
+				return ""
+			}()),
 		},
 	}
 
@@ -435,36 +517,36 @@ func snowflakeTime(id string) (time.Time, error) {
 
 // getAllActiveThreads gets all active threads from a forum channel
 func getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
-var allThreads []*discordgo.Channel
+	var allThreads []*discordgo.Channel
 
-// For forum channels, get the channel and its threads directly
-channel, err := s.Channel(channelID)
-if err != nil {
-return nil, fmt.Errorf("failed to get channel: %w", err)
-}
+	// For forum channels, get the channel and its threads directly
+	channel, err := s.Channel(channelID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get channel: %w", err)
+	}
 
-if channel.Type != discordgo.ChannelTypeGuildForum {
-return nil, fmt.Errorf("channel %s is not a forum channel", channelID)
-}
+	if channel.Type != discordgo.ChannelTypeGuildForum {
+		return nil, fmt.Errorf("channel %s is not a forum channel", channelID)
+	}
 
-// Get active threads that are part of this forum
-activeThreads, err := s.GuildThreadsActive(guildID)
-if err != nil {
-return nil, fmt.Errorf("failed to get active threads: %w", err)
-}
+	// Get active threads that are part of this forum
+	activeThreads, err := s.GuildThreadsActive(guildID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active threads: %w", err)
+	}
 
-// Filter threads that belong to our forum channel
-for _, thread := range activeThreads.Threads {
-if thread.ParentID == channelID {
-allThreads = append(allThreads, thread)
-}
-}
+	// Filter threads that belong to our forum channel
+	for _, thread := range activeThreads.Threads {
+		if thread.ParentID == channelID {
+			allThreads = append(allThreads, thread)
+		}
+	}
 
-// Try to get archived threads if available
-publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
-if err == nil && publicArchived != nil {
-allThreads = append(allThreads, publicArchived.Threads...)
-}
+	// Try to get archived threads if available
+	publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
+	if err == nil && publicArchived != nil {
+		allThreads = append(allThreads, publicArchived.Threads...)
+	}
 
-return allThreads, nil
+	return allThreads, nil
 }

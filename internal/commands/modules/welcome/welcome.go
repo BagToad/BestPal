@@ -40,6 +40,30 @@ func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dep
 		},
 		HandlerFunc: m.handleSetWelcomeMsg,
 	}
+
+	cmds["getwelcomemsg"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "getwelcomemsg",
+			Description:              "Sends the currently set welcome message (only you will see it).",
+			DefaultMemberPermissions: &modPerms,
+		},
+		HandlerFunc: m.handleGetWelcomeMsg,
+	}
+}
+
+func (m *WelcomeModule) handleGetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	msg, err := m.db.GetWelcomeMessage()
+	if err != nil {
+		msg = "😭 Sorry, Couldn't find the welcome message."
+	}
+
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: msg,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
 }
 
 func (m *WelcomeModule) handleSetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {

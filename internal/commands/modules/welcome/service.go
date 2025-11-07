@@ -3,6 +3,7 @@ package welcome
 import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
+	"gamerpal/internal/database"
 	"gamerpal/internal/utils"
 	"slices"
 	"strings"
@@ -12,22 +13,40 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const defaultMsg = `Hi!! Welcome! 💚
+
+I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
+
+If you prefer to jump right into the main chat with the regulars, please do!
+
+Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
+
+Here are a few key areas of the server you might be looking for as a new member:
+<#1375605443933507694> - Post an introduction here to let others find you!
+<#1414445853816524830> - Right click & follow *and/or* comment on the games you like to keep up with LFG posts for your favs!
+<#1414752418758918144> - Check out our current events & niche clubs where you can meet new friends with shared interests`
+
 // WelcomeService handles welcome messages and related functionality
 type WelcomeService struct {
 	types.BaseService
 	config  *config.Config
 	nextRun time.Time
 	lastRun time.Time
+	db      *database.DB
 }
 
 // NewWelcomeService creates a new WelcomeService instance
-func NewWelcomeService(config *config.Config) *WelcomeService {
+func NewWelcomeService(deps *types.Dependencies) *WelcomeService {
+	config := deps.Config
+	db := deps.DB
+
 	timeBetweenRuns := config.GetNewPalsTimeBetweenWelcomeMessages()
 
 	return &WelcomeService{
 		config:  config,
 		nextRun: time.Now().Add(timeBetweenRuns),
 		lastRun: time.Now(),
+		db:      db,
 	}
 }
 
@@ -92,30 +111,22 @@ func (ws *WelcomeService) CheckAndWelcomeNewPals() {
 	}
 	newPalsMentionsString := strings.Join(newPalsMentions, " ")
 
-	welcomeMessage := heredoc.Docf(`
+	welcomeMsg, err := ws.db.GetWelcomeMessage()
+	if err != nil {
+		welcomeMsg = defaultMsg // Since we couldn't get any message from the DB we default to the old message
+	}
+
+	welcomeMsg = heredoc.Docf(`
 		%s
 
-		Hi!! Welcome! 💚
-
-		I've added you to this channel as a _private space_ for people who are new to the server. Everyone here is also new, so feel free to chat! This is a cozy channel just for new pals.
-
-		If you prefer to jump right into the main chat with the regulars, please do!
-
-		Moderators and other kind folks are available if you need them, so please ask any questions. There's no such thing as a dumb question!
-
-		Here are a few key areas of the server you might be looking for as a new member:
-		<#1375605443933507694> - Post an introduction here to let others find you!
-		<#1414445853816524830> - Right click & follow *and/or* comment on the games you like to keep up with LFG posts for your favs!
-		<#1414752418758918144> - Check out our current events & niche clubs where you can meet new friends with shared interests
-	`,
-		newPalsMentionsString,
-	)
+		%s
+	`, newPalsMentionsString, welcomeMsg)
 
 	// Send the welcome message in the welcome channel
-	_, err = ws.Session.ChannelMessageSend(welcomeChannelID, welcomeMessage)
+	_, err = ws.Session.ChannelMessageSend(welcomeChannelID, welcomeMsg)
 	if err != nil {
 		ws.config.Logger.Error("Failed to send welcome message:", err)
-		ws.config.Logger.Error("I would have sent the message: ", welcomeMessage)
+		ws.config.Logger.Error("I would have sent the message: ", welcomeMsg)
 		return
 	}
 

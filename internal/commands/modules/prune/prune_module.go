@@ -51,7 +51,7 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 	cmds["prune-forum"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:                     "prune-forum",
-			Description:              "Find forum threads whose starter post was deleted; delete them (dry-run by default). Use duplicates_cleanup to flag older duplicates/departed owners",
+			Description:              "Prune forum threads missing starters (dry-run). Use duplicates_cleanup for owner duplicates.",
 			DefaultMemberPermissions: &modPerms,
 			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			Options: []*discordgo.ApplicationCommandOption{

@@ -242,20 +242,14 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		return
 	}
 
-	// Build a set of moderator user IDs (simple rule: has Ban Members permission in forum channel => moderator)
+	// Owners set differs based on mode (cache vs live threads). We then permission-check each owner individually.
 	moderatorIDs := make(map[string]struct{})
-	guildMembers, gmErr := utils.GetAllGuildMembers(s, i.GuildID)
-	if gmErr != nil {
-		m.config.Logger.Warnf("Failed to enumerate guild members for moderator detection: %v", gmErr)
+	ownerSet := make(map[string]struct{})
+	if duplicatesCleanup {
+		// We'll populate ownerSet from cache later (after verifying cache) to avoid double work.
 	} else {
-		for _, mbr := range guildMembers {
-			perms, pErr := s.UserChannelPermissions(mbr.User.ID, forumID)
-			if pErr != nil {
-				continue
-			}
-			if perms&discordgo.PermissionBanMembers != 0 { // treat as moderator
-				moderatorIDs[mbr.User.ID] = struct{}{}
-			}
+		for _, th := range threads {
+			if th.OwnerID != "" { ownerSet[th.OwnerID] = struct{}{} }
 		}
 	}
 
@@ -273,25 +267,34 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Forum cache not populated for this forum; run a refresh first.")})
 			return
 		}
-		members, memErr := utils.GetAllGuildMembers(s, i.GuildID)
-		if memErr != nil {
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Error fetching guild members for departure check: %v", memErr))})
-			return
-		}
-		memberSet := make(map[string]struct{}, len(members))
-		for _, mbr := range members {
-			memberSet[mbr.User.ID] = struct{}{}
+		// Populate ownerSet from cached threads (now we know cache is available)
+		for _, tm := range cachedThreads { ownerSet[tm.OwnerID] = struct{}{} }
+
+		// Per-owner membership & moderator checks (avoid full guild scan)
+		memberPresent := make(map[string]bool, len(ownerSet))
+		for ownerID := range ownerSet {
+			// Check membership: GuildMember returns error if user not present.
+			if _, gmErr := s.GuildMember(i.GuildID, ownerID); gmErr == nil {
+				memberPresent[ownerID] = true
+			} else {
+				memberPresent[ownerID] = false
+			}
+			// Moderator detection: Ban Members permission in forum channel.
+			if perms, pErr := s.UserChannelPermissions(ownerID, forumID); pErr == nil && (perms&discordgo.PermissionBanMembers) != 0 {
+				moderatorIDs[ownerID] = struct{}{}
+			}
+			// Tiny pacing to reduce burst permission hits (optional)
+			time.Sleep(15 * time.Millisecond)
 		}
 		byOwner := make(map[string][]*forumcache.ThreadMeta)
 		for _, tm := range cachedThreads {
 			byOwner[tm.OwnerID] = append(byOwner[tm.OwnerID], tm)
 		}
 		for ownerID, metas := range byOwner {
-			// Skip moderators entirely (never flag duplicates and never treat departure as a reason)
-			if _, isMod := moderatorIDs[ownerID]; isMod {
+			if _, isMod := moderatorIDs[ownerID]; isMod { // skip moderator owners
 				continue
 			}
-			if _, ok := memberSet[ownerID]; !ok { // departed owner: flag all threads for audit
+			if !memberPresent[ownerID] { // departed owner: flag all threads
 				for _, meta := range metas {
 					flaggedThreads = append(flaggedThreads, flaggedPost{
 						thread:    &discordgo.Channel{ID: meta.ID, ParentID: forumID},

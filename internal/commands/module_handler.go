@@ -46,7 +46,7 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 		cfg.Logger.Warn("Warning: Failed to initialize database: %v", err)
 	}
 
-	fc := forumcache.New(cfg)
+	fc := forumcache.NewForumCacheService(cfg)
 	if session != nil {
 		fc.HydrateSession(session)
 	}

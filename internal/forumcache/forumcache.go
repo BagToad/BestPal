@@ -90,12 +90,25 @@ func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time) (
 	return archived.Threads, archived.HasMore, nil
 }
 
-// New creates a new Service.
-func New(config *config.Config) *Service {
+// NewForumCacheService creates a new Service.
+func NewForumCacheService(config *config.Config) *Service {
 	return &Service{
 		forums: make(map[string]*forumIndex),
 		config: config,
 	}
+}
+
+// NewTestForumCache constructs a mock Config and Service for tests in other packages.
+// Ensures a bot_token is present unless provided, mirroring prior per-file helpers.
+func NewTestForumCache(kv map[string]interface{}) (*config.Config, *Service) {
+	if kv == nil {
+		kv = map[string]interface{}{"bot_token": "x"}
+	}
+	if _, ok := kv["bot_token"]; !ok {
+		kv["bot_token"] = "x"
+	}
+	cfg := config.NewMockConfig(kv)
+	return cfg, NewForumCacheService(cfg)
 }
 
 // HydrateSession sets the Discord session reference.

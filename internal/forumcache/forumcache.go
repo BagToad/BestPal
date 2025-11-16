@@ -59,14 +59,14 @@ type Service struct {
 	mu      sync.RWMutex
 	forums  map[string]*forumIndex // forumID -> index
 	session *discordgo.Session     // hydrated after bot connects
-	config *config.Config
+	config  *config.Config
 }
 
 // threadLister abstracts active + archived thread listing for RefreshForum logic.
 // Returns raw slices of channels to keep the interface independent of discordgo response structs.
 type threadLister interface {
 	ListActiveThreads(guildID string) ([]*discordgo.Channel, error)
-	ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error)
+	ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error)
 }
 
 // sessionLister adapts a discordgo.Session to threadLister.
@@ -80,8 +80,10 @@ func (sl sessionLister) ListActiveThreads(guildID string) ([]*discordgo.Channel,
 	return active.Threads, nil
 }
 
-func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error) {
-	archived, err := sl.ThreadsArchived(forumID, before, limit)
+func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error) {
+	// Discord docs: List Public Archived Threads are ordered by archive_timestamp desc.
+	// Passing an explicit non-zero limit (max 100) reduces number of round trips versus implicit default (often 25).
+	archived, err := sl.ThreadsArchived(forumID, before, 100)
 	if err != nil || archived == nil {
 		return nil, false, err
 	}
@@ -140,14 +142,14 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 	}
 
 	var before *time.Time
-	for {
-		archivedThreads, hasMore, err := l.ListArchivedThreads(forumID, before, 50)
+	for page := 1; ; page++ {
+		archivedThreads, hasMore, err := l.ListArchivedThreads(forumID, before)
 		if err != nil {
-			s.config.Logger.Errorf("ForumCache RefreshForum: error listing archived threads: %v", err)
+			s.config.Logger.Errorf("ForumCache RefreshForum: error listing archived threads (page %d): %v", page, err)
 			break
 		}
-		if len(archivedThreads) == 0 { 
-			s.config.Logger.Info("ForumCache RefreshForum: no more archived pages")
+		if len(archivedThreads) == 0 {
+			s.config.Logger.Infof("ForumCache RefreshForum: no more archived pages (page %d empty)", page)
 			break
 		}
 
@@ -155,19 +157,24 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, th)
 		}
 		if !hasMore { // no further pages advertised
-			s.config.Logger.Info("ForumCache RefreshForum: no more archived pages")
+			s.config.Logger.Infof("ForumCache RefreshForum: no more archived pages (page %d, has_more=false)", page)
 			break
 		}
-		
-		// Oldest thread in this page becomes the `before` cursor for next fetch.
+
+		// Pagination cursor: Discord orders by thread_metadata.archive_timestamp desc.
+		// We should pass an ISO8601 timestamp BEFORE the oldest archive_timestamp we have processed.
+		// Prefer archive_timestamp over creation snowflake to avoid skipping threads whose archive time != creation time or that were later unarchived/re-archived.
 		last := archivedThreads[len(archivedThreads)-1]
-		if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil {
-			t := ts
-			before = &t
-		} else { // unexpected: cannot parse snowflake; abort pagination defensively
-			s.config.Logger.Error("ForumCache RefreshForum: cannot parse snowflake for pagination; aborting further archived fetches")
+		var cursor time.Time
+		if last.ThreadMetadata != nil && !last.ThreadMetadata.ArchiveTimestamp.IsZero() {
+			cursor = last.ThreadMetadata.ArchiveTimestamp
+		} else if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil { // fallback: creation time (may be older than archive time)
+			cursor = ts
+		} else {
+			s.config.Logger.Error("ForumCache RefreshForum: cannot derive pagination cursor; aborting further archived fetches")
 			break
 		}
+		before = &cursor
 	}
 
 	now := time.Now()

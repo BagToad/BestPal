@@ -175,7 +175,7 @@ func (m *mockLister) ListActiveThreads(guildID string) ([]*discordgo.Channel, er
 	return m.active, m.activeErr
 }
 
-func (m *mockLister) ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error) {
+func (m *mockLister) ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error) {
 	i := m.archivedCall
 	m.archivedCall++
 	if i >= len(m.archivedBatches) {

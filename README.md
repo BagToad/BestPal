@@ -118,7 +118,7 @@ However, given the complexity of deploying the changes requiring a bot token, IG
 
 ## License
 
-Copyright (c) 2023 Kynan Ware all rights reserved.
+Copyright (c) 2025 Kynan Ware all rights reserved.
 
 
 ## Support

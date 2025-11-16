@@ -2,6 +2,7 @@ package forumcache
 
 import (
 	"fmt"
+	"gamerpal/internal/config"
 	"sort"
 	"strings"
 	"sync"
@@ -58,6 +59,7 @@ type Service struct {
 	mu      sync.RWMutex
 	forums  map[string]*forumIndex // forumID -> index
 	session *discordgo.Session     // hydrated after bot connects
+	config *config.Config
 }
 
 // threadLister abstracts active + archived thread listing for RefreshForum logic.
@@ -87,8 +89,11 @@ func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time, l
 }
 
 // New creates a new Service.
-func New() *Service {
-	return &Service{forums: make(map[string]*forumIndex)}
+func New(config *config.Config) *Service {
+	return &Service{
+		forums: make(map[string]*forumIndex),
+		config: config,
+	}
 }
 
 // HydrateSession sets the Discord session reference.
@@ -136,21 +141,31 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 
 	var before *time.Time
 	for {
-		archivedThreads, hasMore, aErr := l.ListArchivedThreads(forumID, before, 50)
-		if aErr != nil || len(archivedThreads) == 0 {
+		archivedThreads, hasMore, err := l.ListArchivedThreads(forumID, before, 50)
+		if err != nil {
+			s.config.Logger.Errorf("ForumCache RefreshForum: error listing archived threads: %v", err)
 			break
 		}
-		for _, th := range archivedThreads {
+		if len(archivedThreads) == 0 { 
+			s.config.Logger.Info("ForumCache RefreshForum: no more archived pages")
+			break
+		}
+
+		for _, th := range archivedThreads { // seed each archived thread into temp maps
 			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, th)
 		}
-		if !hasMore {
+		if !hasMore { // no further pages advertised
+			s.config.Logger.Info("ForumCache RefreshForum: no more archived pages")
 			break
 		}
+		
+		// Oldest thread in this page becomes the `before` cursor for next fetch.
 		last := archivedThreads[len(archivedThreads)-1]
 		if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil {
 			t := ts
 			before = &t
-		} else {
+		} else { // unexpected: cannot parse snowflake; abort pagination defensively
+			s.config.Logger.Error("ForumCache RefreshForum: cannot parse snowflake for pagination; aborting further archived fetches")
 			break
 		}
 	}

@@ -2,6 +2,7 @@ package forumcache
 
 import (
 	"fmt"
+	"gamerpal/internal/config"
 	"sort"
 	"strings"
 	"sync"
@@ -58,13 +59,14 @@ type Service struct {
 	mu      sync.RWMutex
 	forums  map[string]*forumIndex // forumID -> index
 	session *discordgo.Session     // hydrated after bot connects
+	config  *config.Config
 }
 
 // threadLister abstracts active + archived thread listing for RefreshForum logic.
 // Returns raw slices of channels to keep the interface independent of discordgo response structs.
 type threadLister interface {
 	ListActiveThreads(guildID string) ([]*discordgo.Channel, error)
-	ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error)
+	ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error)
 }
 
 // sessionLister adapts a discordgo.Session to threadLister.
@@ -78,17 +80,35 @@ func (sl sessionLister) ListActiveThreads(guildID string) ([]*discordgo.Channel,
 	return active.Threads, nil
 }
 
-func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error) {
-	archived, err := sl.ThreadsArchived(forumID, before, limit)
+func (sl sessionLister) ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error) {
+	// Discord docs: List Public Archived Threads are ordered by archive_timestamp desc.
+	// Passing an explicit non-zero limit (max 100) reduces number of round trips versus implicit default (often 25).
+	archived, err := sl.ThreadsArchived(forumID, before, 100)
 	if err != nil || archived == nil {
 		return nil, false, err
 	}
 	return archived.Threads, archived.HasMore, nil
 }
 
-// New creates a new Service.
-func New() *Service {
-	return &Service{forums: make(map[string]*forumIndex)}
+// NewForumCacheService creates a new Service.
+func NewForumCacheService(config *config.Config) *Service {
+	return &Service{
+		forums: make(map[string]*forumIndex),
+		config: config,
+	}
+}
+
+// NewTestForumCache constructs a mock Config and Service for tests in other packages.
+// Ensures a bot_token is present unless provided, mirroring prior per-file helpers.
+func NewTestForumCache(kv map[string]interface{}) (*config.Config, *Service) {
+	if kv == nil {
+		kv = map[string]interface{}{"bot_token": "x"}
+	}
+	if _, ok := kv["bot_token"]; !ok {
+		kv["bot_token"] = "x"
+	}
+	cfg := config.NewMockConfig(kv)
+	return cfg, NewForumCacheService(cfg)
 }
 
 // HydrateSession sets the Discord session reference.
@@ -135,24 +155,39 @@ func (s *Service) refreshForumWithLister(guildID, forumID string, l threadLister
 	}
 
 	var before *time.Time
-	for {
-		archivedThreads, hasMore, aErr := l.ListArchivedThreads(forumID, before, 50)
-		if aErr != nil || len(archivedThreads) == 0 {
+	for page := 1; ; page++ {
+		archivedThreads, hasMore, err := l.ListArchivedThreads(forumID, before)
+		if err != nil {
+			s.config.Logger.Errorf("ForumCache RefreshForum: error listing archived threads (page %d): %v", page, err)
 			break
 		}
-		for _, th := range archivedThreads {
+		if len(archivedThreads) == 0 {
+			s.config.Logger.Infof("ForumCache RefreshForum: no more archived pages (page %d empty)", page)
+			break
+		}
+
+		for _, th := range archivedThreads { // seed each archived thread into temp maps
 			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, guildID, forumID, th)
 		}
-		if !hasMore {
+		if !hasMore { // no further pages advertised
+			s.config.Logger.Infof("ForumCache RefreshForum: no more archived pages (page %d, has_more=false)", page)
 			break
 		}
+
+		// Pagination cursor: Discord orders by thread_metadata.archive_timestamp desc.
+		// We should pass an ISO8601 timestamp BEFORE the oldest archive_timestamp we have processed.
+		// Prefer archive_timestamp over creation snowflake to avoid skipping threads whose archive time != creation time or that were later unarchived/re-archived.
 		last := archivedThreads[len(archivedThreads)-1]
-		if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil {
-			t := ts
-			before = &t
+		var cursor time.Time
+		if last.ThreadMetadata != nil && !last.ThreadMetadata.ArchiveTimestamp.IsZero() {
+			cursor = last.ThreadMetadata.ArchiveTimestamp
+		} else if ts, tsErr := discordgo.SnowflakeTimestamp(last.ID); tsErr == nil { // fallback: creation time (may be older than archive time)
+			cursor = ts
 		} else {
+			s.config.Logger.Error("ForumCache RefreshForum: cannot derive pagination cursor; aborting further archived fetches")
 			break
 		}
+		before = &cursor
 	}
 
 	now := time.Now()

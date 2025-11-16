@@ -249,7 +249,9 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		// We'll populate ownerSet from cache later (after verifying cache) to avoid double work.
 	} else {
 		for _, th := range threads {
-			if th.OwnerID != "" { ownerSet[th.OwnerID] = struct{}{} }
+			if th.OwnerID != "" {
+				ownerSet[th.OwnerID] = struct{}{}
+			}
 		}
 	}
 
@@ -268,7 +270,9 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 			return
 		}
 		// Populate ownerSet from cached threads (now we know cache is available)
-		for _, tm := range cachedThreads { ownerSet[tm.OwnerID] = struct{}{} }
+		for _, tm := range cachedThreads {
+			ownerSet[tm.OwnerID] = struct{}{}
+		}
 
 		// Per-owner membership & moderator checks (avoid full guild scan)
 		memberPresent := make(map[string]bool, len(ownerSet))

@@ -23,7 +23,7 @@ func mockThread(id, parentID, ownerID, name string, archived bool) *discordgo.Ch
 
 // TestSeedMetaOwnerLatest ensures seedMeta selects the newest thread per owner.
 func TestSeedMetaOwnerLatest(t *testing.T) {
-	service := New()
+	_, service := NewTestForumCache(nil)
 	forumID := "forum-1"
 	guildID := "guild-1"
 
@@ -59,7 +59,7 @@ func TestSeedMetaOwnerLatest(t *testing.T) {
 
 // TestOnThreadCreate verifies create event adds a thread and updates owner latest.
 func TestOnThreadCreate(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "forum-ct"
 	svc.RegisterForum(forumID)
 	thread := mockThread("300", forumID, "ownerX", "hello", false)
@@ -75,7 +75,7 @@ func TestOnThreadCreate(t *testing.T) {
 
 // TestOnThreadUpdateUnknown ensures an update for an unknown thread increments anomalies.
 func TestOnThreadUpdateUnknown(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "forum-up"
 	svc.RegisterForum(forumID)
 	unknown := mockThread("999", forumID, "ownerY", "ghost", false)
@@ -87,7 +87,7 @@ func TestOnThreadUpdateUnknown(t *testing.T) {
 
 // TestOnThreadDeleteFallback verifies deletion recalculates owner latest correctly.
 func TestOnThreadDeleteFallback(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "forum-del"
 	svc.RegisterForum(forumID)
 	first := mockThread("100", forumID, "ownerZ", "old", false)
@@ -106,7 +106,7 @@ func TestOnThreadDeleteFallback(t *testing.T) {
 
 // TestOnThreadListSync merges provided subset of threads.
 func TestOnThreadListSync(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "forum-ls"
 	svc.RegisterForum(forumID)
 	existing := mockThread("10", forumID, "ownerA", "ex", false)
@@ -124,7 +124,7 @@ func TestOnThreadListSync(t *testing.T) {
 
 // TestStatsAccumulation ensures counters reflect sequence of events.
 func TestStatsAccumulation(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "forum-stats"
 	svc.RegisterForum(forumID)
 	a := mockThread("1", forumID, "u1", "a", false)
@@ -162,7 +162,7 @@ func (m *mockLister) ListActiveThreads(guildID string) ([]*discordgo.Channel, er
 	return m.active, m.activeErr
 }
 
-func (m *mockLister) ListArchivedThreads(forumID string, before *time.Time, limit int) ([]*discordgo.Channel, bool, error) {
+func (m *mockLister) ListArchivedThreads(forumID string, before *time.Time) ([]*discordgo.Channel, bool, error) {
 	i := m.archivedCall
 	m.archivedCall++
 	if i >= len(m.archivedBatches) {
@@ -172,7 +172,7 @@ func (m *mockLister) ListArchivedThreads(forumID string, before *time.Time, limi
 }
 
 func TestRefreshForum_SinglePage(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	guildID := "g1"
 	forumID := "f1"
 	l := &mockLister{
@@ -202,7 +202,7 @@ func TestRefreshForum_SinglePage(t *testing.T) {
 }
 
 func TestRefreshForum_ActiveError(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	guildID := "g2"
 	forumID := "f2"
 	l := &mockLister{activeErr: assert.AnError}
@@ -215,7 +215,7 @@ func TestRefreshForum_ActiveError(t *testing.T) {
 }
 
 func TestRefreshForum_MultiPageArchived(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	guildID := "g3"
 	forumID := "f3"
 	l := &mockLister{
@@ -239,7 +239,7 @@ func TestRefreshForum_MultiPageArchived(t *testing.T) {
 }
 
 func TestRefreshForum_ArchivedEarlyErrorStops(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	guildID := "g4"
 	forumID := "f4"
 	l := &mockLister{
@@ -268,7 +268,7 @@ func mockThreadSimple(id, forumID, ownerID, name string) *discordgo.Channel {
 }
 
 func TestExactNameLookup(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-exact"
 	svc.RegisterForum(forumID)
 	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("10", forumID, "u1", "Elden Ring")})
@@ -278,7 +278,7 @@ func TestExactNameLookup(t *testing.T) {
 }
 
 func TestDuplicateExactNameLatestSelection(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-dup"
 	svc.RegisterForum(forumID)
 	// Older
@@ -296,7 +296,7 @@ func TestDuplicateExactNameLatestSelection(t *testing.T) {
 }
 
 func TestRenameUpdatesExactIndex(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-rename"
 	svc.RegisterForum(forumID)
 	ch := mockThreadSimple("300", forumID, "u1", "Old Name")
@@ -313,7 +313,7 @@ func TestRenameUpdatesExactIndex(t *testing.T) {
 }
 
 func TestSearchClassificationOrdering(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-search"
 	svc.RegisterForum(forumID)
 	svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple("10", forumID, "u1", "Elden")})
@@ -332,7 +332,7 @@ func TestSearchClassificationOrdering(t *testing.T) {
 }
 
 func TestSearchLimit(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-limit"
 	svc.RegisterForum(forumID)
 	for i := 0; i < 30; i++ {
@@ -346,7 +346,7 @@ func TestSearchLimit(t *testing.T) {
 }
 
 func TestPunctuationInsensitiveNormalization(t *testing.T) {
-	svc := New()
+	_, svc := NewTestForumCache(nil)
 	forumID := "f-punct"
 	svc.RegisterForum(forumID)
 	// Name with punctuation and periods.

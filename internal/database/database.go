@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -324,9 +325,19 @@ func (db *DB) ClearRouletteSchedule(guildID string) error {
 	return nil
 }
 
-func (db *DB) AddWelcomeMessage(userId string, message string) error {
-	query := `INSERT INTO welcome_messages (user_id, message) VALUES (?, ?)`
-	_, err := db.conn.Exec(query, userId, message)
+func (db *DB) SetWelcomeMessage(userId string, message string) error {
+	currentMsg, err := db.GetWelcomeMessage()
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to add welcome message: %w", err)
+	}
+
+	var query string
+	if len(currentMsg) <= 0 {
+		query = `INSERT INTO welcome_messages (user_id, message) VALUES (?, ?)`
+	} else {
+		query = `UPDATE welcome_messages SET user_id = ?, message = ?`
+	}
+	_, err = db.conn.Exec(query, userId, message) // Fixed parameter order
 	if err != nil {
 		return fmt.Errorf("failed to add welcome message: %w", err)
 	}

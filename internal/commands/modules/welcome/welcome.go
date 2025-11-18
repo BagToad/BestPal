@@ -70,7 +70,7 @@ func (m *WelcomeModule) handleSetWelcomeMsg(s *discordgo.Session, i *discordgo.I
 	msg := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID].Content
 	userID := i.Member.User.ID
 
-	err := m.db.AddWelcomeMessage(userID, msg)
+	err := m.db.SetWelcomeMessage(userID, msg)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,

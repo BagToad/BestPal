@@ -77,7 +77,7 @@ func getModelsEmojiResponse(s *discordgo.Session, m *discordgo.MessageCreate, cf
 	emojiResponse := modelsClient.ModelsRequest(systemPrompt, userPrompt, "gpt-4.1-nano")
 
 	if emojiResponse == "$DONTKNOW$" || emojiResponse == "" {
-		return "", nil
+		return "", fmt.Errorf("failed to generate emoji")
 	}
 
 	return emojiResponse, nil

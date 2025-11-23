@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -96,6 +97,16 @@ func (db *DB) initTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_roulette_schedules_guild_id ON roulette_schedules(guild_id);
 	CREATE INDEX IF NOT EXISTS idx_roulette_schedules_scheduled_at ON roulette_schedules(scheduled_at);
+
+
+	CREATE TABLE IF NOT EXISTS welcome_messages (
+	    id INTEGER PRIMARY KEY AUTOINCREMENT,
+	    user_id TEXT NOT NULL,
+	    message TEXT NOT NULL,
+	    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	
+	CREATE INDEX IF NOT EXISTS idx_welcome_messages_user_id ON welcome_messages(user_id);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -312,4 +323,36 @@ func (db *DB) ClearRouletteSchedule(guildID string) error {
 		return fmt.Errorf("failed to clear roulette schedule: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) SetWelcomeMessage(userId string, message string) error {
+	currentMsg, err := db.GetWelcomeMessage()
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("failed to add welcome message: %w", err)
+	}
+
+	var query string
+	if len(currentMsg) <= 0 {
+		query = `INSERT INTO welcome_messages (user_id, message) VALUES (?, ?)`
+	} else {
+		query = `UPDATE welcome_messages SET user_id = ?, message = ?`
+	}
+	_, err = db.conn.Exec(query, userId, message) // Fixed parameter order
+	if err != nil {
+		return fmt.Errorf("failed to add welcome message: %w", err)
+	}
+
+	return nil
+}
+
+func (db *DB) GetWelcomeMessage() (string, error) {
+	query := `SELECT message FROM welcome_messages ORDER BY id DESC LIMIT 1`
+	var message string
+
+	err := db.conn.QueryRow(query).Scan(&message)
+	if err != nil {
+		return "", fmt.Errorf("failed to get welcome message: %w", err)
+	}
+
+	return message, nil
 }

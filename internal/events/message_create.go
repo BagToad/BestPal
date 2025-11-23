@@ -70,7 +70,7 @@ func getModelsEmojiResponse(s *discordgo.Session, m *discordgo.MessageCreate, cf
 		If you are given a message that is inappropriate, regarding sensitive topics like mental health, politics, religion, or any other controversial subjects, you must respond with $DONTKNOW$
 
 		NEVER respond with these emojis: eggplant, peach, middle finger. Always respond with a different emoji.
-	`)
+	`, emojiNames.String())
 
 	userPrompt := m.Content
 

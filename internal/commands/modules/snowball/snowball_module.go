@@ -266,6 +266,11 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
+	if i.Member == nil || i.Member.User == nil {
+		m.config.Logger.Warn("snowball: interaction missing member or user; ignoring snowball command")
+		return
+	}
+
 	userID := i.Member.User.ID
 	if m.state.ThrowsByUser[userID] >= 3 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -278,7 +283,13 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
-	targetOpt := i.ApplicationCommandData().Options[0].Options[0]
+	cmdData := i.ApplicationCommandData()
+	if len(cmdData.Options) == 0 || len(cmdData.Options[0].Options) == 0 {
+		m.config.Logger.Warn("snowball: missing target option on command; ignoring")
+		return
+	}
+
+	targetOpt := cmdData.Options[0].Options[0]
 	targetUser := targetOpt.UserValue(s)
 	if targetUser == nil {
 		return
@@ -466,7 +477,12 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 		}
 	}
 	if mostHit != nil && mostHit.HitsOn > 0 {
-		_ = m.db.AddSnowballScore(mostHit.UserID, "", 1)
+		guildID := m.config.GetGamerPalsServerID()
+		if guildID == "" {
+			m.config.Logger.Warn("snowball: pity point could not be recorded because guild ID is empty")
+		} else if err := m.db.AddSnowballScore(mostHit.UserID, guildID, 1); err != nil {
+			m.config.Logger.Warnf("snowball: failed to add pity point: %v", err)
+		}
 	}
 
 	content := "❄️ **Snowfall Summary** ❄️\n\n"

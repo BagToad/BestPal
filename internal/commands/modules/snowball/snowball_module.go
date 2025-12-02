@@ -1,6 +1,8 @@
 package snowball
 
 import (
+	"bytes"
+	_ "embed"
 	"fmt"
 	"math/rand/v2"
 	"sort"
@@ -13,6 +15,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 )
+
+//go:embed snowfall.gif
+var snowfallGIF []byte
 
 type snowfallState struct {
 	Active       bool
@@ -211,9 +216,23 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	}
 	m.stateMu.Unlock()
 
-	gifURL := "https://www.animationsoftware7.com/img/agifs/snow02.gif"
-
-	_, _ = s.ChannelMessageSend(m.state.ChannelID, fmt.Sprintf("❄️ It's snowing! Use /snowball to join the snowball fight!\n%s", gifURL))
+	if len(snowfallGIF) == 0 {
+		m.config.Logger.Warn("snowball: embedded snowfall.gif is empty; sending text-only message")
+		_, _ = s.ChannelMessageSend(m.state.ChannelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
+	} else {
+		_, err := s.ChannelMessageSendComplex(m.state.ChannelID, &discordgo.MessageSend{
+			Content: "❄️ It's snowing! Use `/snowball` to join the snowball fight!",
+			Files: []*discordgo.File{
+				{
+					Name:   "snowfall.gif",
+					Reader: bytes.NewReader(snowfallGIF),
+				},
+			},
+		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to send embedded snowfall.gif: %v", err)
+		}
+	}
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,

@@ -115,6 +115,15 @@ func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.De
 		HandlerFunc: m.handleSnowball,
 	}
 
+	// User context (right-click) command to quickly throw a snowball at a selected user.
+	cmds["Throw snowball"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name: "Throw snowball",
+			Type: discordgo.UserApplicationCommand,
+		},
+		HandlerFunc: m.handleSnowballUserContext,
+	}
+
 	cmds["snowball-score"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "snowball-score",
@@ -283,6 +292,55 @@ func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
 }
 
 func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	cmdData := i.ApplicationCommandData()
+	var targetUser *discordgo.User
+	for _, opt := range cmdData.Options {
+		if opt.Name == "target" {
+			targetUser = opt.UserValue(s)
+			break
+		}
+	}
+	if targetUser == nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Couldn't figure out who you were aiming at. Try using /snowball again and pick a target.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	m.throwSnowballAtTarget(s, i, targetUser)
+}
+
+// handleSnowballUserContext handles the user context (right-click) "Throw snowball" app.
+// It resolves the selected user as the target and then delegates to the same logic
+// as the slash command version, with the same rules and messages.
+func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	targetID := data.TargetID
+	var targetUser *discordgo.User
+	if data.Resolved != nil && data.Resolved.Users != nil {
+		targetUser = data.Resolved.Users[targetID]
+	}
+	if targetUser == nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Couldn't figure out who you were aiming at. Try again from the user menu.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	m.throwSnowballAtTarget(s, i, targetUser)
+}
+
+// throwSnowballAtTarget contains the shared logic for throwing a snowball from the
+// interaction's member at the given target user. It is used by both the /snowball
+// slash command and the "Throw snowball" user context command.
+func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
 	m.stateMu.RLock()
 	active := m.state.Active
 	m.stateMu.RUnlock()
@@ -317,19 +375,11 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
-	cmdData := i.ApplicationCommandData()
-	var targetUser *discordgo.User
-	for _, opt := range cmdData.Options {
-		if opt.Name == "target" {
-			targetUser = opt.UserValue(s)
-			break
-		}
-	}
 	if targetUser == nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "Couldn't figure out who you were aiming at. Try using /snowball again and pick a target.",
+				Content: "Couldn't figure out who you were aiming at. Try again and pick a target.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})

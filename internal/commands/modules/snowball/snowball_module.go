@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sort"
+	"sync"
 	"time"
 
 	"gamerpal/internal/commands/types"
@@ -27,7 +28,8 @@ type SnowballModule struct {
 	config *config.Config
 	db     *database.DB
 
-	state snowfallState
+	state   snowfallState
+	stateMu sync.RWMutex
 }
 
 // New creates a new snowball module
@@ -47,8 +49,6 @@ func New(deps *types.Dependencies) *SnowballModule {
 
 // Register adds snowball commands to the command map
 func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
-	var adminPerms int64 = discordgo.PermissionAdministrator
-
 	cmds["snowfall"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "snowfall",
@@ -119,8 +119,6 @@ func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.De
 		},
 		HandlerFunc: m.handleSnowballScore,
 	}
-
-	_ = adminPerms
 }
 
 // Service returns nil as snowball currently has no background service
@@ -142,7 +140,10 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 }
 
 func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	if m.state.Active {
+	m.stateMu.RLock()
+	active := m.state.Active
+	m.stateMu.RUnlock()
+	if active {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -176,6 +177,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		return
 	}
 
+	m.stateMu.Lock()
 	m.state = snowfallState{
 		Active:       true,
 		ChannelID:    channelID,
@@ -184,6 +186,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		HitsByUser:   make(map[string]int),
 		HitsOnUser:   make(map[string]int),
 	}
+	m.stateMu.Unlock()
 
 	gifURL := "https://www.animationsoftware7.com/img/agifs/snow02.gif"
 
@@ -201,7 +204,10 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	if !m.state.Active {
+	m.stateMu.RLock()
+	active := m.state.Active
+	m.stateMu.RUnlock()
+	if !active {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -219,7 +225,10 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 		}
 	}
 
-	if channelID == "" || channelID != m.state.ChannelID {
+	m.stateMu.RLock()
+	currentChannel := m.state.ChannelID
+	m.stateMu.RUnlock()
+	if channelID == "" || channelID != currentChannel {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -243,10 +252,15 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 
 func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
 	for {
-		if !m.state.Active {
+		m.stateMu.RLock()
+		active := m.state.Active
+		endsAt := m.state.EndsAt
+		m.stateMu.RUnlock()
+
+		if !active {
 			return
 		}
-		if time.Now().After(m.state.EndsAt) {
+		if time.Now().After(endsAt) {
 			m.postSummaryAndReset(s)
 			return
 		}
@@ -255,7 +269,10 @@ func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
 }
 
 func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if !m.state.Active {
+	m.stateMu.RLock()
+	active := m.state.Active
+	m.stateMu.RUnlock()
+	if !active {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -272,7 +289,10 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	userID := i.Member.User.ID
-	if m.state.ThrowsByUser[userID] >= 3 {
+	m.stateMu.RLock()
+	throws := m.state.ThrowsByUser[userID]
+	m.stateMu.RUnlock()
+	if throws >= 3 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -305,7 +325,9 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 		return
 	}
 
+	m.stateMu.Lock()
 	m.state.ThrowsByUser[userID]++
+	m.stateMu.Unlock()
 
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
@@ -368,8 +390,10 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())
 	}
 
+	m.stateMu.Lock()
 	m.state.HitsByUser[userID] += points
 	m.state.HitsOnUser[targetUser.ID] += points
+	m.stateMu.Unlock()
 
 	_ = m.db.AddSnowballScore(userID, i.GuildID, points)
 
@@ -424,7 +448,9 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
+	m.stateMu.RLock()
 	if !m.state.Active {
+		m.stateMu.RUnlock()
 		return
 	}
 
@@ -432,6 +458,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	throws := m.state.ThrowsByUser
 	hits := m.state.HitsByUser
 	hitsOn := m.state.HitsOnUser
+	m.stateMu.RUnlock()
 
 	if len(hits) == 0 {
 		_, _ = s.ChannelMessageSend(channelID, "The snow gently settles... but nobody threw a single snowball this time.")
@@ -498,9 +525,11 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 
 	_, _ = s.ChannelMessageSend(channelID, content)
 
+	m.stateMu.Lock()
 	m.state.Active = false
 	m.state.ChannelID = ""
 	m.state.ThrowsByUser = make(map[string]int)
 	m.state.HitsByUser = make(map[string]int)
 	m.state.HitsOnUser = make(map[string]int)
+	m.stateMu.Unlock()
 }

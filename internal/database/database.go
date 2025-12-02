@@ -39,6 +39,13 @@ type RouletteSchedule struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// SnowballScore represents a user's cumulative snowball score
+type SnowballScore struct {
+	UserID  string `json:"user_id"`
+	GuildID string `json:"guild_id"`
+	Score   int    `json:"score"`
+}
+
 // NewDB creates a new database connection and initializes tables
 func NewDB(dbPath string) (*DB, error) {
 	conn, err := sql.Open("sqlite3", dbPath)
@@ -107,6 +114,15 @@ func (db *DB) initTables() error {
 	);
 	
 	CREATE INDEX IF NOT EXISTS idx_welcome_messages_user_id ON welcome_messages(user_id);
+
+	CREATE TABLE IF NOT EXISTS snowball_scores (
+		user_id TEXT NOT NULL,
+		guild_id TEXT NOT NULL,
+		score INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (user_id, guild_id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_snowball_scores_guild_id ON snowball_scores(guild_id);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -355,4 +371,62 @@ func (db *DB) GetWelcomeMessage() (string, error) {
 	}
 
 	return message, nil
+}
+
+// AddSnowballScore increments a user's snowball score for a guild
+func (db *DB) AddSnowballScore(userID, guildID string, delta int) error {
+	if delta == 0 {
+		return nil
+	}
+
+	query := `
+	INSERT INTO snowball_scores (user_id, guild_id, score)
+	VALUES (?, ?, ?)
+	ON CONFLICT(user_id, guild_id) DO UPDATE SET score = score + excluded.score
+	`
+	_, err := db.conn.Exec(query, userID, guildID, delta)
+	if err != nil {
+		return fmt.Errorf("failed to add snowball score: %w", err)
+	}
+	return nil
+}
+
+// GetTopSnowballScores returns the top N snowball scores for a guild
+func (db *DB) GetTopSnowballScores(guildID string, limit int) ([]SnowballScore, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	query := `
+	SELECT user_id, guild_id, score
+	FROM snowball_scores
+	WHERE guild_id = ?
+	ORDER BY score DESC
+	LIMIT ?
+	`
+	rows, err := db.conn.Query(query, guildID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get snowball scores: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var scores []SnowballScore
+	for rows.Next() {
+		var s SnowballScore
+		if err := rows.Scan(&s.UserID, &s.GuildID, &s.Score); err != nil {
+			return nil, fmt.Errorf("failed to scan snowball score: %w", err)
+		}
+		scores = append(scores, s)
+	}
+	return scores, nil
+}
+
+// ClearSnowballScores removes all snowball scores for a guild
+func (db *DB) ClearSnowballScores(guildID string) error {
+	query := `DELETE FROM snowball_scores WHERE guild_id = ?`
+	_, err := db.conn.Exec(query, guildID)
+	if err != nil {
+		return fmt.Errorf("failed to clear snowball scores: %w", err)
+	}
+	return nil
 }

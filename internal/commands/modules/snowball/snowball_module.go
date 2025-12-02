@@ -216,34 +216,12 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	}
 	m.stateMu.Unlock()
 
-	// Try to discover the snowball command ID so we can use a rich
-	// application command mention (</snowball:ID>) in the kickoff message.
-	snowballMention := "`/snowball`"
-	if s.State != nil && s.State.Application != nil {
-		appID := s.State.Application.ID
-		if appID != "" {
-			// Best-effort lookup of guild-scoped commands for this app.
-			if cmds, err := s.ApplicationCommands(appID, i.GuildID); err != nil {
-				m.config.Logger.Warnf("snowball: failed to fetch application commands for mentions: %v", err)
-			} else {
-				for _, c := range cmds {
-					if c != nil && c.Name == "snowball" {
-						snowballMention = fmt.Sprintf("</snowball:%s>", c.ID)
-						break
-					}
-				}
-			}
-		}
-	}
-
-	messageContent := fmt.Sprintf("❄️ It's snowing! Use %s to join the snowball fight!", snowballMention)
-
 	if len(snowfallGIF) == 0 {
 		m.config.Logger.Warn("snowball: embedded snowfall.gif is empty; sending text-only message")
-		_, _ = s.ChannelMessageSend(m.state.ChannelID, messageContent)
+		_, _ = s.ChannelMessageSend(m.state.ChannelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
 	} else {
 		_, err := s.ChannelMessageSendComplex(m.state.ChannelID, &discordgo.MessageSend{
-			Content: messageContent,
+			Content: "❄️ It's snowing! Use `/snowball` to join the snowball fight!",
 			Files: []*discordgo.File{
 				{
 					Name:   "snowfall.gif",

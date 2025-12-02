@@ -609,7 +609,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 		}
 	}
 
-	content := "❄️ **Snowfall Ended – Final Standings** ❄️\n\n"
+	content := "❄️ **Snowfall Ended - Score** ❄️\n\n"
 	for idx, sRow := range summaries {
 		mention := fmt.Sprintf("<@%s>", sRow.UserID)
 		line := fmt.Sprintf("%d. %s — %d points from %d throws\n", idx+1, mention, sRow.Points, sRow.Throws)

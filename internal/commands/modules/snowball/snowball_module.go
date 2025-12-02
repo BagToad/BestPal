@@ -500,6 +500,7 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 		return
 	}
 
+	const maxDiscordMessageLength = 2000
 	content := "❄️ **Snowball Leaderboard** ❄️\n\n"
 	for idx, sRow := range scores {
 		member, _ := s.GuildMember(i.GuildID, sRow.UserID)
@@ -511,7 +512,11 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 				name = member.User.Username
 			}
 		}
-		content += fmt.Sprintf("%d. %s — %d points\n", idx+1, name, sRow.Score)
+		line := fmt.Sprintf("%d. %s — %d points\n", idx+1, name, sRow.Score)
+		if len(content)+len(line) > maxDiscordMessageLength {
+			break
+		}
+		content += line
 	}
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -609,15 +614,40 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 		}
 	}
 
+	const maxDiscordMessageLength = 2000
 	content := "❄️ **Snowfall Ended - Score** ❄️\n\n"
+	maxShown := 10
+	shownCount := 0
 	for idx, sRow := range summaries {
 		mention := fmt.Sprintf("<@%s>", sRow.UserID)
 		line := fmt.Sprintf("%d. %s — %d points from %d throws\n", idx+1, mention, sRow.Points, sRow.Throws)
+		if shownCount >= maxShown {
+			break
+		}
+		if len(content)+len(line) > maxDiscordMessageLength {
+			break
+		}
 		content += line
+		shownCount++
+	}
+
+	if len(summaries) > maxShown {
+		remaining := len(summaries) - maxShown
+		moreLine := fmt.Sprintf("...and %d more participants.\n", remaining)
+		if len(content)+len(moreLine) <= maxDiscordMessageLength {
+			content += moreLine
+		}
 	}
 
 	if mostHit != nil && mostHit.HitsOn > 0 {
-		content += fmt.Sprintf("\nSpecial shoutout to <@%s> for taking the most hits and earning a bonus pity point. You are the true snowbank.", mostHit.UserID)
+		bonusLine := fmt.Sprintf("\nSpecial shoutout to <@%s> for taking the most hits and earning a bonus pity point. You are the true snowbank.", mostHit.UserID)
+		if len(content)+len(bonusLine) > maxDiscordMessageLength {
+			// If we somehow hit the limit exactly, trim content slightly to make space.
+			if len(content) > len(bonusLine) {
+				content = content[:maxDiscordMessageLength-len(bonusLine)]
+			}
+		}
+		content += bonusLine
 	}
 
 	_, _ = s.ChannelMessageSend(channelID, content)

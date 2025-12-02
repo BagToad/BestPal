@@ -304,14 +304,21 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	cmdData := i.ApplicationCommandData()
-	if len(cmdData.Options) == 0 || len(cmdData.Options[0].Options) == 0 {
-		m.config.Logger.Warn("snowball: missing target option on command; ignoring")
-		return
+	var targetUser *discordgo.User
+	for _, opt := range cmdData.Options {
+		if opt.Name == "target" {
+			targetUser = opt.UserValue(s)
+			break
+		}
 	}
-
-	targetOpt := cmdData.Options[0].Options[0]
-	targetUser := targetOpt.UserValue(s)
 	if targetUser == nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Couldn't figure out who you were aiming at. Try using /snowball again and pick a target.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
 		return
 	}
 	if targetUser.ID == userID {

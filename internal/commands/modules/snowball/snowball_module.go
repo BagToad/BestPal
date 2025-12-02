@@ -339,16 +339,16 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
 		missTemplates := []string{
-			"%s lets a snowball fly at %s, but it poofs into powder mid-air.",
-			"%s lobs a snowball toward %s, but it veers off and joins a nearby snowdrift.",
-			"%s winds up and throws at %s, but the snowball softly bonks into a passing snowman instead.",
-			"%s launches a snowball at %s, but it shatters against an invisible force field of coziness.",
-			"%s hurls a snowball at %s, but it crumbles in their hands like a dramatic telenovela scene.",
-			"%s aims at %s, but the snowball takes one look at the chaos and simply decides ‘nope’.",
-			"%s scoops up a snowball for %s, but trips, giggles, and ends up dusted in snow instead.",
-			"%s sends a snowball toward %s, but a gust of wind yoinks it into the winter night.",
-			"%s tosses a snowball at %s, but a friendly penguin intercepts it and waddles off.",
-			"%s throws their best snowball at %s, but it dissolves into sparkling flakes before it lands.",
+			"%s yeets a snowball at %s, but it vaporizes like off-brand pixelated fog. (no points)",
+			"%s lobs a cursed snowball toward %s, only for it to clip through the map and despawn. (no points)",
+			"%s charges up an anime throw at %s, but the snowball whiffs so hard the replay crashes. (no points)",
+			"%s launches a 480p snowball at %s and it rubber-bands back into their own inventory. (no points)",
+			"%s hurls a snowball at %s, but anti-cheat flags it as suspicious aim and deletes it. (no points)",
+			"%s locks onto %s, throws, and the snowball immediately blue-screens reality. (no points)",
+			"%s crafts a snowball for %s so overcompressed it disintegrates into JPEG artifacts mid-air. (no points)",
+			"%s sends a snowball toward %s, but a lag spike teleports it into the Shadow Realm. (no points)",
+			"%s tosses a snowball at %s, but a low-res seagull NPC eats it whole. (no points)",
+			"%s throws their magnum opus snowball at %s and watches it gently alt+F4 out of existence. (no points)",
 		}
 		missMsg := missTemplates[rand.IntN(len(missTemplates))]
 		message := fmt.Sprintf(missMsg, i.Member.User.Mention(), targetUser.Mention())
@@ -367,31 +367,31 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	if isBigHit {
 		points = 2
 		bigHitTemplates := []string{
-			"%s absolutely wallops %s with a perfectly packed snowball for **2 points**!",
-			"%s channels their inner blizzard and smacks %s with a heavy-duty snowball for **2 points**!",
-			"%s unleashes a turbo-charged snowball that detonates in fluffy glory all over %s — **2 points**!",
-			"%s lines up the shot, and *bam* — direct hit on %s for **2 points**!",
-			"%s pulls off a trick-shot snowball that ricochets off a lamppost and nails %s for **2 points**!",
-			"%s crafts an artisanal, perfectly symmetrical snowball and domes %s with it for **2 points**!",
-			"%s spins up a frosty fastball and plants it right in %s's snowbank for **2 points**!",
-			"%s delivers a cinematic slow-motion snowball that absolutely splashes across %s — **2 points**!",
-			"%s summons the legendary Snowball of Destiny and bonks %s for a glorious **2 points**!",
-			"%s lands a crowd-cheering, clip-worthy snowball on %s for **2 points**!",
+			"%s absolutely wallops %s with a snowball so overbuilt it needs patch notes. (2 points)",
+			"%s channels their inner day-one glitch and hard-crashes %s with a frosty headshot. (2 points)",
+			"%s unleashes a turbo-charged snowball that explodes over %s like a saturated reaction meme. (2 points)",
+			"%s lines up the shot, buffer overflows the lobby, and direct-hits %s anyway. (2 points)",
+			"%s pulls off a wall-bounce trick-shot snowball that ricochets three times before deleting %s from the scene. (2 points)",
+			"%s crafts an artisanal snowball with 47 shaders and installs it directly onto %s's forehead. (2 points)",
+			"%s spins up a frosty fastball that hits %s so hard the HUD desyncs. (2 points)",
+			"%s delivers a slow-motion snowball that ragdolls %s into the upper atmosphere. (2 points)",
+			"%s summons the legendary RTX 4090 Snowball and overclocks it straight into %s. (2 points)",
+			"%s lands a crowd-cheering, frame-dropping snowball on %s that the highlight reel will never live down. (2 points)",
 		}
 		bigMsg := bigHitTemplates[rand.IntN(len(bigHitTemplates))]
 		message = fmt.Sprintf(bigMsg, i.Member.User.Mention(), targetUser.Mention())
 	} else {
 		normalHitTemplates := []string{
-			"%s lands a snowy hit on %s!",
-			"%s pegs %s with a perfectly chilled snowball.",
-			"%s gently but decisively bops %s with a puff of snow.",
-			"%s arcs a snowball through the winter air and tags %s.",
-			"%s sneaks a snowball past everyone's guard and taps %s right on the shoulder.",
-			"%s's snowball thuds into %s with a satisfying *fwump*.",
-			"%s surprises %s with a sneaky side-angle snowball.",
-			"%s spins, yeets, and successfully plants a snowball on %s.",
-			"%s lines up a comfy little snowbonk right on %s.",
-			"%s wings a snowball across the chat and lands it squarely on %s.",
+			"%s lands a scuffed but effective snowbonk on %s. (1 point)",
+			"%s plants a gently cursed snowball right onto %s's avatar. (1 point)",
+			"%s casually bop-installers a snowball update onto %s's face. (1 point)",
+			"%s arcs a crunchy, low-poly snowball through chat and tags %s. (1 point)",
+			"%s sneaks a drive-by snowball past everyone's FOV and taps %s on the shoulder. (1 point)",
+			"%s's snowball hits %s with a deeply unsatisfying but undeniable *thunk*. (1 point)",
+			"%s surprise side-loads a snowball directly into %s's personal space bubble. (1 point)",
+			"%s spin-yeets a mid-quality snowball that still connects with %s. (1 point)",
+			"%s lines up a cozy little snowbonk right on %s's status bar. (1 point)",
+			"%s wings a scuffed snowball across the feed and sticks it to %s. (1 point)",
 		}
 		normalMsg := normalHitTemplates[rand.IntN(len(normalHitTemplates))]
 		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())

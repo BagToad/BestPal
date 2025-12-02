@@ -453,9 +453,13 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 	content := "❄️ **Snowball Leaderboard** ❄️\n\n"
 	for idx, sRow := range scores {
 		member, _ := s.GuildMember(i.GuildID, sRow.UserID)
-		name := fmt.Sprintf("<@%s>", sRow.UserID)
-		if member != nil && member.Nick != "" {
-			name = member.Mention()
+		name := fmt.Sprintf("User %s", sRow.UserID)
+		if member != nil {
+			if member.Nick != "" {
+				name = member.Nick
+			} else if member.User != nil && member.User.Username != "" {
+				name = member.User.Username
+			}
 		}
 		content += fmt.Sprintf("%d. %s — %d points\n", idx+1, name, sRow.Score)
 	}

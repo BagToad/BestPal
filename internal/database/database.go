@@ -420,3 +420,13 @@ func (db *DB) GetTopSnowballScores(guildID string, limit int) ([]SnowballScore, 
 	}
 	return scores, nil
 }
+
+// ClearSnowballScores removes all snowball scores for a guild
+func (db *DB) ClearSnowballScores(guildID string) error {
+	query := `DELETE FROM snowball_scores WHERE guild_id = ?`
+	_, err := db.conn.Exec(query, guildID)
+	if err != nil {
+		return fmt.Errorf("failed to clear snowball scores: %w", err)
+	}
+	return nil
+}

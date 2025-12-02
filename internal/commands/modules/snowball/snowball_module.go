@@ -49,11 +49,15 @@ func New(deps *types.Dependencies) *SnowballModule {
 
 // Register adds snowball commands to the command map
 func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+	var adminPerms int64 = discordgo.PermissionAdministrator
+	var modPerms int64 = discordgo.PermissionBanMembers
+
 	cmds["snowfall"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name:        "snowfall",
-			Description: "Start or stop a festive snowfall",
-			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Name:                     "snowfall",
+			Description:              "Start or stop a festive snowfall",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -118,6 +122,16 @@ func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.De
 			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 		},
 		HandlerFunc: m.handleSnowballScore,
+	}
+
+	cmds["snowball-reset"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "snowball-reset",
+			Description:              "Reset the snowball leaderboard for this server",
+			DefaultMemberPermissions: &adminPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+		},
+		HandlerFunc: m.handleSnowballReset,
 	}
 }
 
@@ -339,16 +353,16 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
 		missTemplates := []string{
-			"%s yeets a snowball at %s, but it vaporizes like off-brand pixelated fog. (no points)",
-			"%s lobs a cursed snowball toward %s, only for it to clip through the map and despawn. (no points)",
-			"%s charges up an anime throw at %s, but the snowball whiffs so hard the replay crashes. (no points)",
-			"%s launches a 480p snowball at %s and it rubber-bands back into their own inventory. (no points)",
-			"%s hurls a snowball at %s, but anti-cheat flags it as suspicious aim and deletes it. (no points)",
-			"%s locks onto %s, throws, and the snowball immediately blue-screens reality. (no points)",
-			"%s crafts a snowball for %s so overcompressed it disintegrates into JPEG artifacts mid-air. (no points)",
-			"%s sends a snowball toward %s, but a lag spike teleports it into the Shadow Realm. (no points)",
-			"%s tosses a snowball at %s, but a low-res seagull NPC eats it whole. (no points)",
-			"%s throws their magnum opus snowball at %s and watches it gently alt+F4 out of existence. (no points)",
+			"%s yeets a snowball at %s, but it vaporizes like off-brand pixelated fog. (:poop: no points)",
+			"%s lobs a cursed snowball toward %s, only for it to clip through the map and despawn. (:poop: no points)",
+			"%s charges up an anime throw at %s, but the snowball whiffs so hard the replay crashes. (:poop: no points)",
+			"%s launches a 480p snowball at %s and it rubber-bands back into their own inventory. (:poop: no points)",
+			"%s hurls a snowball at %s, but anti-cheat flags it as suspicious aim and deletes it. (:poop: no points)",
+			"%s locks onto %s, throws, and the snowball immediately blue-screens reality. (:poop: no points)",
+			"%s crafts a snowball for %s so overcompressed it disintegrates into JPEG artifacts mid-air. (:poop: no points)",
+			"%s sends a snowball toward %s, but a lag spike teleports it into the Shadow Realm. (:poop: no points)",
+			"%s tosses a snowball at %s, but a low-res seagull NPC eats it whole. (:poop: no points)",
+			"%s throws their magnum opus snowball at %s and watches it gently alt+F4 out of existence. (:poop: no points)",
 		}
 		missMsg := missTemplates[rand.IntN(len(missTemplates))]
 		message := fmt.Sprintf(missMsg, i.Member.User.Mention(), targetUser.Mention())
@@ -367,31 +381,31 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 	if isBigHit {
 		points = 2
 		bigHitTemplates := []string{
-			"%s absolutely wallops %s with a snowball so overbuilt it needs patch notes. (2 points)",
-			"%s channels their inner day-one glitch and hard-crashes %s with a frosty headshot. (2 points)",
-			"%s unleashes a turbo-charged snowball that explodes over %s like a saturated reaction meme. (2 points)",
-			"%s lines up the shot, buffer overflows the lobby, and direct-hits %s anyway. (2 points)",
-			"%s pulls off a wall-bounce trick-shot snowball that ricochets three times before deleting %s from the scene. (2 points)",
-			"%s crafts an artisanal snowball with 47 shaders and installs it directly onto %s's forehead. (2 points)",
-			"%s spins up a frosty fastball that hits %s so hard the HUD desyncs. (2 points)",
-			"%s delivers a slow-motion snowball that ragdolls %s into the upper atmosphere. (2 points)",
-			"%s summons the legendary RTX 4090 Snowball and overclocks it straight into %s. (2 points)",
-			"%s lands a crowd-cheering, frame-dropping snowball on %s that the highlight reel will never live down. (2 points)",
+			"%s absolutely wallops %s with a snowball so overbuilt it needs patch notes. (:blue_circle: 2 points)",
+			"%s channels their inner day-one glitch and hard-crashes %s with a frosty headshot. (:blue_circle: 2 points)",
+			"%s unleashes a turbo-charged snowball that explodes over %s like a saturated reaction meme. (:blue_circle: 2 points)",
+			"%s lines up the shot, buffer overflows the lobby, and direct-hits %s anyway. (:blue_circle: 2 points)",
+			"%s pulls off a wall-bounce trick-shot snowball that ricochets three times before deleting %s from the scene. (:blue_circle: 2 points)",
+			"%s crafts an artisanal snowball with 47 shaders and installs it directly onto %s's forehead. (:blue_circle: 2 points)",
+			"%s spins up a frosty fastball that hits %s so hard the HUD desyncs. (:blue_circle: 2 points)",
+			"%s delivers a slow-motion snowball that ragdolls %s into the upper atmosphere. (:blue_circle: 2 points)",
+			"%s summons the legendary RTX 4090 Snowball and overclocks it straight into %s. (:blue_circle: 2 points)",
+			"%s lands a crowd-cheering, frame-dropping snowball on %s that the highlight reel will never live down. (:blue_circle: 2 points)",
 		}
 		bigMsg := bigHitTemplates[rand.IntN(len(bigHitTemplates))]
 		message = fmt.Sprintf(bigMsg, i.Member.User.Mention(), targetUser.Mention())
 	} else {
 		normalHitTemplates := []string{
-			"%s lands a scuffed but effective snowbonk on %s. (1 point)",
-			"%s plants a gently cursed snowball right onto %s's avatar. (1 point)",
-			"%s casually bop-installers a snowball update onto %s's face. (1 point)",
-			"%s arcs a crunchy, low-poly snowball through chat and tags %s. (1 point)",
-			"%s sneaks a drive-by snowball past everyone's FOV and taps %s on the shoulder. (1 point)",
-			"%s's snowball hits %s with a deeply unsatisfying but undeniable *thunk*. (1 point)",
-			"%s surprise side-loads a snowball directly into %s's personal space bubble. (1 point)",
-			"%s spin-yeets a mid-quality snowball that still connects with %s. (1 point)",
-			"%s lines up a cozy little snowbonk right on %s's status bar. (1 point)",
-			"%s wings a scuffed snowball across the feed and sticks it to %s. (1 point)",
+			"%s lands a scuffed but effective snowbonk on %s. (:white_circle: 1 point)",
+			"%s plants a gently cursed snowball right onto %s's avatar. (:white_circle: 1 point)",
+			"%s casually bop-installers a snowball update onto %s's face. (:white_circle: 1 point)",
+			"%s arcs a crunchy, low-poly snowball through chat and tags %s. (:white_circle: 1 point)",
+			"%s sneaks a drive-by snowball past everyone's FOV and taps %s on the shoulder. (:white_circle: 1 point)",
+			"%s's snowball hits %s with a deeply unsatisfying but undeniable *thunk*. (:white_circle: 1 point)",
+			"%s surprise side-loads a snowball directly into %s's personal space bubble. (:white_circle: 1 point)",
+			"%s spin-yeets a mid-quality snowball that still connects with %s. (:white_circle: 1 point)",
+			"%s lines up a cozy little snowbonk right on %s's status bar. (:white_circle: 1 point)",
+			"%s wings a scuffed snowball across the feed and sticks it to %s. (:white_circle: 1 point)",
 		}
 		normalMsg := normalHitTemplates[rand.IntN(len(normalHitTemplates))]
 		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())
@@ -450,6 +464,28 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: content,
+		},
+	})
+}
+
+func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Ideally restricted to admins/mods via Discord permissions on the command.
+	if err := m.db.ClearSnowballScores(i.GuildID); err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Couldn't reset the snowball leaderboard. The database slipped on the ice.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "❄️ The snowball leaderboard has been reset for this server.",
+			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
 }

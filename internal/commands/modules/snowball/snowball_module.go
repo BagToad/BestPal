@@ -13,6 +13,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -169,17 +170,22 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 }
 
 func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.RLock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	active := m.state.Active
-	m.stateMu.RUnlock()
+
 	if active {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "It's already snowing somewhere! Use /snowfall stop first.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with already-active snowfall message: %v", err)
+		}
+
 		return
 	}
 
@@ -196,17 +202,20 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	}
 
 	if channelID == "" || minutes <= 0 {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "Please provide a valid channel and duration.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with invalid-parameters message: %v", err)
+		}
+
 		return
 	}
 
-	m.stateMu.Lock()
 	m.state = snowfallState{
 		Active:       true,
 		ChannelID:    channelID,
@@ -215,13 +224,18 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		HitsByUser:   make(map[string]int),
 		HitsOnUser:   make(map[string]int),
 	}
-	m.stateMu.Unlock()
 
+	var snowfallMsg *discordgo.Message
 	if len(snowfallGIF) == 0 {
+		var err error
 		m.config.Logger.Warn("snowball: embedded snowfall.gif is empty; sending text-only message")
-		_, _ = s.ChannelMessageSend(m.state.ChannelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
+		snowfallMsg, err = s.ChannelMessageSend(m.state.ChannelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to send snowfall message: %v", err)
+		}
 	} else {
-		_, err := s.ChannelMessageSendComplex(m.state.ChannelID, &discordgo.MessageSend{
+		var err error
+		snowfallMsg, err = s.ChannelMessageSendComplex(m.state.ChannelID, &discordgo.MessageSend{
 			Content: "❄️ It's snowing! Use `/snowball` to join the snowball fight!",
 			Files: []*discordgo.File{
 				{
@@ -235,29 +249,74 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		}
 	}
 
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	if snowfallMsg == nil || snowfallMsg.ID == "" {
+		m.config.Logger.Warn("snowball: snowfall start message failed to send to channel")
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "Failed to start snowfall",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with snowfall start failure message: %v", err)
+		}
+		return
+	}
+
+	// We know it started successfully by now, let's try and update the channel name
+	// to include emojis at the end.
+	snowingEmojis := "❄️☃️🌨️"
+	channel, err := s.Channel(channelID)
+	// Non-fatal if we can't rename the channel.
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to fetch snowfall channel for renaming: %v", err)
+	} else if channel != nil {
+		newName := strings.TrimSpace(channel.Name + snowingEmojis)
+		_, err = s.ChannelEdit(channelID, &discordgo.ChannelEdit{
+			Name: newName,
+		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to rename snowfall channel: %v", err)
+		}
+	}
+
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: fmt.Sprintf("Started a snowfall in <#%s> for %d minutes.", channelID, minutes),
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to respond with snowfall start confirmation: %v", err)
+	}
+
+	// log to bestpal log channel
+	err = utils.LogToChannel(m.config, s, fmt.Sprintf("❄️ %s started a snowfall in <#%s> for %d minutes!", i.Member.Mention(), channelID, minutes))
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to log snowfall start to channel: %v", err)
+	}
 
 	go m.autoStopAfterDuration(s)
 }
 
 func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.RLock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
 	active := m.state.Active
-	m.stateMu.RUnlock()
+
 	if !active {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "There isn't an active snowfall right now.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with no-active snowfall message: %v", err)
+		}
 		return
 	}
 
@@ -268,29 +327,50 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 		}
 	}
 
-	m.stateMu.RLock()
 	currentChannel := m.state.ChannelID
-	m.stateMu.RUnlock()
+
 	if channelID == "" || channelID != currentChannel {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "That channel doesn't match the active snowfall.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with wrong-channel stop message: %v", err)
+		}
 		return
 	}
 
 	m.postSummaryAndReset(s)
 
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	// Try and remove the snowing emojis from the channel name.
+	snowingEmojis := "❄️☃️🌨️"
+	channel, err := s.Channel(channelID)
+	// Non-fatal if we can't rename the channel.
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to fetch snowfall channel for renaming: %v", err)
+	} else if channel != nil {
+		newName := strings.TrimRight(channel.Name, snowingEmojis)
+		_, err = s.ChannelEdit(channelID, &discordgo.ChannelEdit{
+			Name: newName,
+		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to rename snowfall channel: %v", err)
+		}
+	}
+
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "Snowfall stopped.",
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to respond with snowfall stop confirmation: %v", err)
+	}
 }
 
 func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
@@ -361,17 +441,36 @@ func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *disc
 // interaction's member at the given target user. It is used by both the /snowball
 // slash command and the "Throw snowball" user context command.
 func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
-	m.stateMu.RLock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
 	active := m.state.Active
-	m.stateMu.RUnlock()
+
 	if !active {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "It isn't snowing right now, so your snowball just melts in your hands.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with inactive snowfall message: %v", err)
+		}
+		return
+	}
+
+	if m.state.ChannelID != i.ChannelID {
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "It's not snowing here...",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with wrong-channel message: %v", err)
+		}
 		return
 	}
 
@@ -381,44 +480,52 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	}
 
 	userID := i.Member.User.ID
-	m.stateMu.RLock()
 	throws := m.state.ThrowsByUser[userID]
-	m.stateMu.RUnlock()
+
 	if throws >= 3 {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "You've already thrown 3 snowballs this snowfall. Save some snow for everyone else!",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with max throws message: %v", err)
+		}
 		return
 	}
 
 	if targetUser == nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "Couldn't figure out who you were aiming at. Try again and pick a target.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with no-target message: %v", err)
+		}
+
 		return
 	}
 	if targetUser.ID == userID {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "You wind up to throw... at yourself? The snowball decides you need a hug instead.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with self-throw message: %v", err)
+		}
+
 		return
 	}
 
-	m.stateMu.Lock()
 	m.state.ThrowsByUser[userID]++
-	m.stateMu.Unlock()
 
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
@@ -436,12 +543,16 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		}
 		missMsg := missTemplates[rand.IntN(len(missTemplates))]
 		message := fmt.Sprintf(missMsg, i.Member.User.Mention(), targetUser.Mention())
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: message,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with miss message: %v", err)
+		}
+
 		return
 	}
 
@@ -481,19 +592,23 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())
 	}
 
-	m.stateMu.Lock()
 	m.state.HitsByUser[userID] += points
 	m.state.HitsOnUser[targetUser.ID] += points
-	m.stateMu.Unlock()
 
-	_ = m.db.AddSnowballScore(userID, i.GuildID, points)
+	err := m.db.AddSnowballScore(userID, i.GuildID, points)
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to add snowball score (%d points for %s): %v", points, userID, err)
+	}
 
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: message,
 		},
 	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to respond with hit message: %v", err)
+	}
 }
 
 func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -594,9 +709,10 @@ func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
-	m.stateMu.RLock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
 	if !m.state.Active {
-		m.stateMu.RUnlock()
 		return
 	}
 
@@ -604,11 +720,13 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	throws := m.state.ThrowsByUser
 	hits := m.state.HitsByUser
 	hitsOn := m.state.HitsOnUser
-	m.stateMu.RUnlock()
 
 	if len(hits) == 0 {
-		_, _ = s.ChannelMessageSend(channelID, "The snow gently settles... but nobody threw a single snowball this time.")
 		m.state.Active = false
+		_, err := s.ChannelMessageSend(channelID, "The snow gently settles... but nobody threw a single snowball this time.")
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to send no-snowballs message: %v", err)
+		}
 		return
 	}
 
@@ -649,6 +767,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 			mostHit = &summaries[idx]
 		}
 	}
+
 	if mostHit != nil && mostHit.HitsOn > 0 {
 		guildID := m.config.GetGamerPalsServerID()
 		if guildID == "" {
@@ -664,7 +783,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	shownCount := 0
 	for idx, sRow := range summaries {
 		mention := fmt.Sprintf("<@%s>", sRow.UserID)
-		line := fmt.Sprintf("%d. %s — %d points from %d throws\n", idx+1, mention, sRow.Points, sRow.Throws)
+		line := fmt.Sprintf("%d. %s - %d points from %d throws\n", idx+1, mention, sRow.Points, sRow.Throws)
 		if shownCount >= maxShown {
 			break
 		}
@@ -696,11 +815,9 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 
 	_, _ = s.ChannelMessageSend(channelID, content)
 
-	m.stateMu.Lock()
 	m.state.Active = false
 	m.state.ChannelID = ""
 	m.state.ThrowsByUser = make(map[string]int)
 	m.state.HitsByUser = make(map[string]int)
 	m.state.HitsOnUser = make(map[string]int)
-	m.stateMu.Unlock()
 }

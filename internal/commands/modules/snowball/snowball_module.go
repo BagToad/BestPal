@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -498,74 +499,98 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	scores, err := m.db.GetTopSnowballScores(i.GuildID, 20)
 	if err != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "Couldn't fetch the snowball leaderboard. The snowplow hit the database.",
+				Content: "Couldn't fetch the snowball leaderboard. Snowplow hit the database.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with leaderboard fetch error: %v", err)
+		}
 		return
 	}
 
 	if len(scores) == 0 {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "No one has thrown a snowball yet. First hit gets bragging rights!",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with empty leaderboard message: %v", err)
+		}
 		return
 	}
 
 	const maxDiscordMessageLength = 2000
-	content := "❄️ **Snowball Leaderboard** ❄️\n\n"
+	var leaderboard strings.Builder
+	leaderboard.WriteString("❄️ **Snowball Leaderboard** ❄️\n\n")
 	for idx, sRow := range scores {
-		member, _ := s.GuildMember(i.GuildID, sRow.UserID)
+		member, err := s.GuildMember(i.GuildID, sRow.UserID)
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to fetch guild member %s: %v", sRow.UserID, err)
+			continue
+		}
+
 		name := fmt.Sprintf("User %s", sRow.UserID)
 		if member != nil {
 			if member.Nick != "" {
 				name = member.Nick
-			} else if member.User != nil && member.User.Username != "" {
-				name = member.User.Username
+			} else {
+				name = member.DisplayName()
 			}
 		}
-		line := fmt.Sprintf("%d. %s — %d points\n", idx+1, name, sRow.Score)
-		if len(content)+len(line) > maxDiscordMessageLength {
+
+		line := fmt.Sprintf("%d. %s - %d points\n", idx+1, name, sRow.Score)
+
+		if leaderboard.Len()+len(line) > maxDiscordMessageLength {
 			break
 		}
-		content += line
+
+		leaderboard.WriteString(line)
 	}
 
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: content,
+			Content: leaderboard.String(),
 		},
 	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to respond with leaderboard: %v", err)
+	}
 }
 
 func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Ideally restricted to admins/mods via Discord permissions on the command.
 	if err := m.db.ClearSnowballScores(i.GuildID); err != nil {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
 				Content: "Couldn't reset the snowball leaderboard. The database slipped on the ice.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
+		if err != nil {
+			m.config.Logger.Warnf("snowball: failed to respond with leaderboard reset error: %v", err)
+		}
 		return
 	}
 
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
 			Content: "❄️ The snowball leaderboard has been reset for this server.",
 			Flags:   discordgo.MessageFlagsEphemeral,
 		},
 	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to respond with leaderboard reset confirmation: %v", err)
+	}
 }
 
 func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {

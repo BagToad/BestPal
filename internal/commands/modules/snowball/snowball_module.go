@@ -172,6 +172,7 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
+
 	active := m.state.Active
 
 	if active {
@@ -709,10 +710,11 @@ func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
-
+	// First take a read-lock to snapshot state so we don't hold the
+	// write lock across network calls or Discord API traffic.
+	m.stateMu.RLock()
 	if !m.state.Active {
+		m.stateMu.RUnlock()
 		return
 	}
 
@@ -720,13 +722,22 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	throws := m.state.ThrowsByUser
 	hits := m.state.HitsByUser
 	hitsOn := m.state.HitsOnUser
+	m.stateMu.RUnlock()
 
 	if len(hits) == 0 {
-		m.state.Active = false
 		_, err := s.ChannelMessageSend(channelID, "The snow gently settles... but nobody threw a single snowball this time.")
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to send no-snowballs message: %v", err)
 		}
+
+		// Now safely clear the state under a write lock.
+		m.stateMu.Lock()
+		m.state.Active = false
+		m.state.ChannelID = ""
+		m.state.ThrowsByUser = make(map[string]int)
+		m.state.HitsByUser = make(map[string]int)
+		m.state.HitsOnUser = make(map[string]int)
+		m.stateMu.Unlock()
 		return
 	}
 
@@ -752,7 +763,14 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 
 	if len(summaries) == 0 {
 		_, _ = s.ChannelMessageSend(channelID, "The snowfall ends quietly. Not a single snowball found its mark.")
+
+		m.stateMu.Lock()
 		m.state.Active = false
+		m.state.ChannelID = ""
+		m.state.ThrowsByUser = make(map[string]int)
+		m.state.HitsByUser = make(map[string]int)
+		m.state.HitsOnUser = make(map[string]int)
+		m.stateMu.Unlock()
 		return
 	}
 
@@ -813,11 +831,16 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 		content += bonusLine
 	}
 
-	_, _ = s.ChannelMessageSend(channelID, content)
+	_, err := s.ChannelMessageSend(channelID, content)
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to send snowfall summary message: %v", err)
+	}
 
+	m.stateMu.Lock()
 	m.state.Active = false
 	m.state.ChannelID = ""
 	m.state.ThrowsByUser = make(map[string]int)
 	m.state.HitsByUser = make(map[string]int)
 	m.state.HitsOnUser = make(map[string]int)
+	m.stateMu.Unlock()
 }

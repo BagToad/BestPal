@@ -445,6 +445,7 @@ func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *disc
 func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
 	m.stateMu.RLock()
 	active := m.state.Active
+	channelID := m.state.ChannelID
 	m.stateMu.RUnlock()
 
 	if !active {
@@ -461,7 +462,7 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		return
 	}
 
-	if m.state.ChannelID != i.ChannelID {
+	if channelID != i.ChannelID {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -481,7 +482,10 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	}
 
 	userID := i.Member.User.ID
+
+	m.stateMu.RLock()
 	throws := m.state.ThrowsByUser[userID]
+	m.stateMu.RUnlock()
 
 	if throws >= 3 {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -526,7 +530,9 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		return
 	}
 
+	m.stateMu.Lock()
 	m.state.ThrowsByUser[userID]++
+	m.stateMu.Unlock()
 
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
@@ -712,34 +718,45 @@ func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
-	// First take a read-lock to snapshot state so we don't hold the
-	// write lock across network calls or Discord API traffic.
-	m.stateMu.RLock()
+	// First take a write-lock to check and atomically mark inactive
+	// to prevent double-execution from concurrent calls.
+	m.stateMu.Lock()
 	if !m.state.Active {
-		m.stateMu.RUnlock()
+		m.stateMu.Unlock()
 		return
 	}
+	// Mark as inactive immediately to prevent re-entry
+	m.state.Active = false
 
 	channelID := m.state.ChannelID
-	throws := m.state.ThrowsByUser
-	hits := m.state.HitsByUser
-	hitsOn := m.state.HitsOnUser
-	m.stateMu.RUnlock()
+	throws := make(map[string]int)
+	hits := make(map[string]int)
+	hitsOn := make(map[string]int)
+
+	// Deep copy the maps while we have the lock
+	for k, v := range m.state.ThrowsByUser {
+		throws[k] = v
+	}
+	for k, v := range m.state.HitsByUser {
+		hits[k] = v
+	}
+	for k, v := range m.state.HitsOnUser {
+		hitsOn[k] = v
+	}
+
+	// Clear the state maps immediately
+	m.state.ChannelID = ""
+	m.state.ThrowsByUser = make(map[string]int)
+	m.state.HitsByUser = make(map[string]int)
+	m.state.HitsOnUser = make(map[string]int)
+	m.stateMu.Unlock()
 
 	if len(hits) == 0 {
 		_, err := s.ChannelMessageSend(channelID, "The snow gently settles... but nobody threw a single snowball this time.")
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to send no-snowballs message: %v", err)
 		}
-
-		// Now safely clear the state under a write lock.
-		m.stateMu.Lock()
-		m.state.Active = false
-		m.state.ChannelID = ""
-		m.state.ThrowsByUser = make(map[string]int)
-		m.state.HitsByUser = make(map[string]int)
-		m.state.HitsOnUser = make(map[string]int)
-		m.stateMu.Unlock()
+		// State already cleared above
 		return
 	}
 
@@ -765,14 +782,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 
 	if len(summaries) == 0 {
 		_, _ = s.ChannelMessageSend(channelID, "The snowfall ends quietly. Not a single snowball found its mark.")
-
-		m.stateMu.Lock()
-		m.state.Active = false
-		m.state.ChannelID = ""
-		m.state.ThrowsByUser = make(map[string]int)
-		m.state.HitsByUser = make(map[string]int)
-		m.state.HitsOnUser = make(map[string]int)
-		m.stateMu.Unlock()
+		// State already cleared above
 		return
 	}
 
@@ -837,12 +847,5 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	if err != nil {
 		m.config.Logger.Warnf("snowball: failed to send snowfall summary message: %v", err)
 	}
-
-	m.stateMu.Lock()
-	m.state.Active = false
-	m.state.ChannelID = ""
-	m.state.ThrowsByUser = make(map[string]int)
-	m.state.HitsByUser = make(map[string]int)
-	m.state.HitsOnUser = make(map[string]int)
-	m.stateMu.Unlock()
+	// State already cleared at the start of this function
 }

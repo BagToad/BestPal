@@ -598,31 +598,32 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 }
 
 func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Defer response immediately to avoid timeout
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+	})
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to defer leaderboard response: %v", err)
+		return
+	}
+
 	scores, err := m.db.GetTopSnowballScores(i.GuildID, 20)
 	if err != nil {
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Couldn't fetch the snowball leaderboard. Snowplow hit the database.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
+		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("Couldn't fetch the snowball leaderboard. Snowplow hit the database."),
 		})
 		if err != nil {
-			m.config.Logger.Warnf("snowball: failed to respond with leaderboard fetch error: %v", err)
+			m.config.Logger.Warnf("snowball: failed to edit response with leaderboard fetch error: %v", err)
 		}
 		return
 	}
 
 	if len(scores) == 0 {
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "No one has thrown a snowball yet. First hit gets bragging rights!",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
+		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("No one has thrown a snowball yet. First hit gets bragging rights!"),
 		})
 		if err != nil {
-			m.config.Logger.Warnf("snowball: failed to respond with empty leaderboard message: %v", err)
+			m.config.Logger.Warnf("snowball: failed to edit response with empty leaderboard message: %v", err)
 		}
 		return
 	}
@@ -655,14 +656,11 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 		leaderboard.WriteString(line)
 	}
 
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: leaderboard.String(),
-		},
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr(leaderboard.String()),
 	})
 	if err != nil {
-		m.config.Logger.Warnf("snowball: failed to respond with leaderboard: %v", err)
+		m.config.Logger.Warnf("snowball: failed to edit response with leaderboard: %v", err)
 	}
 }
 

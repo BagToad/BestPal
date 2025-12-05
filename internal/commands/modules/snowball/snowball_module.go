@@ -304,9 +304,9 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 }
 
 func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
+	m.stateMu.RLock()
 	active := m.state.Active
+	m.stateMu.RUnlock()
 
 	if !active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -443,10 +443,9 @@ func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *disc
 // interaction's member at the given target user. It is used by both the /snowball
 // slash command and the "Throw snowball" user context command.
 func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
-
+	m.stateMu.RLock()
 	active := m.state.Active
+	m.stateMu.RUnlock()
 
 	if !active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -594,8 +593,10 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())
 	}
 
+	m.stateMu.Lock()
 	m.state.HitsByUser[userID] += points
 	m.state.HitsOnUser[targetUser.ID] += points
+	m.stateMu.Unlock()
 
 	err := m.db.AddSnowballScore(userID, i.GuildID, points)
 	if err != nil {

@@ -36,7 +36,7 @@ type SnowballModule struct {
 	db     *database.DB
 
 	state   snowfallState
-	stateMu sync.RWMutex
+	stateMu sync.Mutex
 }
 
 // New creates a new snowball module
@@ -232,7 +232,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		m.config.Logger.Warnf("snowball: failed to log snowfall start to channel: %v", err)
 	}
 
-	// We should lock the state this whole time while we actually start everything.
+	// Lock to update state, then unlock before Discord API calls
 	m.stateMu.Lock()
 	m.state = snowfallState{
 		Active:       true,
@@ -242,6 +242,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		HitsByUser:   make(map[string]int),
 		HitsOnUser:   make(map[string]int),
 	}
+	m.stateMu.Unlock()
 
 	// Start the auto-stop goroutine immediately after state is set
 	// This ensures it runs even if message sending fails below
@@ -316,9 +317,7 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 		}
 	}
 
-	currentChannel := m.state.ChannelID
-
-	if channelID == "" || channelID != currentChannel {
+	if channelID == "" || channelID != state.ChannelID {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -845,9 +844,28 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 }
 
 func (m *SnowballModule) snowfallState() snowfallState {
-	m.stateMu.RLock()
-	s := m.state
-	m.stateMu.RUnlock()
+	m.stateMu.Lock()
+	defer m.stateMu.Unlock()
+
+	// Deep copy the state to avoid sharing map references
+	s := snowfallState{
+		Active:       m.state.Active,
+		ChannelID:    m.state.ChannelID,
+		EndsAt:       m.state.EndsAt,
+		ThrowsByUser: make(map[string]int, len(m.state.ThrowsByUser)),
+		HitsByUser:   make(map[string]int, len(m.state.HitsByUser)),
+		HitsOnUser:   make(map[string]int, len(m.state.HitsOnUser)),
+	}
+
+	for k, v := range m.state.ThrowsByUser {
+		s.ThrowsByUser[k] = v
+	}
+	for k, v := range m.state.HitsByUser {
+		s.HitsByUser[k] = v
+	}
+	for k, v := range m.state.HitsOnUser {
+		s.HitsOnUser[k] = v
+	}
 
 	return s
 }

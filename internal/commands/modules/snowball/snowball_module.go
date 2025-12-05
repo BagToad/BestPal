@@ -170,10 +170,9 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 }
 
 func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.Lock()
-	defer m.stateMu.Unlock()
-
+	m.stateMu.RLock()
 	active := m.state.Active
+	m.stateMu.RUnlock()
 
 	if active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -217,6 +216,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		return
 	}
 
+	m.stateMu.Lock()
 	m.state = snowfallState{
 		Active:       true,
 		ChannelID:    channelID,
@@ -225,6 +225,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		HitsByUser:   make(map[string]int),
 		HitsOnUser:   make(map[string]int),
 	}
+	m.stateMu.Unlock()
 
 	var snowfallMsg *discordgo.Message
 	if len(snowfallGIF) == 0 {

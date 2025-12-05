@@ -214,20 +214,21 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		return
 	}
 
+	// Respond immediately to avoid timeout
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("Starting a snowfall in <#%s> for %d minutes...", channelID, minutes),
 			Flags:   discordgo.MessageFlagsEphemeral,
-			Content: "Requested a snowfall",
 		},
 	})
 	if err != nil {
-		m.config.Logger.Warnf("snowball: failed to respond with snowfall start deferred message: %v", err)
+		m.config.Logger.Warnf("snowball: failed to respond with snowfall start message: %v", err)
 		return
 	}
 
 	// log to bestpal log channel
-	err = utils.LogToChannel(m.config, s, fmt.Sprintf("❄️ %s requested a snowfall in <#%s> for %d minutes!", i.Member.Mention(), channelID, minutes))
+	err = utils.LogToChannel(m.config, s, fmt.Sprintf("❄️ %s started a snowfall in <#%s> for %d minutes!", i.Member.Mention(), channelID, minutes))
 	if err != nil {
 		m.config.Logger.Warnf("snowball: failed to log snowfall start to channel: %v", err)
 	}
@@ -250,14 +251,12 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 
 	var snowfallMsg *discordgo.Message
 	if len(snowfallGIF) == 0 {
-		var err error
 		m.config.Logger.Warn("snowball: embedded snowfall.gif is empty; sending text-only message")
 		snowfallMsg, err = s.ChannelMessageSend(channelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to send snowfall message: %v", err)
 		}
 	} else {
-		var err error
 		snowfallMsg, err = s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
 			Content: "❄️ It's snowing! Use `/snowball` to join the snowball fight!",
 			Files: []*discordgo.File{

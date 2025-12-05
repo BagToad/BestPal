@@ -170,11 +170,9 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 }
 
 func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.RLock()
-	active := m.state.Active
-	m.stateMu.RUnlock()
+	state := m.snowfallState()
 
-	if active {
+	if state.Active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -216,18 +214,25 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		return
 	}
 
-	// Respond to interaction immediately to avoid timeout
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Flags: discordgo.MessageFlagsEphemeral,
+			Flags:   discordgo.MessageFlagsEphemeral,
+			Content: "Requested a snowfall",
 		},
 	})
 	if err != nil {
-		m.config.Logger.Warnf("snowball: failed to send deferred response: %v", err)
+		m.config.Logger.Warnf("snowball: failed to respond with snowfall start deferred message: %v", err)
 		return
 	}
 
+	// log to bestpal log channel
+	err = utils.LogToChannel(m.config, s, fmt.Sprintf("❄️ %s requested a snowfall in <#%s> for %d minutes!", i.Member.Mention(), channelID, minutes))
+	if err != nil {
+		m.config.Logger.Warnf("snowball: failed to log snowfall start to channel: %v", err)
+	}
+
+	// We should lock the state this whole time while we actually start everything.
 	m.stateMu.Lock()
 	m.state = snowfallState{
 		Active:       true,
@@ -237,7 +242,6 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		HitsByUser:   make(map[string]int),
 		HitsOnUser:   make(map[string]int),
 	}
-	m.stateMu.Unlock()
 
 	// Start the auto-stop goroutine immediately after state is set
 	// This ensures it runs even if message sending fails below
@@ -269,18 +273,9 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 
 	if snowfallMsg == nil || snowfallMsg.ID == "" {
 		m.config.Logger.Warn("snowball: snowfall start message failed to send to channel")
-		// Note: auto-stop goroutine is already running and will clean up
-		_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("Failed to start snowfall"),
-		})
-		if err != nil {
-			m.config.Logger.Warnf("snowball: failed to edit response with snowfall start failure: %v", err)
-		}
-		return
 	}
 
-	// We know it started successfully by now, let's try and update the channel name
-	// to include emojis at the end.
+	// Updating channel name to indicate snowing
 	snowingEmojis := "❄️☃️🌨️"
 	channel, err := s.Channel(channelID)
 	// Non-fatal if we can't rename the channel.
@@ -295,28 +290,12 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 			m.config.Logger.Warnf("snowball: failed to rename snowfall channel: %v", err)
 		}
 	}
-
-	// Edit the deferred response with success message
-	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(fmt.Sprintf("Started a snowfall in <#%s> for %d minutes.", channelID, minutes)),
-	})
-	if err != nil {
-		m.config.Logger.Warnf("snowball: failed to edit response with snowfall start confirmation: %v", err)
-	}
-
-	// log to bestpal log channel
-	err = utils.LogToChannel(m.config, s, fmt.Sprintf("❄️ %s started a snowfall in <#%s> for %d minutes!", i.Member.Mention(), channelID, minutes))
-	if err != nil {
-		m.config.Logger.Warnf("snowball: failed to log snowfall start to channel: %v", err)
-	}
 }
 
 func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
-	m.stateMu.RLock()
-	active := m.state.Active
-	m.stateMu.RUnlock()
+	state := m.snowfallState()
 
-	if !active {
+	if !state.Active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -362,7 +341,7 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 	if err != nil {
 		m.config.Logger.Warnf("snowball: failed to fetch snowfall channel for renaming: %v", err)
 	} else if channel != nil {
-		newName := strings.TrimRight(channel.Name, snowingEmojis)
+		newName := strings.TrimSuffix(channel.Name, snowingEmojis)
 		_, err = s.ChannelEdit(channelID, &discordgo.ChannelEdit{
 			Name: newName,
 		})
@@ -385,15 +364,12 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 
 func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
 	for {
-		m.stateMu.RLock()
-		active := m.state.Active
-		endsAt := m.state.EndsAt
-		m.stateMu.RUnlock()
+		state := m.snowfallState()
 
-		if !active {
+		if !state.Active {
 			return
 		}
-		if time.Now().After(endsAt) {
+		if time.Now().After(state.EndsAt) {
 			m.postSummaryAndReset(s)
 			return
 		}
@@ -451,12 +427,9 @@ func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *disc
 // interaction's member at the given target user. It is used by both the /snowball
 // slash command and the "Throw snowball" user context command.
 func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
-	m.stateMu.RLock()
-	active := m.state.Active
-	channelID := m.state.ChannelID
-	m.stateMu.RUnlock()
+	state := m.snowfallState()
 
-	if !active {
+	if !state.Active {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -470,7 +443,7 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		return
 	}
 
-	if channelID != i.ChannelID {
+	if state.ChannelID != i.ChannelID {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -490,10 +463,7 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	}
 
 	userID := i.Member.User.ID
-
-	m.stateMu.RLock()
-	throws := m.state.ThrowsByUser[userID]
-	m.stateMu.RUnlock()
+	throws := state.ThrowsByUser[userID]
 
 	if throws >= 3 {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -523,6 +493,7 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 
 		return
 	}
+
 	if targetUser.ID == userID {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -766,7 +737,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	if err != nil {
 		m.config.Logger.Warnf("snowball: failed to fetch snowfall channel for renaming: %v", err)
 	} else if channel != nil {
-		newName := strings.TrimRight(channel.Name, snowingEmojis)
+		newName := strings.TrimSuffix(channel.Name, snowingEmojis)
 		_, err = s.ChannelEdit(channelID, &discordgo.ChannelEdit{
 			Name: newName,
 		})
@@ -871,5 +842,12 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	if sendErr != nil {
 		m.config.Logger.Warnf("snowball: failed to send snowfall summary message: %v", sendErr)
 	}
-	// State already cleared at the start of this function
+}
+
+func (m *SnowballModule) snowfallState() snowfallState {
+	m.stateMu.RLock()
+	s := m.state
+	m.stateMu.RUnlock()
+
+	return s
 }

@@ -334,10 +334,10 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	// Build the snowfall message content
 	snowfallContent := "❄️ It's snowing! Use `/snowball` to join the snowball fight!"
 	if weatherFlavour != "" {
-		snowfallContent += fmt.Sprintf("\nWeather conditions: %s", weatherFlavour)
+		snowfallContent += fmt.Sprintf("\n\n**Weather conditions: **%s", weatherFlavour)
 	}
 	if ballsPerUser != defaultBallsPerUser {
-		snowfallContent += fmt.Sprintf("\nIt looks like enough snow to make %d snowballs...", ballsPerUser)
+		snowfallContent += fmt.Sprintf("\n\nIt looks like enough snow to make **%d** snowballs...", ballsPerUser)
 	}
 
 	var snowfallMsg *discordgo.Message

@@ -21,10 +21,23 @@ import (
 //go:embed snowfall.gif
 var snowfallGIF []byte
 
+const defaultBallsPerUser = 3
+const defaultCritRate = 0.1
+const defaultStandardBallEmoji = "⚪"
+const defaultCritBallEmoji = "🔵"
+const defaultMissBallEmoji = "💩"
+
 type snowfallState struct {
-	Active       bool
-	ChannelID    string
-	EndsAt       time.Time
+	Active    bool
+	ChannelID string
+	EndsAt    time.Time
+
+	BallsPerUser      int
+	CritRate          float64
+	StandardBallEmoji string
+	CritBallEmoji     string
+	MissBallEmoji     string
+
 	ThrowsByUser map[string]int
 	HitsByUser   map[string]int
 	HitsOnUser   map[string]int
@@ -84,6 +97,46 @@ func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.De
 							Required:    true,
 							MinValue:    &[]float64{1}[0],
 							MaxValue:    180,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionInteger,
+							Name:        "balls_per_user",
+							Description: "How many snowballs each user can throw (default: 3)",
+							Required:    false,
+							MinValue:    &[]float64{1}[0],
+							MaxValue:    10,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionInteger,
+							Name:        "crit_rate",
+							Description: "Crit chance percentage for 2-point hits (default: 10, range: 0-100)",
+							Required:    false,
+							MinValue:    &[]float64{0}[0],
+							MaxValue:    100,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "standard_emoji",
+							Description: "Emoji for normal hits (default: ⚪)",
+							Required:    false,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "crit_emoji",
+							Description: "Emoji for critical hits (default: 🔵)",
+							Required:    false,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "miss_emoji",
+							Description: "Emoji for misses (default: 💩)",
+							Required:    false,
+						},
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "weather_flavour",
+							Description: "Custom weather conditions text to display",
+							Required:    false,
 						},
 					},
 				},
@@ -189,6 +242,12 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 
 	var channelID string
 	var minutes int64
+	ballsPerUser := defaultBallsPerUser
+	critRate := defaultCritRate
+	standardEmoji := defaultStandardBallEmoji
+	critEmoji := defaultCritBallEmoji
+	missEmoji := defaultMissBallEmoji
+	weatherFlavour := ""
 
 	for _, opt := range sub.Options {
 		if opt.Name == "channel" && opt.ChannelValue(s) != nil {
@@ -196,6 +255,24 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 		}
 		if opt.Name == "minutes" && opt.IntValue() > 0 {
 			minutes = opt.IntValue()
+		}
+		if opt.Name == "balls_per_user" {
+			ballsPerUser = int(opt.IntValue())
+		}
+		if opt.Name == "crit_rate" {
+			critRate = float64(opt.IntValue()) / 100.0
+		}
+		if opt.Name == "standard_emoji" {
+			standardEmoji = opt.StringValue()
+		}
+		if opt.Name == "crit_emoji" {
+			critEmoji = opt.StringValue()
+		}
+		if opt.Name == "miss_emoji" {
+			missEmoji = opt.StringValue()
+		}
+		if opt.Name == "weather_flavour" {
+			weatherFlavour = opt.StringValue()
 		}
 	}
 
@@ -236,12 +313,17 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	// Lock to update state, then unlock before Discord API calls
 	m.stateMu.Lock()
 	m.state = snowfallState{
-		Active:       true,
-		ChannelID:    channelID,
-		EndsAt:       time.Now().Add(time.Duration(minutes) * time.Minute),
-		ThrowsByUser: make(map[string]int),
-		HitsByUser:   make(map[string]int),
-		HitsOnUser:   make(map[string]int),
+		Active:            true,
+		ChannelID:         channelID,
+		EndsAt:            time.Now().Add(time.Duration(minutes) * time.Minute),
+		BallsPerUser:      ballsPerUser,
+		CritRate:          critRate,
+		StandardBallEmoji: standardEmoji,
+		CritBallEmoji:     critEmoji,
+		MissBallEmoji:     missEmoji,
+		ThrowsByUser:      make(map[string]int),
+		HitsByUser:        make(map[string]int),
+		HitsOnUser:        make(map[string]int),
 	}
 	m.stateMu.Unlock()
 
@@ -249,16 +331,25 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	// This ensures it runs even if message sending fails below
 	go m.autoStopAfterDuration(s)
 
+	// Build the snowfall message content
+	snowfallContent := "❄️ It's snowing! Use `/snowball` to join the snowball fight!"
+	if weatherFlavour != "" {
+		snowfallContent += fmt.Sprintf("\n\n**Weather conditions: **%s", weatherFlavour)
+	}
+	if ballsPerUser != defaultBallsPerUser {
+		snowfallContent += fmt.Sprintf("\n\nIt looks like enough snow to make **%d** snowballs...", ballsPerUser)
+	}
+
 	var snowfallMsg *discordgo.Message
 	if len(snowfallGIF) == 0 {
 		m.config.Logger.Warn("snowball: embedded snowfall.gif is empty; sending text-only message")
-		snowfallMsg, err = s.ChannelMessageSend(channelID, "❄️ It's snowing! Use `/snowball` to join the snowball fight!")
+		snowfallMsg, err = s.ChannelMessageSend(channelID, snowfallContent)
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to send snowfall message: %v", err)
 		}
 	} else {
 		snowfallMsg, err = s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{
-			Content: "❄️ It's snowing! Use `/snowball` to join the snowball fight!",
+			Content: snowfallContent,
 			Files: []*discordgo.File{
 				{
 					Name:   "snowfall.gif",
@@ -463,11 +554,11 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	userID := i.Member.User.ID
 	throws := state.ThrowsByUser[userID]
 
-	if throws >= 3 {
+	if throws >= state.BallsPerUser {
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "You've already thrown 3 snowballs this snowfall. Save some snow for everyone else!",
+				Content: fmt.Sprintf("You've already thrown %d snowballs this snowfall. Save some snow for everyone else!", state.BallsPerUser),
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
@@ -514,19 +605,19 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	hitRoll := rand.Float64()
 	if hitRoll > 0.75 {
 		missTemplates := []string{
-			"%s yeets a snowball at %s, but it vaporizes like off-brand pixelated fog. (:poop: no points)",
-			"%s lobs a cursed snowball toward %s, only for it to clip through the map and despawn. (:poop: no points)",
-			"%s charges up an anime throw at %s, but the snowball whiffs so hard the replay crashes. (:poop: no points)",
-			"%s launches a 480p snowball at %s and it rubber-bands back into their own inventory. (:poop: no points)",
-			"%s hurls a snowball at %s, but anti-cheat flags it as suspicious aim and deletes it. (:poop: no points)",
-			"%s locks onto %s, throws, and the snowball immediately blue-screens reality. (:poop: no points)",
-			"%s crafts a snowball for %s so overcompressed it disintegrates into JPEG artifacts mid-air. (:poop: no points)",
-			"%s sends a snowball toward %s, but a lag spike teleports it into the Shadow Realm. (:poop: no points)",
-			"%s tosses a snowball at %s, but a low-res seagull NPC eats it whole. (:poop: no points)",
-			"%s throws their magnum opus snowball at %s and watches it gently alt+F4 out of existence. (:poop: no points)",
+			"%s yeets a snowball at %s, but it vaporizes like off-brand pixelated fog. (%s no points)",
+			"%s lobs a cursed snowball toward %s, only for it to clip through the map and despawn. (%s no points)",
+			"%s charges up an anime throw at %s, but the snowball whiffs so hard the replay crashes. (%s no points)",
+			"%s launches a 480p snowball at %s and it rubber-bands back into their own inventory. (%s no points)",
+			"%s hurls a snowball at %s, but anti-cheat flags it as suspicious aim and deletes it. (%s no points)",
+			"%s locks onto %s, throws, and the snowball immediately blue-screens reality. (%s no points)",
+			"%s crafts a snowball for %s so overcompressed it disintegrates into JPEG artifacts mid-air. (%s no points)",
+			"%s sends a snowball toward %s, but a lag spike teleports it into the Shadow Realm. (%s no points)",
+			"%s tosses a snowball at %s, but a low-res seagull NPC eats it whole. (%s no points)",
+			"%s throws their magnum opus snowball at %s and watches it gently alt+F4 out of existence. (%s no points)",
 		}
 		missMsg := missTemplates[rand.IntN(len(missTemplates))]
-		message := fmt.Sprintf(missMsg, i.Member.User.Mention(), targetUser.Mention())
+		message := fmt.Sprintf(missMsg, i.Member.User.Mention(), targetUser.Mention(), state.MissBallEmoji)
 		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -540,40 +631,40 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 		return
 	}
 
-	isBigHit := rand.Float64() < 0.10
+	isBigHit := rand.Float64() < state.CritRate
 	points := 1
 	var message string
 	if isBigHit {
 		points = 2
 		bigHitTemplates := []string{
-			"%s absolutely wallops %s with a snowball so overbuilt it needs patch notes. (:blue_circle: 2 points)",
-			"%s channels their inner day-one glitch and hard-crashes %s with a frosty headshot. (:blue_circle: 2 points)",
-			"%s unleashes a turbo-charged snowball that explodes over %s like a saturated reaction meme. (:blue_circle: 2 points)",
-			"%s lines up the shot, buffer overflows the lobby, and direct-hits %s anyway. (:blue_circle: 2 points)",
-			"%s pulls off a wall-bounce trick-shot snowball that ricochets three times before deleting %s from the scene. (:blue_circle: 2 points)",
-			"%s crafts an artisanal snowball with 47 shaders and installs it directly onto %s's forehead. (:blue_circle: 2 points)",
-			"%s spins up a frosty fastball that hits %s so hard the HUD desyncs. (:blue_circle: 2 points)",
-			"%s delivers a slow-motion snowball that ragdolls %s into the upper atmosphere. (:blue_circle: 2 points)",
-			"%s summons the legendary RTX 4090 Snowball and overclocks it straight into %s. (:blue_circle: 2 points)",
-			"%s lands a crowd-cheering, frame-dropping snowball on %s that the highlight reel will never live down. (:blue_circle: 2 points)",
+			"%s absolutely wallops %s with a snowball so overbuilt it needs patch notes. (%s 2 points)",
+			"%s channels their inner day-one glitch and hard-crashes %s with a frosty headshot. (%s 2 points)",
+			"%s unleashes a turbo-charged snowball that explodes over %s like a saturated reaction meme. (%s 2 points)",
+			"%s lines up the shot, buffer overflows the lobby, and direct-hits %s anyway. (%s 2 points)",
+			"%s pulls off a wall-bounce trick-shot snowball that ricochets three times before deleting %s from the scene. (%s 2 points)",
+			"%s crafts an artisanal snowball with 47 shaders and installs it directly onto %s's forehead. (%s 2 points)",
+			"%s spins up a frosty fastball that hits %s so hard the HUD desyncs. (%s 2 points)",
+			"%s delivers a slow-motion snowball that ragdolls %s into the upper atmosphere. (%s 2 points)",
+			"%s summons the legendary RTX 4090 Snowball and overclocks it straight into %s. (%s 2 points)",
+			"%s lands a crowd-cheering, frame-dropping snowball on %s that the highlight reel will never live down. (%s 2 points)",
 		}
 		bigMsg := bigHitTemplates[rand.IntN(len(bigHitTemplates))]
-		message = fmt.Sprintf(bigMsg, i.Member.User.Mention(), targetUser.Mention())
+		message = fmt.Sprintf(bigMsg, i.Member.User.Mention(), targetUser.Mention(), state.CritBallEmoji)
 	} else {
 		normalHitTemplates := []string{
-			"%s lands a scuffed but effective snowbonk on %s. (:white_circle: 1 point)",
-			"%s plants a gently cursed snowball right onto %s's avatar. (:white_circle: 1 point)",
-			"%s casually bop-installers a snowball update onto %s's face. (:white_circle: 1 point)",
-			"%s arcs a crunchy, low-poly snowball through chat and tags %s. (:white_circle: 1 point)",
-			"%s sneaks a drive-by snowball past everyone's FOV and taps %s on the shoulder. (:white_circle: 1 point)",
-			"%s's snowball hits %s with a deeply unsatisfying but undeniable *thunk*. (:white_circle: 1 point)",
-			"%s surprise side-loads a snowball directly into %s's personal space bubble. (:white_circle: 1 point)",
-			"%s spin-yeets a mid-quality snowball that still connects with %s. (:white_circle: 1 point)",
-			"%s lines up a cozy little snowbonk right on %s's status bar. (:white_circle: 1 point)",
-			"%s wings a scuffed snowball across the feed and sticks it to %s. (:white_circle: 1 point)",
+			"%s lands a scuffed but effective snowbonk on %s. (%s 1 point)",
+			"%s plants a gently cursed snowball right onto %s's avatar. (%s 1 point)",
+			"%s casually bop-installers a snowball update onto %s's face. (%s 1 point)",
+			"%s arcs a crunchy, low-poly snowball through chat and tags %s. (%s 1 point)",
+			"%s sneaks a drive-by snowball past everyone's FOV and taps %s on the shoulder. (%s 1 point)",
+			"%s's snowball hits %s with a deeply unsatisfying but undeniable *thunk*. (%s 1 point)",
+			"%s surprise side-loads a snowball directly into %s's personal space bubble. (%s 1 point)",
+			"%s spin-yeets a mid-quality snowball that still connects with %s. (%s 1 point)",
+			"%s lines up a cozy little snowbonk right on %s's status bar. (%s 1 point)",
+			"%s wings a scuffed snowball across the feed and sticks it to %s. (%s 1 point)",
 		}
 		normalMsg := normalHitTemplates[rand.IntN(len(normalHitTemplates))]
-		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention())
+		message = fmt.Sprintf(normalMsg, i.Member.User.Mention(), targetUser.Mention(), state.StandardBallEmoji)
 	}
 
 	m.stateMu.Lock()
@@ -846,9 +937,16 @@ func (m *SnowballModule) snowfallState() snowfallState {
 
 	// Deep copy the state to avoid sharing map references
 	s := snowfallState{
-		Active:       m.state.Active,
-		ChannelID:    m.state.ChannelID,
-		EndsAt:       m.state.EndsAt,
+		Active:    m.state.Active,
+		ChannelID: m.state.ChannelID,
+		EndsAt:    m.state.EndsAt,
+
+		BallsPerUser:      m.state.BallsPerUser,
+		CritRate:          m.state.CritRate,
+		StandardBallEmoji: m.state.StandardBallEmoji,
+		CritBallEmoji:     m.state.CritBallEmoji,
+		MissBallEmoji:     m.state.MissBallEmoji,
+
 		ThrowsByUser: make(map[string]int, len(m.state.ThrowsByUser)),
 		HitsByUser:   make(map[string]int, len(m.state.HitsByUser)),
 		HitsOnUser:   make(map[string]int, len(m.state.HitsOnUser)),

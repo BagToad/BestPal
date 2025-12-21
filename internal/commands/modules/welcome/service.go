@@ -223,18 +223,13 @@ func (ws *WelcomeService) CleanNewPalsRoleFromOldMembers() {
 	ws.config.Logger.Info("Finished cleaning up New Pals roles")
 }
 
-// MinuteFuncs returns functions to be called every minute
-func (ws *WelcomeService) MinuteFuncs() []func() error {
-	return []func() error{
-		func() error {
+// ScheduledFuncs returns functions to be called on a schedule
+func (ws *WelcomeService) ScheduledFuncs() map[string]func() error {
+	return map[string]func() error{
+		"@every 1m": func() error {
 			ws.CleanNewPalsRoleFromOldMembers()
 			ws.CheckAndWelcomeNewPals()
 			return nil
 		},
 	}
-}
-
-// HourFuncs returns nil as this service has no hourly tasks
-func (ws *WelcomeService) HourFuncs() []func() error {
-	return nil
 }

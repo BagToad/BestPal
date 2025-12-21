@@ -744,17 +744,12 @@ func (s *PairingService) notifyFailedPairing(guildID, reason string) {
 	}
 }
 
-// MinuteFuncs returns functions to be called every minute
-func (s *PairingService) MinuteFuncs() []func() error {
-	return []func() error{
-		func() error {
+// ScheduledFuncs returns functions to be called on a schedule
+func (s *PairingService) ScheduledFuncs() map[string]func() error {
+	return map[string]func() error{
+		"@every 1m": func() error {
 			s.CheckAndExecuteScheduledPairings()
 			return nil
 		},
 	}
-}
-
-// HourFuncs returns nil as this service has no hourly tasks
-func (s *PairingService) HourFuncs() []func() error {
-	return nil
 }

@@ -20,7 +20,8 @@ type Scheduler struct {
 
 // NewScheduler creates a new scheduler instance
 func NewScheduler(session *discordgo.Session, cfg *config.Config, db *database.DB) *Scheduler {
-	// Create cron with standard 5-field format, skip if still running, and recover from panics
+	// Create cron with support for standard cron expressions and predefined schedules,
+	// skip if still running, and recover from panics
 	cronLogger := &cronLogger{logger: cfg.Logger}
 	c := cron.New(
 		cron.WithChain(

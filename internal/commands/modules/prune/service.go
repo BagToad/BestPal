@@ -90,9 +90,9 @@ func (s *Service) RunScheduledIntroPrune() error {
 		return nil
 	}
 
-	s.cfg.Logger.Info("[IntroPrune] Starting scheduled intro prune...")
+	s.cfg.Logger.Info("[IntroPrune] Starting scheduled intro prune (dry run)...")
 
-	result, err := RunIntroPrune(s.Session, s.cfg, s.forumCache, forumID, guildID, false)
+	result, err := RunIntroPrune(s.Session, s.cfg, s.forumCache, forumID, guildID, true)
 	if err != nil {
 		s.cfg.Logger.Errorf("[IntroPrune] Scheduled prune failed: %v", err)
 		logMsg := fmt.Sprintf("[Scheduled Intro Prune Failed]\nError: %v", err)
@@ -103,7 +103,7 @@ func (s *Service) RunScheduledIntroPrune() error {
 	}
 
 	// Log results to bestpal log channel
-	logMsg := fmt.Sprintf("[Scheduled Intro Prune Completed]\nForum: <#%s>\nThreads Scanned: %d\nThreads Flagged: %d\nThreads Deleted: %d\nDelete Failures: %d\nModerator Threads Skipped: %d",
+	logMsg := fmt.Sprintf("[Scheduled Intro Prune - DRY RUN]\nForum: <#%s>\nThreads Scanned: %d\nThreads Flagged: %d\nThreads Deleted: %d\nDelete Failures: %d\nModerator Threads Skipped: %d",
 		forumID,
 		result.ThreadsScanned,
 		result.ThreadsFlagged,
@@ -114,7 +114,7 @@ func (s *Service) RunScheduledIntroPrune() error {
 
 	// Add flagged thread details (up to 20)
 	if len(result.FlaggedThreads) > 0 {
-		logMsg += "\n\n**Deleted Threads:**"
+		logMsg += "\n\n**Would Delete:**"
 		for i, t := range result.FlaggedThreads {
 			if i >= 20 {
 				logMsg += fmt.Sprintf("\n...and %d more", len(result.FlaggedThreads)-20)

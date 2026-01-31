@@ -4,27 +4,12 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
-	"sort"
-	"strconv"
 	"time"
 
-	"gamerpal/internal/forumcache"
 	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
-
-// flaggedPost represents a thread we identified during prune-forum operations.
-// "Flagged" threads have a concrete reason and may be deleted in execute mode.
-// "Unknown" threads exceeded heuristics (e.g. too long) and need manual review.
-// We store: thread channel reference, the reason string, the owner ID, and the
-// creation timestamp (snowflake derived or cache metadata) for downstream audit/CSV.
-type flaggedPost struct {
-	thread    *discordgo.Channel
-	reason    string
-	ownerID   string
-	createdAt time.Time
-}
 
 const maxInactiveUsersDisplay = 20
 
@@ -171,7 +156,7 @@ func (m *PruneModule) handlePruneInactive(s *discordgo.Session, i *discordgo.Int
 	})
 }
 
-// handlePruneForum scans a forum channel for threads whose starter was deleted.
+// handlePruneForum scans a forum channel for threads from departed owners and duplicate intros.
 // Dry run by default; when execute:true, deletes flagged threads.
 func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Admin guard
@@ -187,12 +172,10 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 	}
 
 	var forumID string
-	var forumChannel *discordgo.Channel
 	execute := false
-	duplicatesCleanup := false
 	for _, opt := range i.ApplicationCommandData().Options {
 		if opt.Name == "forum" {
-			forumChannel = opt.ChannelValue(s)
+			forumChannel := opt.ChannelValue(s)
 			if forumChannel == nil {
 				_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 					Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -218,9 +201,6 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		if opt.Name == "execute" {
 			execute = opt.BoolValue()
 		}
-		if opt.Name == "duplicates_cleanup" {
-			duplicatesCleanup = opt.BoolValue()
-		}
 	}
 
 	if forumID == "" {
@@ -236,279 +216,56 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource})
 
-	threads, err := getAllActiveThreads(s, forumID, i.GuildID)
+	// Run the shared prune logic
+	result, err := RunIntroPrune(s, m.config, m.forumCache, forumID, i.GuildID, !execute)
 	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Error accessing forum: %v", err))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Error: %v", err))})
 		return
 	}
 
-	// Owners set differs based on mode (cache vs live threads). We then permission-check each owner individually.
-	moderatorIDs := make(map[string]struct{})
-	ownerSet := make(map[string]struct{})
-	if duplicatesCleanup {
-		// We'll populate ownerSet from cache later (after verifying cache) to avoid double work.
-	} else {
-		for _, th := range threads {
-			if th.OwnerID != "" {
-				ownerSet[th.OwnerID] = struct{}{}
-			}
-		}
-	}
-
-	var flaggedThreads []flaggedPost
-	var unknownThreads []flaggedPost
-
-	if duplicatesCleanup {
-		if m.forumCache == nil {
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Forum cache unavailable; cannot run duplicates cleanup.")})
-			return
-		}
-		m.forumCache.RegisterForum(forumID)
-		cachedThreads, ok := m.forumCache.ListThreads(forumID)
-		if !ok || len(cachedThreads) == 0 {
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Forum cache not populated for this forum; run a refresh first.")})
-			return
-		}
-		// Populate ownerSet from cached threads (now we know cache is available)
-		for _, tm := range cachedThreads {
-			ownerSet[tm.OwnerID] = struct{}{}
-		}
-
-		// Per-owner membership & moderator checks (avoid full guild scan)
-		memberPresent := make(map[string]bool, len(ownerSet))
-		for ownerID := range ownerSet {
-			// Check membership: GuildMember returns error if user not present.
-			if _, gmErr := s.GuildMember(i.GuildID, ownerID); gmErr == nil {
-				memberPresent[ownerID] = true
-			} else {
-				memberPresent[ownerID] = false
-			}
-			// Moderator detection: Ban Members permission in forum channel.
-			if perms, pErr := s.UserChannelPermissions(ownerID, forumID); pErr == nil && (perms&discordgo.PermissionBanMembers) != 0 {
-				moderatorIDs[ownerID] = struct{}{}
-			}
-			// Tiny pacing to reduce burst permission hits (optional)
-			time.Sleep(15 * time.Millisecond)
-		}
-		byOwner := make(map[string][]*forumcache.ThreadMeta)
-		for _, tm := range cachedThreads {
-			byOwner[tm.OwnerID] = append(byOwner[tm.OwnerID], tm)
-		}
-		for ownerID, metas := range byOwner {
-			if _, isMod := moderatorIDs[ownerID]; isMod { // skip moderator owners
-				continue
-			}
-			if !memberPresent[ownerID] { // departed owner: flag all threads
-				for _, meta := range metas {
-					flaggedThreads = append(flaggedThreads, flaggedPost{
-						thread:    &discordgo.Channel{ID: meta.ID, ParentID: forumID},
-						reason:    "owner departed",
-						ownerID:   ownerID,
-						createdAt: meta.CreatedAt,
-					})
-				}
-				continue
-			}
-			if len(metas) <= 1 { // single thread => nothing to dedupe
-				continue
-			}
-			// Sort threads oldest -> newest using CreatedAt then ID for deterministic ordering.
-			// We preserve the newest thread (last element) and flag all older ones as duplicates.
-			sort.Slice(metas, func(i, j int) bool {
-				if metas[i].CreatedAt.Equal(metas[j].CreatedAt) {
-					return metas[i].ID < metas[j].ID // tie-break: lower snowflake treated as older
-				}
-				return metas[i].CreatedAt.Before(metas[j].CreatedAt)
-			})
-			for _, meta := range metas[:len(metas)-1] { // all but newest
-				flaggedThreads = append(flaggedThreads, flaggedPost{
-					thread:    &discordgo.Channel{ID: meta.ID, ParentID: forumID},
-					reason:    "duplicate (older thread)",
-					ownerID:   ownerID,
-					createdAt: meta.CreatedAt,
-				})
-			}
-		}
-	} else {
-		for _, th := range threads {
-			if !th.IsThread() {
-				continue
-			}
-			// Skip if thread owner is a moderator
-			if _, isMod := moderatorIDs[th.OwnerID]; isMod {
-				continue
-			}
-			maxMessages := 500
-			msgs, err := fetchMessagesLimited(s, th.ID, maxMessages)
-			if err != nil {
-				m.config.Logger.Warnf("Error fetching messages for thread %s: %v", th.ID, err)
-				continue
-			}
-			if len(msgs) == 0 {
-				created, _ := snowflakeTime(th.ID)
-				flaggedThreads = append(flaggedThreads, flaggedPost{
-					thread:    th,
-					reason:    "no messages remain",
-					ownerID:   th.OwnerID,
-					createdAt: created,
-				})
-				continue
-			}
-			threadCreated, _ := snowflakeTime(th.ID)
-			hasOwnerMessage := false
-			for _, msg := range msgs {
-				if msg.Author != nil && msg.Author.ID == th.OwnerID {
-					hasOwnerMessage = true
-					break
-				}
-			}
-			// Original starter-missing heuristic block:
-			// Only execute deep checks if the thread has a "reasonable" number of messages.
-			// (Discord's MessageCount may cap at 50, but this heuristic remains as an upper guard.)
-			// We detect extremely long threads early and push them into the "unknown" bucket to avoid
-			// expensive pagination beyond our chosen limit.
-			if forumChannel.MessageCount <= maxMessages {
-				oldest := msgs[len(msgs)-1]
-				if hasMore, _ := hasMoreMessages(s, th.ID, oldest.ID); hasMore {
-					unknownThreads = append(unknownThreads, flaggedPost{
-						thread:    th,
-						reason:    "Thread too long",
-						ownerID:   th.OwnerID,
-						createdAt: threadCreated,
-					})
-					continue
-				}
-				if oldest.Author == nil || oldest.Author.ID != th.OwnerID {
-					flaggedThreads = append(flaggedThreads, flaggedPost{
-						thread:    th,
-						reason:    "starter missing (oldest message not by owner)",
-						ownerID:   th.OwnerID,
-						createdAt: threadCreated,
-					})
-					continue
-				}
-				if !threadCreated.IsZero() {
-					gap := oldest.Timestamp.Sub(threadCreated)
-					if gap > 2*time.Second {
-						flaggedThreads = append(flaggedThreads, flaggedPost{
-							thread:    th,
-							reason:    fmt.Sprintf("starter missing (creation gap %s)", gap.Truncate(time.Second)),
-							ownerID:   th.OwnerID,
-							createdAt: threadCreated,
-						})
-						continue
-					}
-				}
-				if !hasOwnerMessage {
-					flaggedThreads = append(flaggedThreads, flaggedPost{
-						thread:    th,
-						reason:    "owner has no messages in thread",
-						ownerID:   th.OwnerID,
-						createdAt: threadCreated,
-					})
-				}
-			} else {
-				unknownThreads = append(unknownThreads, flaggedPost{
-					thread:    th,
-					reason:    "Thread too long",
-					ownerID:   th.OwnerID,
-					createdAt: threadCreated,
-				})
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-
-	sort.Slice(flaggedThreads, func(a, b int) bool { return flaggedThreads[a].thread.ID > flaggedThreads[b].thread.ID })
-
-	deletedCount := 0
-	failedCount := 0
-	if execute {
-		for _, f := range flaggedThreads {
-			if _, err := s.ChannelDelete(f.thread.ID); err != nil {
-				failedCount++
-				m.config.Logger.Warnf("Failed deleting thread %s: %v", f.thread.ID, err)
-				continue
-			}
-			deletedCount++
-			time.Sleep(150 * time.Millisecond)
-		}
-	}
-
+	// Build response
 	mode := "Dry Run"
-	if duplicatesCleanup {
-		mode = "Duplicates Cleanup " + mode
-	}
 	color := utils.Colors.Info()
 	if execute {
-		if duplicatesCleanup {
-			mode = "Duplicates Cleanup Executed"
-		} else {
-			mode = "Executed"
-		}
+		mode = "Executed"
 		color = utils.Colors.Warning()
 	}
 
-	description := fmt.Sprintf("Mode: %s\nForum: <#%s>\nThreads scanned: %d\nThreads flagged: %d\nThreads unknown: %d", mode, forumID, len(threads), len(flaggedThreads), len(unknownThreads))
+	description := fmt.Sprintf("Mode: %s\nForum: <#%s>\nThreads scanned: %d\nThreads flagged: %d\nModerator threads skipped: %d",
+		mode, forumID, result.ThreadsScanned, result.ThreadsFlagged, result.ModeratorSkipped)
 	if execute {
-		description += fmt.Sprintf("\nThreads deleted: %d\nDelete failures: %d", deletedCount, failedCount)
+		description += fmt.Sprintf("\nThreads deleted: %d\nDelete failures: %d", result.ThreadsDeleted, result.DeleteFailures)
 	}
 
 	maxList := 20
 	flaggedFieldValue := ""
-	for idx, f := range flaggedThreads {
+	for idx, f := range result.FlaggedThreads {
 		if idx >= maxList {
-			flaggedFieldValue += fmt.Sprintf("\n…and %d more", len(flaggedThreads)-maxList)
+			flaggedFieldValue += fmt.Sprintf("\n…and %d more", len(result.FlaggedThreads)-maxList)
 			break
 		}
-		flaggedFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
-	}
-	unknownFieldValue := ""
-	for idx, f := range unknownThreads {
-		if idx >= maxList {
-			unknownFieldValue += fmt.Sprintf("\n…and %d more", len(unknownThreads)-maxList)
-			break
+		if f.Username != "" {
+			flaggedFieldValue += fmt.Sprintf("• <#%s> by %s — %s\n", f.ThreadID, f.Username, f.Reason)
+		} else {
+			flaggedFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.ThreadID, f.Reason)
 		}
-		unknownFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.thread.ID, f.reason)
 	}
 
 	fields := []*discordgo.MessageEmbedField{}
-	moderatorSkipped := 0
-	if len(moderatorIDs) > 0 {
-		for _, t := range threads {
-			if _, ok := moderatorIDs[t.OwnerID]; ok {
-				moderatorSkipped++
-			}
-		}
-	}
-	if len(flaggedThreads) > 0 {
+	if len(result.FlaggedThreads) > 0 {
 		fields = append(fields, &discordgo.MessageEmbedField{Name: "Flagged Threads", Value: flaggedFieldValue})
 	}
-	if len(unknownThreads) > 0 {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Unknown Threads", Value: unknownFieldValue})
-	}
-	if moderatorSkipped > 0 {
-		fields = append(fields, &discordgo.MessageEmbedField{Name: "Moderator Threads Skipped", Value: fmt.Sprintf("%d", moderatorSkipped)})
-	}
 
-	title := "Forum Prune Report"
-	if duplicatesCleanup {
-		title = "Forum Prune Report (Duplicates Cleanup)"
-	}
 	embed := &discordgo.MessageEmbed{
-		Title:       title,
+		Title:       "Forum Prune Report",
 		Description: description,
 		Color:       color,
 		Fields:      fields,
-		Footer: &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Use /prune-forum forum:<#%s> %sexecute:true to delete flagged threads", forumID, func() string {
-			if duplicatesCleanup {
-				return "duplicates_cleanup:true "
-			}
-			return ""
-		}())},
+		Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Use /prune-forum forum:<#%s> execute:true to delete flagged threads", forumID)},
 	}
 
-	csvBytes, csvErr := buildForumPruneCSV(flaggedThreads, unknownThreads, duplicatesCleanup, i.GuildID)
+	// Build CSV for download
+	csvBytes, csvErr := buildForumPruneCSVFromResult(result, i.GuildID)
 	files := []*discordgo.File{}
 	if csvErr != nil {
 		m.config.Logger.Warnf("Failed to build CSV for prune-forum: %v", csvErr)
@@ -523,124 +280,21 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 	}
 }
 
-// fetchMessagesLimited retrieves up to 'limitTotal' messages from a channel using pagination
-func fetchMessagesLimited(s *discordgo.Session, channelID string, limitTotal int) ([]*discordgo.Message, error) {
-	var all []*discordgo.Message
-	var beforeID string
-	const page = 100
-
-	for limitTotal <= 0 || len(all) < limitTotal {
-		fetch := page
-		if limitTotal > 0 && limitTotal-len(all) < page {
-			fetch = limitTotal - len(all)
-		}
-		if fetch <= 0 {
-			break
-		}
-		msgs, err := s.ChannelMessages(channelID, fetch, beforeID, "", "")
-		if err != nil {
-			return nil, err
-		}
-		if len(msgs) == 0 {
-			break
-		}
-		all = append(all, msgs...)
-		beforeID = msgs[len(msgs)-1].ID
-		if len(msgs) < fetch {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	return all, nil
-}
-
-// hasMoreMessages checks if there are more messages in the channel before a given message ID
-func hasMoreMessages(s *discordgo.Session, channelID string, beforeID string) (bool, error) {
-	msgs, err := s.ChannelMessages(channelID, 1, beforeID, "", "")
-	if err != nil {
-		return false, err
-	}
-	return len(msgs) > 0, nil
-}
-
-// snowflakeTime converts a Discord snowflake ID string into its creation time.
-func snowflakeTime(id string) (time.Time, error) {
-	// Discord epoch (ms) = 2015-01-01T00:00:00.000Z
-	const discordEpochMS int64 = 1420070400000
-	v, err := strconv.ParseUint(id, 10, 64)
-	if err != nil {
-		return time.Time{}, err
-	}
-	ms := int64(v>>22) + discordEpochMS
-	return time.Unix(0, ms*int64(time.Millisecond)), nil
-}
-
-// getAllActiveThreads gets all active threads from a forum channel
-func getAllActiveThreads(s *discordgo.Session, channelID string, guildID string) ([]*discordgo.Channel, error) {
-	var allThreads []*discordgo.Channel
-
-	// For forum channels, get the channel and its threads directly
-	channel, err := s.Channel(channelID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get channel: %w", err)
-	}
-
-	if channel.Type != discordgo.ChannelTypeGuildForum {
-		return nil, fmt.Errorf("channel %s is not a forum channel", channelID)
-	}
-
-	// Get active threads that are part of this forum
-	activeThreads, err := s.GuildThreadsActive(guildID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get active threads: %w", err)
-	}
-
-	// Filter threads that belong to our forum channel
-	for _, thread := range activeThreads.Threads {
-		if thread.ParentID == channelID {
-			allThreads = append(allThreads, thread)
-		}
-	}
-
-	// Try to get archived threads if available
-	publicArchived, err := s.ThreadsArchived(channelID, nil, 50)
-	if err == nil && publicArchived != nil {
-		allThreads = append(allThreads, publicArchived.Threads...)
-	}
-
-	return allThreads, nil
-}
-
-// buildForumPruneCSV exports the full set of flagged and unknown threads to CSV.
-// Columns: thread_id, status (flagged|unknown), reason, owner_id, created_at_iso, mode
-func buildForumPruneCSV(flaggedThreads []flaggedPost, unknownThreads []flaggedPost, duplicatesMode bool, guildID string) ([]byte, error) {
+// buildForumPruneCSVFromResult exports FlaggedThread results to CSV.
+// Columns: thread_id, status, reason, owner_id, username, created_at_iso, url
+func buildForumPruneCSVFromResult(result *IntroPruneResult, guildID string) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	w := csv.NewWriter(buf)
-	mode := "starter_missing"
-	if duplicatesMode {
-		mode = "duplicates_cleanup"
-	}
-	if err := w.Write([]string{"thread_id", "status", "reason", "owner_id", "created_at_iso", "mode", "url"}); err != nil { // header
+	if err := w.Write([]string{"thread_id", "status", "reason", "owner_id", "username", "created_at_iso", "url"}); err != nil {
 		return nil, err
 	}
-	for _, f := range flaggedThreads {
+	for _, f := range result.FlaggedThreads {
 		created := ""
-		if !f.createdAt.IsZero() {
-			created = f.createdAt.UTC().Format(time.RFC3339)
+		if !f.CreatedAt.IsZero() {
+			created = f.CreatedAt.UTC().Format(time.RFC3339)
 		}
-		url := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, f.thread.ID)
-		if err := w.Write([]string{f.thread.ID, "flagged", f.reason, f.ownerID, created, mode, url}); err != nil {
-			return nil, err
-		}
-	}
-	for _, f := range unknownThreads {
-		created := ""
-		if !f.createdAt.IsZero() {
-			created = f.createdAt.UTC().Format(time.RFC3339)
-		}
-		url := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, f.thread.ID)
-		if err := w.Write([]string{f.thread.ID, "unknown", f.reason, f.ownerID, created, mode, url}); err != nil {
+		url := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, f.ThreadID)
+		if err := w.Write([]string{f.ThreadID, "flagged", f.Reason, f.OwnerID, f.Username, created, url}); err != nil {
 			return nil, err
 		}
 	}

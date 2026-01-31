@@ -169,6 +169,7 @@ func TestRunIntroPrune(t *testing.T) {
 			wantModSkipped: 2,
 			wantDeletedIDs: []string{"departed1", "dup1", "dup2"},
 			wantKeptIDs:    []string{"dup3", "mod1", "mod2", "single1"},
+			wantReasons:    []string{"owner departed", "duplicate (older thread)"},
 		},
 		{
 			name: "dry run - no deletions",
@@ -256,8 +257,15 @@ func TestRunIntroPrune(t *testing.T) {
 				}
 			}
 
-			// Check expected reasons
+			// Check expected reasons (bidirectional)
 			if len(tt.wantReasons) > 0 {
+				// Build count of actual reasons
+				actualReasons := make(map[string]int)
+				for _, ft := range result.FlaggedThreads {
+					actualReasons[ft.Reason]++
+				}
+
+				// Verify all flagged threads have expected reasons
 				for _, ft := range result.FlaggedThreads {
 					found := false
 					for _, wantReason := range tt.wantReasons {
@@ -268,6 +276,13 @@ func TestRunIntroPrune(t *testing.T) {
 					}
 					if !found {
 						t.Errorf("unexpected reason %q, want one of %v", ft.Reason, tt.wantReasons)
+					}
+				}
+
+				// Verify all expected reasons are present in results
+				for _, wantReason := range tt.wantReasons {
+					if actualReasons[wantReason] == 0 {
+						t.Errorf("expected reason %q not found in results", wantReason)
 					}
 				}
 			}

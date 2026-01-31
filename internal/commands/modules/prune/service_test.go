@@ -184,7 +184,7 @@ func TestRunIntroPrune(t *testing.T) {
 			},
 			wantScanned:    1,
 			wantFlagged:    1,
-			wantDeleted:    0, // dry run: no actual deletions
+			wantDeleted:    0,          // dry run: no actual deletions
 			wantDeletedIDs: []string{}, // callback should never be called
 			wantReasons:    []string{"owner departed"},
 		},

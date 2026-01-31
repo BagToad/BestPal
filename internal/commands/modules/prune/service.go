@@ -25,12 +25,10 @@ const (
 type IntroPruneResult struct {
 	ThreadsScanned   int
 	ThreadsFlagged   int
-	ThreadsUnknown   int
 	ThreadsDeleted   int
 	DeleteFailures   int
 	ModeratorSkipped int
 	FlaggedThreads   []FlaggedThread
-	UnknownThreads   []FlaggedThread
 }
 
 // FlaggedThread represents a thread flagged for pruning

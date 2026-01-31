@@ -12,6 +12,7 @@ import (
 type PruneModule struct {
 	config     *config.Config
 	forumCache *forumcache.Service
+	service    *Service
 }
 
 // New creates a new prune module
@@ -19,6 +20,7 @@ func New(deps *types.Dependencies) *PruneModule {
 	return &PruneModule{
 		config:     deps.Config,
 		forumCache: deps.ForumCache,
+		service:    NewService(deps.Config, deps.ForumCache),
 	}
 }
 
@@ -51,7 +53,7 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 	cmds["prune-forum"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:                     "prune-forum",
-			Description:              "Prune forum threads missing starters (dry-run). Use duplicates_cleanup for owner duplicates.",
+			Description:              "Prune forum threads from departed owners and duplicate intros (dry-run by default)",
 			DefaultMemberPermissions: &modPerms,
 			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			Options: []*discordgo.ApplicationCommandOption{
@@ -70,19 +72,13 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 					Description: "Actually delete the threads (default: false for dry run)",
 					Required:    false,
 				},
-				{
-					Type:        discordgo.ApplicationCommandOptionBoolean,
-					Name:        "duplicates_cleanup",
-					Description: "Flag older duplicate threads per user and all threads whose owner left the server",
-					Required:    false,
-				},
 			},
 		},
 		HandlerFunc: m.handlePruneForum,
 	}
 }
 
-// Service returns nil as this module has no services requiring initialization
+// Service returns the prune service for scheduled intro pruning
 func (m *PruneModule) Service() types.ModuleService {
-	return nil
+	return m.service
 }

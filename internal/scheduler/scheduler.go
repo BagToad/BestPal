@@ -82,16 +82,15 @@ func (s *Scheduler) Stop() {
 // cronLogger adapts our config logger to cron's Logger interface
 type cronLogger struct {
 	logger interface {
-		Info(msg interface{}, keyvals ...interface{})
-		Error(msg interface{}, keyvals ...interface{})
+		Infof(format string, args ...interface{})
+		Errorf(format string, args ...interface{})
 	}
 }
 
 func (l *cronLogger) Info(msg string, keysAndValues ...interface{}) {
-	l.logger.Info(msg, keysAndValues...)
+	l.logger.Infof("%s %v", msg, keysAndValues)
 }
 
 func (l *cronLogger) Error(err error, msg string, keysAndValues ...interface{}) {
-	args := append([]interface{}{"error", err}, keysAndValues...)
-	l.logger.Error(msg, args...)
+	l.logger.Errorf("%s: %v %v", msg, err, keysAndValues)
 }

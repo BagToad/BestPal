@@ -130,7 +130,7 @@ func (b *Bot) Start() error {
 	if err := b.scheduler.RegisterFunc("@hourly", "log-rotation", func() error {
 		return b.config.RotateAndPruneLogs()
 	}); err != nil {
-		return fmt.Errorf("error registering log rotation: %w", err)
+		b.config.Logger.Errorf("Failed to register log rotation: %v", err)
 	}
 
 	b.scheduler.Start()

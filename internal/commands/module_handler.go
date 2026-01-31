@@ -275,8 +275,8 @@ func (h *ModuleHandler) RegisterModuleSchedulers(scheduler interface {
 			// Register scheduled functions
 			if scheduledFuncs := service.ScheduledFuncs(); scheduledFuncs != nil {
 				for schedule, fn := range scheduledFuncs {
-					// Use a descriptive name based on module type
-					name := fmt.Sprintf("%T-%s", service, schedule)
+					// Name is used for logging purposes only
+					name := fmt.Sprintf("%T", service)
 					if err := scheduler.RegisterFunc(schedule, name, fn); err != nil {
 						h.config.Logger.Errorf("Failed to register scheduled function: %v", err)
 					}

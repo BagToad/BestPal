@@ -1,6 +1,8 @@
 package prune
 
 import (
+	"bytes"
+	"encoding/csv"
 	"fmt"
 	"sort"
 	"time"
@@ -88,20 +90,27 @@ func (s *Service) RunScheduledIntroPrune() error {
 		return nil
 	}
 
-	s.cfg.Logger.Info("[IntroPrune] Starting scheduled intro prune (dry run)...")
+	// TODO: Set to false when ready to enable live deletions
+	dryRun := true
 
-	result, err := RunIntroPrune(s.Session, s.cfg, s.forumCache, forumID, guildID, true)
+	s.cfg.Logger.Infof("[IntroPrune] Starting scheduled intro prune (dryRun=%v)...", dryRun)
+
+	result, err := RunIntroPrune(s.Session, s.cfg, s.forumCache, forumID, guildID, dryRun)
 	if err != nil {
 		s.cfg.Logger.Errorf("[IntroPrune] Scheduled prune failed: %v", err)
-		logMsg := fmt.Sprintf("[Scheduled Intro Prune Failed]\nError: %v", err)
-		if logErr := utils.LogToChannel(s.cfg, s.Session, logMsg); logErr != nil {
+		if logErr := utils.LogToChannelWithEmbedAndFile(s.cfg, s.Session, fmt.Sprintf("[Scheduled Intro Prune Failed]\\nError: %v", err), "", nil); logErr != nil {
 			s.cfg.Logger.Errorf("[IntroPrune] Failed to log error to channel: %v", logErr)
 		}
 		return err
 	}
 
-	// Log results to bestpal log channel
-	logMsg := fmt.Sprintf("[Scheduled Intro Prune - DRY RUN]\nForum: <#%s>\nThreads Scanned: %d\nThreads Flagged: %d\nThreads Deleted: %d\nDelete Failures: %d\nModerator Threads Skipped: %d",
+	// Build summary message
+	mode := "DRY RUN"
+	if !dryRun {
+		mode = "EXECUTED"
+	}
+	summary := fmt.Sprintf("[Scheduled Intro Prune - %s]\nForum: <#%s>\nThreads Scanned: %d\nThreads Flagged: %d\nThreads Deleted: %d\nDelete Failures: %d\nModerator Threads Skipped: %d",
+		mode,
 		forumID,
 		result.ThreadsScanned,
 		result.ThreadsFlagged,
@@ -110,27 +119,24 @@ func (s *Service) RunScheduledIntroPrune() error {
 		result.ModeratorSkipped,
 	)
 
-	// Add flagged thread details (up to 20)
+	// Build CSV with full flagged thread list
+	var csvFile *bytes.Reader
+	var csvFileName string
 	if len(result.FlaggedThreads) > 0 {
-		logMsg += "\n\n**Would Delete:**"
-		for i, t := range result.FlaggedThreads {
-			if i >= 20 {
-				logMsg += fmt.Sprintf("\n...and %d more", len(result.FlaggedThreads)-20)
-				break
-			}
-			if t.Username != "" {
-				logMsg += fmt.Sprintf("\n• <#%s> by %s — %s", t.ThreadID, t.Username, t.Reason)
-			} else {
-				logMsg += fmt.Sprintf("\n• <#%s> — %s", t.ThreadID, t.Reason)
-			}
+		csvBytes, csvErr := buildPruneLogCSV(result, guildID)
+		if csvErr != nil {
+			s.cfg.Logger.Warnf("[IntroPrune] Failed to build CSV: %v", csvErr)
+		} else {
+			csvFile = bytes.NewReader(csvBytes)
+			csvFileName = fmt.Sprintf("intro_prune_%s.csv", time.Now().Format("2006-01-02_150405"))
 		}
 	}
 
-	if err := utils.LogToChannel(s.cfg, s.Session, logMsg); err != nil {
+	if err := utils.LogToChannelWithEmbedAndFile(s.cfg, s.Session, summary, csvFileName, csvFile); err != nil {
 		s.cfg.Logger.Errorf("[IntroPrune] Failed to log results to channel: %v", err)
 	}
 
-	s.cfg.Logger.Infof("[IntroPrune] Scheduled prune completed: %d deleted, %d failures", result.ThreadsDeleted, result.DeleteFailures)
+	s.cfg.Logger.Infof("[IntroPrune] Scheduled prune completed: %d flagged, %d deleted, %d failures", result.ThreadsFlagged, result.ThreadsDeleted, result.DeleteFailures)
 	return nil
 }
 
@@ -286,4 +292,31 @@ func runIntroPrune(input runIntroPruneInput) (*IntroPruneResult, error) {
 	result.FlaggedThreads = flaggedThreads
 
 	return result, nil
+}
+
+// buildPruneLogCSV builds a CSV with all flagged threads for logging
+func buildPruneLogCSV(result *IntroPruneResult, guildID string) ([]byte, error) {
+	buf := &bytes.Buffer{}
+	w := csv.NewWriter(buf)
+
+	if err := w.Write([]string{"thread_id", "reason", "owner_id", "username", "created_at", "url"}); err != nil {
+		return nil, err
+	}
+
+	for _, f := range result.FlaggedThreads {
+		created := ""
+		if !f.CreatedAt.IsZero() {
+			created = f.CreatedAt.UTC().Format(time.RFC3339)
+		}
+		url := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, f.ThreadID)
+		if err := w.Write([]string{f.ThreadID, f.Reason, f.OwnerID, f.Username, created, url}); err != nil {
+			return nil, err
+		}
+	}
+
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

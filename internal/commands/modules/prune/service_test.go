@@ -170,6 +170,42 @@ func TestRunIntroPrune(t *testing.T) {
 			wantDeletedIDs: []string{"departed1", "dup1", "dup2"},
 			wantKeptIDs:    []string{"dup3", "mod1", "mod2", "single1"},
 		},
+		{
+			name: "dry run - no deletions",
+			input: runIntroPruneInput{
+				Threads: []*forumcache.ThreadMeta{
+					{ID: "thread1", ForumID: "forum1", OwnerID: "departed_user", CreatedAt: now},
+				},
+				MemberPresent: map[string]bool{"departed_user": false},
+				ModeratorIDs:  map[string]struct{}{},
+				ForumID:       "forum1",
+				DryRun:        true,
+			},
+			wantScanned:    1,
+			wantFlagged:    1,
+			wantDeleted:    0, // dry run: no actual deletions
+			wantDeletedIDs: []string{}, // callback should never be called
+			wantReasons:    []string{"owner departed"},
+		},
+		{
+			name: "dry run - duplicates flagged but not deleted",
+			input: runIntroPruneInput{
+				Threads: []*forumcache.ThreadMeta{
+					{ID: "thread1", ForumID: "forum1", OwnerID: "user1", CreatedAt: now.Add(-1 * time.Hour)},
+					{ID: "thread2", ForumID: "forum1", OwnerID: "user1", CreatedAt: now},
+				},
+				MemberPresent: map[string]bool{"user1": true},
+				ModeratorIDs:  map[string]struct{}{},
+				ForumID:       "forum1",
+				DryRun:        true,
+			},
+			wantScanned:    2,
+			wantFlagged:    1,
+			wantDeleted:    0,
+			wantDeletedIDs: []string{},
+			wantKeptIDs:    []string{"thread1", "thread2"}, // both kept in dry run
+			wantReasons:    []string{"duplicate (older thread)"},
+		},
 	}
 
 	for _, tt := range tests {

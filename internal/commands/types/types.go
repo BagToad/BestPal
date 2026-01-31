@@ -34,13 +34,11 @@ type ModuleService interface {
 	// This is called after the Discord session is established
 	HydrateServiceDiscordSession(s *discordgo.Session) error
 
-	// MinuteFuncs returns functions to be called every minute
-	// Returns nil if no minute-based scheduling is needed
-	MinuteFuncs() []func() error
-
-	// HourFuncs returns functions to be called every hour
-	// Returns nil if no hour-based scheduling is needed
-	HourFuncs() []func() error
+	// ScheduledFuncs returns a map of cron schedules to functions to be called on that schedule.
+	// Map keys are cron expressions (e.g., "@every 1m", "@hourly", "*/5 * * * *")
+	// Map values are functions to execute on that schedule
+	// Returns nil if no scheduled tasks are needed
+	ScheduledFuncs() map[string]func() error
 }
 
 // CommandModule represents a module that can register commands

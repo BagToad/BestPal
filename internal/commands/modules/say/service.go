@@ -135,16 +135,11 @@ func (s *Service) CheckDue() error {
 	return s.CheckAndSendDue(s.Session)
 }
 
-// MinuteFuncs returns functions to be called every minute
-func (s *Service) MinuteFuncs() []func() error {
-	return []func() error{
-		s.CheckDue,
+// ScheduledFuncs returns functions to be called on a schedule
+func (s *Service) ScheduledFuncs() map[string]func() error {
+	return map[string]func() error{
+		"@every 1m": s.CheckDue,
 	}
-}
-
-// HourFuncs returns nil as this service has no hourly tasks
-func (s *Service) HourFuncs() []func() error {
-	return nil
 }
 
 // helper for inline min without pulling math

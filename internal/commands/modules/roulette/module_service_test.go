@@ -47,8 +47,7 @@ func TestModuleServiceSeparation(t *testing.T) {
 	require.NotNil(t, pairingService)
 
 	// Verify service has the expected methods from ModuleService interface
-	require.NotNil(t, service.MinuteFuncs())
-	require.Nil(t, service.HourFuncs())
+	require.NotNil(t, service.ScheduledFuncs())
 
 	// Hydrate service with session (this would normally be done by the module handler)
 	err = service.HydrateServiceDiscordSession(nil)

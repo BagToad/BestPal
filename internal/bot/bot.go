@@ -127,9 +127,11 @@ func (b *Bot) Start() error {
 	b.commandModuleHandler.RegisterModuleSchedulers(b.scheduler)
 
 	// Register config log rotation (not part of a module)
-	b.scheduler.RegisterNewHourFunc(func() error {
+	if err := b.scheduler.RegisterFunc("@hourly", "log-rotation", func() error {
 		return b.config.RotateAndPruneLogs()
-	})
+	}); err != nil {
+		b.config.Logger.Errorf("Failed to register log rotation: %v", err)
+	}
 
 	b.scheduler.Start()
 	defer b.scheduler.Stop()

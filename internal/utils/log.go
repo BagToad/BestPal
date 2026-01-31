@@ -72,7 +72,7 @@ func LogToChannelWithEmbedAndFile(cfg *config.Config, s *discordgo.Session, mess
 		return errors.New("unable to log to channel: gamerpals_log_channel_id is not set")
 	}
 
-	const maxLen = 1900
+	const maxLen = 900
 	if len(message) > maxLen {
 		message = message[:maxLen] + "\n...(truncated, see attached file for full list)"
 	}

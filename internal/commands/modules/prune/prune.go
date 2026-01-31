@@ -237,18 +237,25 @@ func (m *PruneModule) handlePruneForum(s *discordgo.Session, i *discordgo.Intera
 		description += fmt.Sprintf("\nThreads deleted: %d\nDelete failures: %d", result.ThreadsDeleted, result.DeleteFailures)
 	}
 
-	maxList := 20
+	// Build flagged threads field (truncate to stay under Discord's 1024 char embed field limit)
+	const maxFieldLen = 950
 	flaggedFieldValue := ""
-	for idx, f := range result.FlaggedThreads {
-		if idx >= maxList {
-			flaggedFieldValue += fmt.Sprintf("\n…and %d more", len(result.FlaggedThreads)-maxList)
+	truncated := false
+	for _, f := range result.FlaggedThreads {
+		var line string
+		if f.Username != "" {
+			line = fmt.Sprintf("• <#%s> by %s — %s\n", f.ThreadID, f.Username, f.Reason)
+		} else {
+			line = fmt.Sprintf("• <#%s> — %s\n", f.ThreadID, f.Reason)
+		}
+		if len(flaggedFieldValue)+len(line) > maxFieldLen {
+			truncated = true
 			break
 		}
-		if f.Username != "" {
-			flaggedFieldValue += fmt.Sprintf("• <#%s> by %s — %s\n", f.ThreadID, f.Username, f.Reason)
-		} else {
-			flaggedFieldValue += fmt.Sprintf("• <#%s> — %s\n", f.ThreadID, f.Reason)
-		}
+		flaggedFieldValue += line
+	}
+	if truncated {
+		flaggedFieldValue += fmt.Sprintf("…see CSV for all %d flagged threads", len(result.FlaggedThreads))
 	}
 
 	fields := []*discordgo.MessageEmbedField{}

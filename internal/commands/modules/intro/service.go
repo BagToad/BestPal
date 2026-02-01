@@ -79,6 +79,9 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	// Resolve tag names from IDs
 	tagsDisplay := s.resolveTagNames(guildID, tagIDs)
 
+	// Get user's region from their roles
+	region := s.getUserRegion(guildID, userID)
+
 	// Create the feed embed
 	embed := &discordgo.MessageEmbed{
 		Title:       "👋 New Introduction!",
@@ -87,18 +90,23 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Fields: []*discordgo.MessageEmbedField{
 			{
-				Name:   "Title",
+				Name:   "📝 Title",
 				Value:  threadName,
 				Inline: false,
 			},
 			{
-				Name:   "Tags",
-				Value:  tagsDisplay,
-				Inline: false,
+				Name:   "🌍 Region",
+				Value:  region,
+				Inline: true,
 			},
 			{
-				Name:   "Link",
-				Value:  fmt.Sprintf("[View Introduction](%s)", threadURL),
+				Name:   "🏷️ Tags",
+				Value:  tagsDisplay,
+				Inline: true,
+			},
+			{
+				Name:   "🔗 Link",
+				Value:  fmt.Sprintf("[Click here to view](%s)", threadURL),
 				Inline: false,
 			},
 		},
@@ -270,4 +278,36 @@ func (s *IntroFeedService) resolveTagNames(guildID string, tagIDs []string) stri
 		return "None"
 	}
 	return strings.Join(names, ", ")
+}
+
+// regionRoles maps region names to their Discord role IDs
+var regionRoles = map[string]string{
+	"North America": "475040060786343937",
+	"Europe":        "475039994554351618",
+	"South America": "475040095993593866",
+	"Asia":          "475040122463846422",
+	"Oceania":       "505413573586059266",
+	"South Africa":  "518493780308000779",
+}
+
+// getUserRegion looks up a user's region based on their roles
+func (s *IntroFeedService) getUserRegion(guildID, userID string) string {
+	if s.deps.Session == nil {
+		return "Unknown"
+	}
+
+	member, err := s.deps.Session.GuildMember(guildID, userID)
+	if err != nil {
+		return "Unknown"
+	}
+
+	for region, roleID := range regionRoles {
+		for _, role := range member.Roles {
+			if role == roleID {
+				return region
+			}
+		}
+	}
+
+	return "Not set"
 }

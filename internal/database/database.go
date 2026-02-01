@@ -123,6 +123,18 @@ func (db *DB) initTables() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_snowball_scores_guild_id ON snowball_scores(guild_id);
+
+	CREATE TABLE IF NOT EXISTS intro_feed_posts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id TEXT NOT NULL,
+		thread_id TEXT NOT NULL,
+		feed_message_id TEXT,
+		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(thread_id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
+	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_posted_at ON intro_feed_posts(posted_at);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -429,4 +441,67 @@ func (db *DB) ClearSnowballScores(guildID string) error {
 		return fmt.Errorf("failed to clear snowball scores: %w", err)
 	}
 	return nil
+}
+
+// Intro Feed methods
+
+// IntroFeedPost represents a record of an intro post being forwarded to the feed channel
+type IntroFeedPost struct {
+	ID            int       `json:"id"`
+	UserID        string    `json:"user_id"`
+	ThreadID      string    `json:"thread_id"`
+	FeedMessageID string    `json:"feed_message_id"`
+	PostedAt      time.Time `json:"posted_at"`
+}
+
+// RecordIntroFeedPost records that a user's intro was posted to the feed channel.
+// If the same thread_id is inserted again, it updates the posted_at timestamp.
+func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string) error {
+	query := `
+	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, posted_at)
+	VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	ON CONFLICT(thread_id) DO UPDATE SET posted_at = CURRENT_TIMESTAMP, feed_message_id = excluded.feed_message_id
+	`
+	_, err := db.conn.Exec(query, userID, threadID, feedMessageID)
+	if err != nil {
+		return fmt.Errorf("failed to record intro feed post: %w", err)
+	}
+	return nil
+}
+
+// GetLastIntroFeedPostTime returns the most recent time a user had their intro posted to the feed.
+// Returns zero time if no record exists.
+func (db *DB) GetLastIntroFeedPostTime(userID string) (time.Time, error) {
+	query := `SELECT posted_at FROM intro_feed_posts WHERE user_id = ? ORDER BY posted_at DESC LIMIT 1`
+	var postedAt time.Time
+	err := db.conn.QueryRow(query, userID).Scan(&postedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to get last intro feed post time: %w", err)
+	}
+	return postedAt, nil
+}
+
+// IsUserEligibleForIntroFeed checks if enough time has passed since the user's last feed post.
+// Returns true if the user is eligible, false if they're still in the cooldown period.
+// Also returns the time remaining until they're eligible (zero if eligible).
+func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool, time.Duration, error) {
+	lastPost, err := db.GetLastIntroFeedPostTime(userID)
+	if err != nil {
+		return false, 0, err
+	}
+	if lastPost.IsZero() {
+		return true, 0, nil // Never posted before, eligible
+	}
+
+	cooldown := time.Duration(cooldownHours) * time.Hour
+	eligibleAt := lastPost.Add(cooldown)
+	now := time.Now()
+
+	if now.After(eligibleAt) {
+		return true, 0, nil
+	}
+	return false, eligibleAt.Sub(now), nil
 }

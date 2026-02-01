@@ -25,12 +25,20 @@ var (
 
 // Module implements the CommandModule interface for the intro command
 type IntroModule struct {
-	config *types.Dependencies
+	config      *types.Dependencies
+	feedService *IntroFeedService
 }
 
 // New creates a new intro module
 func New(deps *types.Dependencies) *IntroModule {
-	return &IntroModule{}
+	return &IntroModule{
+		feedService: NewIntroFeedService(deps),
+	}
+}
+
+// GetFeedService returns the intro feed service for external access (e.g., event handlers)
+func (m *IntroModule) GetFeedService() *IntroFeedService {
+	return m.feedService
 }
 
 // Register adds the intro command to the command map
@@ -68,6 +76,15 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 			Type: discordgo.UserApplicationCommand,
 		},
 		HandlerFunc: m.handleIntroUserContext,
+	}
+
+	// Bump intro command - manually post an intro to the feed channel
+	cmds["bump-intro"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "bump-intro",
+			Description: "Post your introduction to the introductions feed channel",
+		},
+		HandlerFunc: m.handleBumpIntro,
 	}
 }
 
@@ -320,6 +337,87 @@ func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.
 	m.introLookup(s, i, targetUser, true)
 }
 
+// handleBumpIntro handles the /bump-intro command to manually post an intro to the feed
+func (m *IntroModule) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Get the user who invoked the command
+	var user *discordgo.User
+	if i.Member != nil && i.Member.User != nil {
+		user = i.Member.User
+	} else if i.User != nil {
+		user = i.User
+	}
+
+	if user == nil {
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Unable to identify user.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Check if feed channel is configured
+	feedChannelID := m.config.Config.GetIntroFeedChannelID()
+	if feedChannelID == "" {
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Introduction feed channel is not configured.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// Defer response as lookups might take a moment
+	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Look up user's latest intro
+	if m.feedService == nil {
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("❌ Service not available."),
+		})
+		return
+	}
+
+	meta, found := m.feedService.GetUserLatestIntroThread(user.ID)
+	if !found || meta == nil {
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr("❌ You don't have an introduction post. Create one first!"),
+		})
+		return
+	}
+
+	// Get display name for the feed message
+	displayName := user.DisplayName()
+	if i.Member != nil && i.Member.Nick != "" {
+		displayName = i.Member.Nick
+	}
+
+	// Check if user is a moderator (admin) - they can bypass the cooldown
+	isModerator := utils.HasAdminPermissions(s, i)
+
+	// Attempt to bump to feed
+	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, isModerator)
+	if err != nil {
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+			Content: utils.StringPtr(fmt.Sprintf("❌ %s", err.Error())),
+		})
+		return
+	}
+
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
+		Content: utils.StringPtr("✅ Your introduction has been posted to the feed!"),
+	})
+}
+
 // chooseEphemeralFlag returns the ephemeral flag if true, else 0.
 func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
 	if ephemeral {
@@ -328,7 +426,7 @@ func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
 	return 0
 }
 
-// Service returns nil as this module has no services requiring initialization
+// Service returns nil as this module has no scheduled tasks or hydration needs
 func (m *IntroModule) Service() types.ModuleService {
 	return nil
 }

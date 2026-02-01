@@ -22,3 +22,9 @@ gamerpals_mod_action_log_channel_id: "your-mod-log-channel-id-here"
 gamerpals_pairing_category_id: "your-pairing-category-id-here"
 gamerpals_introductions_forum_channel_id: "your-introductions-forum-channel-id-here"
 gamerpals_lfg_forum_channel_id: "your-lfg-forum-channel-id-here"
+
+# Introduction Feed Configuration
+# When a new intro is posted, it can be forwarded to a dedicated channel
+intro_feed_channel_id: "your-intro-feed-channel-id-here"
+# Hours between allowed feed posts per user (prevents spam from delete+repost)
+intro_feed_rate_limit_hours: 48

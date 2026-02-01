@@ -12,6 +12,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 
 	"gamerpal/internal/commands"
+	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -67,9 +68,17 @@ func New(cfg *config.Config) (*Bot, error) {
 		events.OnGuildMemberAdd(s, r, cfg)
 	})
 
-	// Forum thread lifecycle events wired into cache service
+	// Forum thread lifecycle events wired into cache service and intro feed
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) {
 		handler.GetForumCache().OnThreadCreate(s, e)
+		// Forward new intro threads to the feed channel
+		if e.NewlyCreated {
+			if introMod, ok := handler.GetModule("intro").(*intro.IntroModule); ok {
+				if feedService := introMod.GetFeedService(); feedService != nil {
+					feedService.HandleNewIntroThread(e.Channel)
+				}
+			}
+		}
 	})
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadUpdate) {
 		handler.GetForumCache().OnThreadUpdate(s, e)

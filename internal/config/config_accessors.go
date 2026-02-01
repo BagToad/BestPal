@@ -108,3 +108,20 @@ func (c *Config) Set(key string, value interface{}) {
 func (c *Config) GetString(key string) string {
 	return c.v.GetString(key)
 }
+
+// Introduction Feed configuration
+// -----
+
+// GetIntroFeedChannelID returns the channel ID where intro posts are forwarded
+func (c *Config) GetIntroFeedChannelID() string {
+	return c.v.GetString("intro_feed_channel_id")
+}
+
+// GetIntroFeedRateLimitHours returns the number of hours between allowed feed posts per user (default 48)
+func (c *Config) GetIntroFeedRateLimitHours() int {
+	hours := c.v.GetInt("intro_feed_rate_limit_hours")
+	if hours <= 0 {
+		return 48 // default to 48 hours
+	}
+	return hours
+}

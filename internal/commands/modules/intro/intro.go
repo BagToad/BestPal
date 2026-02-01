@@ -403,7 +403,10 @@ func (m *IntroModule) handleBumpIntro(s *discordgo.Session, i *discordgo.Interac
 	}
 
 	// Check if user is a moderator (admin) - they can bypass the cooldown
-	isModerator := utils.HasAdminPermissions(s, i)
+	isModerator := false
+	if i.Member != nil {
+		isModerator = utils.HasAdminPermissions(s, i)
+	}
 
 	// Attempt to bump to feed
 	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isModerator)

@@ -68,6 +68,16 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 		HandlerFunc: m.handleIntroSlash,
 	}
 
+	// Bump intro command - manually post an intro to the feed channel
+	cmds["bump-intro"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "bump-intro",
+			Description: "Post your introduction to the introductions feed channel",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+		},
+		HandlerFunc: m.handleBumpIntro,
+	}
+
 	// User context (right-click / tap user) command version – enables quick lookup without typing.
 	// For user & message context commands Discord allows spaces and capitalization.
 	cmds["Lookup intro"] = &types.Command{
@@ -76,15 +86,6 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 			Type: discordgo.UserApplicationCommand,
 		},
 		HandlerFunc: m.handleIntroUserContext,
-	}
-
-	// Bump intro command - manually post an intro to the feed channel
-	cmds["bump-intro"] = &types.Command{
-		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name:        "bump-intro",
-			Description: "Post your introduction to the introductions feed channel",
-		},
-		HandlerFunc: m.handleBumpIntro,
 	}
 }
 
@@ -405,7 +406,7 @@ func (m *IntroModule) handleBumpIntro(s *discordgo.Session, i *discordgo.Interac
 	isModerator := utils.HasAdminPermissions(s, i)
 
 	// Attempt to bump to feed
-	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, isModerator)
+	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isModerator)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ %s", err.Error())),

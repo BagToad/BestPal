@@ -3,10 +3,12 @@ package intro
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/forumcache"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -61,7 +63,7 @@ func (s *IntroFeedService) CheckFeedEligibility(userID string) (*EligibilityResu
 
 // ForwardThreadToFeed posts a notification about a new/bumped intro thread to the feed channel.
 // Returns the message ID of the feed post, or an error.
-func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName string) (string, error) {
+func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName string, tagIDs []string) (string, error) {
 	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
 	if feedChannelID == "" {
 		return "", fmt.Errorf("intro feed channel not configured")
@@ -74,10 +76,35 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	// Build the thread URL
 	threadURL := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, threadID)
 
-	// Create the feed message
-	content := fmt.Sprintf("👋 **%s** just posted an introduction!\n%s", displayName, threadURL)
+	// Resolve tag names from IDs
+	tagsDisplay := s.resolveTagNames(guildID, tagIDs)
 
-	msg, err := s.deps.Session.ChannelMessageSend(feedChannelID, content)
+	// Create the feed embed
+	embed := &discordgo.MessageEmbed{
+		Title:       "👋 New Introduction!",
+		Description: fmt.Sprintf("**%s** just posted an introduction!", displayName),
+		Color:       utils.Colors.Fancy(),
+		Timestamp:   time.Now().Format(time.RFC3339),
+		Fields: []*discordgo.MessageEmbedField{
+			{
+				Name:   "Title",
+				Value:  threadName,
+				Inline: false,
+			},
+			{
+				Name:   "Tags",
+				Value:  tagsDisplay,
+				Inline: false,
+			},
+			{
+				Name:   "Link",
+				Value:  fmt.Sprintf("[View Introduction](%s)", threadURL),
+				Inline: false,
+			},
+		},
+	}
+
+	msg, err := s.deps.Session.ChannelMessageSendEmbed(feedChannelID, embed)
 	if err != nil {
 		return "", fmt.Errorf("failed to send feed message: %w", err)
 	}
@@ -126,10 +153,18 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	// Get the user's display name
-	displayName := getDisplayName(s.deps.Session, thread.GuildID, thread.OwnerID)
+	member, err := s.deps.Session.GuildMember(thread.GuildID, thread.OwnerID)
+	if err != nil {
+		s.deps.Config.Logger.Errorf("Failed to fetch guild member for user %s: %v", thread.OwnerID, err)
+		return
+	}
+	displayName := member.DisplayName()
+	if member != nil && member.Nick != "" {
+		displayName = member.Nick
+	}
 
 	// Forward to feed
-	_, err = s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName)
+	_, err = s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName, thread.Name, thread.AppliedTags)
 	if err != nil {
 		s.deps.Config.Logger.Errorf("Failed to forward intro to feed: %v", err)
 		return
@@ -141,7 +176,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.
 // Unlike automatic forwarding, this returns an error/message to show the user.
 // If skipEligibilityCheck is true, bypasses the cooldown check (for moderators).
-func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName string, skipEligibilityCheck bool) error {
+func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, skipEligibilityCheck bool) error {
 	// Check eligibility unless bypassed
 	if !skipEligibilityCheck {
 		eligibility, err := s.CheckFeedEligibility(userID)
@@ -154,8 +189,17 @@ func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayNam
 		}
 	}
 
+	// Fetch the thread to get applied tags
+	var tagIDs []string
+	if s.deps.Session != nil {
+		thread, err := s.deps.Session.Channel(threadID)
+		if err == nil && thread != nil {
+			tagIDs = thread.AppliedTags
+		}
+	}
+
 	// Forward to feed
-	_, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName)
+	_, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName, tagIDs)
 	if err != nil {
 		return err
 	}
@@ -170,27 +214,6 @@ func (s *IntroFeedService) GetUserLatestIntroThread(userID string) (*forumcache.
 		return nil, false
 	}
 	return s.deps.ForumCache.GetLatestUserThread(introForumID, userID)
-}
-
-// getDisplayName gets a user's display name (nickname or username)
-func getDisplayName(session *discordgo.Session, guildID, userID string) string {
-	member, err := session.GuildMember(guildID, userID)
-	if err != nil {
-		// Fallback to just fetching the user
-		user, err := session.User(userID)
-		if err != nil {
-			return "Someone"
-		}
-		return user.Username
-	}
-
-	if member.Nick != "" {
-		return member.Nick
-	}
-	if member.User != nil {
-		return member.User.Username
-	}
-	return "Someone"
 }
 
 // formatDuration formats a duration in a human-readable way
@@ -209,4 +232,42 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh", hours)
 	}
 	return fmt.Sprintf("%dm", minutes)
+}
+
+// resolveTagNames converts tag IDs to their display names by looking up the forum channel
+func (s *IntroFeedService) resolveTagNames(guildID string, tagIDs []string) string {
+	if len(tagIDs) == 0 {
+		return "None"
+	}
+
+	introForumID := s.deps.Config.GetGamerPalsIntroductionsForumChannelID()
+	if introForumID == "" || s.deps.Session == nil {
+		return "Unknown"
+	}
+
+	// Fetch the forum channel to get available tags
+	forum, err := s.deps.Session.Channel(introForumID)
+	if err != nil {
+		s.deps.Config.Logger.Warnf("Failed to fetch forum channel for tag resolution: %v", err)
+		return "Unknown"
+	}
+
+	// Build a map of tag ID -> tag name
+	tagMap := make(map[string]string)
+	for _, tag := range forum.AvailableTags {
+		tagMap[tag.ID] = tag.Name
+	}
+
+	// Resolve the applied tag IDs to names
+	var names []string
+	for _, tagID := range tagIDs {
+		if name, ok := tagMap[tagID]; ok {
+			names = append(names, name)
+		}
+	}
+
+	if len(names) == 0 {
+		return "None"
+	}
+	return strings.Join(names, ", ")
 }

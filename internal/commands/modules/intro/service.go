@@ -77,7 +77,7 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	threadURL := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, threadID)
 
 	// Resolve tag names from IDs
-	tagsDisplay := s.resolveTagNames(guildID, tagIDs)
+	tagsDisplay := s.resolveTagNames(tagIDs)
 
 	// Get user's region from their roles
 	region := s.getUserRegion(guildID, userID)
@@ -249,7 +249,7 @@ func formatDuration(d time.Duration) string {
 }
 
 // resolveTagNames converts tag IDs to their display names by looking up the forum channel
-func (s *IntroFeedService) resolveTagNames(guildID string, tagIDs []string) string {
+func (s *IntroFeedService) resolveTagNames(tagIDs []string) string {
 	if len(tagIDs) == 0 {
 		return "None"
 	}

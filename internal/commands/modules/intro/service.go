@@ -82,12 +82,18 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	// Get user's region from their roles
 	region := s.getUserRegion(guildID, userID)
 
+	// Get user's avatar URL (prefer server avatar over global)
+	avatarURL := s.getUserAvatarURL(guildID, userID)
+
 	// Create the feed embed
 	embed := &discordgo.MessageEmbed{
 		Title:       "👋 New Introduction!",
 		Description: fmt.Sprintf("**%s** just posted an introduction!", displayName),
 		Color:       utils.Colors.Fancy(),
 		Timestamp:   time.Now().Format(time.RFC3339),
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: avatarURL,
+		},
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "📝 Title",
@@ -310,4 +316,28 @@ func (s *IntroFeedService) getUserRegion(guildID, userID string) string {
 	}
 
 	return "Not set"
+}
+
+// getUserAvatarURL returns the user's avatar URL, preferring server avatar over global
+func (s *IntroFeedService) getUserAvatarURL(guildID, userID string) string {
+	if s.deps.Session == nil {
+		return ""
+	}
+
+	member, err := s.deps.Session.GuildMember(guildID, userID)
+	if err != nil || member == nil {
+		return ""
+	}
+
+	// Prefer server-specific avatar if set
+	if member.Avatar != "" {
+		return member.AvatarURL("256")
+	}
+
+	// Fall back to global user avatar
+	if member.User != nil {
+		return member.User.AvatarURL("256")
+	}
+
+	return ""
 }

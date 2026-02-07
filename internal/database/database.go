@@ -521,7 +521,7 @@ func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string, isBump
 // GetLastIntroFeedPostTime returns the most recent time a user had their intro posted to the feed.
 // Returns zero time if no record exists.
 func (db *DB) GetLastIntroFeedPostTime(userID string) (time.Time, error) {
-	query := `SELECT posted_at FROM intro_feed_posts WHERE user_id = ? ORDER BY posted_at DESC LIMIT 1`
+	query := `SELECT posted_at FROM intro_feed_posts WHERE user_id = ? AND feed_message_id != '' ORDER BY posted_at DESC LIMIT 1`
 	var postedAt time.Time
 	err := db.conn.QueryRow(query, userID).Scan(&postedAt)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -9,82 +9,77 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// OnVoicePermissionSync handles syncing View Channel permission with Connect permission
-// for voice channels in the configured category.
-func OnVoicePermissionSync(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
-	// Only process voice channels
-	if c.Type != discordgo.ChannelTypeGuildVoice {
-		return
+// isVoiceSyncChannel returns true if the channel is a voice channel inside the configured sync category.
+func isVoiceSyncChannel(ch *discordgo.Channel, cfg *config.Config) bool {
+	if ch.Type != discordgo.ChannelTypeGuildVoice {
+		return false
 	}
-
-	// Check if voice sync category is configured
 	voiceSyncCategoryID := cfg.GetGamerPalsVoiceSyncCategoryID()
-	if voiceSyncCategoryID == "" {
+	return voiceSyncCategoryID != "" && ch.ParentID == voiceSyncCategoryID
+}
+
+// findEveryoneOverwrite returns the @everyone permission overwrite for the channel, or nil.
+func findEveryoneOverwrite(ch *discordgo.Channel) *discordgo.PermissionOverwrite {
+	for _, po := range ch.PermissionOverwrites {
+		if po.ID == ch.GuildID && po.Type == discordgo.PermissionOverwriteTypeRole {
+			return po
+		}
+	}
+	return nil
+}
+
+// HandleVoicePermissionSyncUpdate handles syncing View Channel permission with Connect permission
+// for voice channels in the configured category.
+func HandleVoicePermissionSyncUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
+	if !isVoiceSyncChannel(c.Channel, cfg) {
 		return
 	}
 
-	// Only process channels in the configured category
-	if c.ParentID != voiceSyncCategoryID {
-		return
-	}
-
-	// Get the @everyone role overwrite (ID equals GuildID)
-	var beforeOverwrite, afterOverwrite *discordgo.PermissionOverwrite
-
+	var beforeOverwrite *discordgo.PermissionOverwrite
 	if c.BeforeUpdate != nil {
-		for _, po := range c.BeforeUpdate.PermissionOverwrites {
-			// the @everyone role's ID is always equal to the guild (server) ID.
-			if po.ID == c.GuildID && po.Type == discordgo.PermissionOverwriteTypeRole {
-				beforeOverwrite = po
-				break
-			}
-		}
+		beforeOverwrite = findEveryoneOverwrite(c.BeforeUpdate)
 	}
-
-	for _, po := range c.PermissionOverwrites {
-		if po.ID == c.GuildID && po.Type == discordgo.PermissionOverwriteTypeRole {
-			afterOverwrite = po
-			break
-		}
-	}
+	afterOverwrite := findEveryoneOverwrite(c.Channel)
 
 	// Check if Connect permission changed
 	beforeConnectDenied := beforeOverwrite != nil && (beforeOverwrite.Deny&discordgo.PermissionVoiceConnect) != 0
 	afterConnectDenied := afterOverwrite != nil && (afterOverwrite.Deny&discordgo.PermissionVoiceConnect) != 0
 
-	// No change in Connect deny state
 	if beforeConnectDenied == afterConnectDenied {
 		return
 	}
 
-	// Determine current View state to avoid unnecessary updates
 	afterViewDenied := afterOverwrite != nil && (afterOverwrite.Deny&discordgo.PermissionViewChannel) != 0
 
-	// If Connect is now denied and View is not already denied, deny View
 	if afterConnectDenied && !afterViewDenied {
 		cfg.Logger.Infof("Voice channel %s (%s): Connect denied, syncing View Channel to denied", c.Name, c.ID)
-		syncViewPermission(s, c, cfg, true)
+		syncViewPermission(s, c.Channel, cfg, true)
+	} else if !afterConnectDenied && afterViewDenied {
+		cfg.Logger.Infof("Voice channel %s (%s): Connect allowed, syncing View Channel to allowed", c.Name, c.ID)
+		syncViewPermission(s, c.Channel, cfg, false)
+	}
+}
+
+// HandleVoicePermissionSyncCreate handles syncing View Channel permission for newly created
+// voice channels that already have Connect denied.
+func HandleVoicePermissionSyncCreate(s *discordgo.Session, c *discordgo.ChannelCreate, cfg *config.Config) {
+	if !isVoiceSyncChannel(c.Channel, cfg) {
 		return
 	}
 
-	// If Connect is now allowed and View is currently denied, allow View
-	if !afterConnectDenied && afterViewDenied {
-		cfg.Logger.Infof("Voice channel %s (%s): Connect allowed, syncing View Channel to allowed", c.Name, c.ID)
-		syncViewPermission(s, c, cfg, false)
-		return
+	overwrite := findEveryoneOverwrite(c.Channel)
+	connectDenied := overwrite != nil && (overwrite.Deny&discordgo.PermissionVoiceConnect) != 0
+	viewDenied := overwrite != nil && (overwrite.Deny&discordgo.PermissionViewChannel) != 0
+
+	if connectDenied && !viewDenied {
+		cfg.Logger.Infof("Voice channel %s (%s): created with Connect denied, syncing View Channel to denied", c.Name, c.ID)
+		syncViewPermission(s, c.Channel, cfg, true)
 	}
 }
 
 // syncViewPermission updates the @everyone View Channel permission
-func syncViewPermission(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config, denyView bool) {
-	// Find current @everyone overwrite
-	var currentOverwrite *discordgo.PermissionOverwrite
-	for _, po := range c.PermissionOverwrites {
-		if po.ID == c.GuildID && po.Type == discordgo.PermissionOverwriteTypeRole {
-			currentOverwrite = po
-			break
-		}
-	}
+func syncViewPermission(s *discordgo.Session, ch *discordgo.Channel, cfg *config.Config, denyView bool) {
+	currentOverwrite := findEveryoneOverwrite(ch)
 
 	var allow, deny int64
 	if currentOverwrite != nil {
@@ -101,9 +96,9 @@ func syncViewPermission(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *c
 		deny &^= discordgo.PermissionViewChannel
 	}
 
-	err := s.ChannelPermissionSet(c.ID, c.GuildID, discordgo.PermissionOverwriteTypeRole, allow, deny)
+	err := s.ChannelPermissionSet(ch.ID, ch.GuildID, discordgo.PermissionOverwriteTypeRole, allow, deny)
 	if err != nil {
-		cfg.Logger.Errorf("Failed to sync View permission for channel %s: %v", c.ID, err)
+		cfg.Logger.Errorf("Failed to sync View permission for channel %s: %v", ch.ID, err)
 		return
 	}
 
@@ -122,12 +117,12 @@ func syncViewPermission(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *c
 
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔊 Voice Permission Sync",
-		Description: fmt.Sprintf("Automatically synced View Channel permission for voice channel."),
+		Description: "Automatically synced View Channel permission for voice channel.",
 		Color:       color,
 		Fields: []*discordgo.MessageEmbedField{
 			{
 				Name:   "Channel",
-				Value:  fmt.Sprintf("<#%s>", c.ID),
+				Value:  fmt.Sprintf("<#%s>", ch.ID),
 				Inline: true,
 			},
 			{

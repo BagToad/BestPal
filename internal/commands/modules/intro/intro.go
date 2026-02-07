@@ -87,6 +87,9 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 		},
 		HandlerFunc: m.handleIntroUserContext,
 	}
+
+	// Pin commands (slash + message context)
+	m.registerPinCommands(cmds)
 }
 
 // introLookup performs the introduction post lookup for the specified target user,

@@ -129,8 +129,8 @@ func (db *DB) initTables() error {
 		user_id TEXT NOT NULL,
 		thread_id TEXT NOT NULL,
 		feed_message_id TEXT,
-		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(thread_id)
+		is_bump BOOLEAN NOT NULL DEFAULT 0,
+		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
@@ -138,7 +138,57 @@ func (db *DB) initTables() error {
 	`
 
 	_, err := db.conn.Exec(query)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// One-time migration: recreate intro_feed_posts if it has the old schema
+	// (missing is_bump column due to UNIQUE(thread_id) constraint).
+	var hasIsBump bool
+	rows, err := db.conn.Query(`PRAGMA table_info(intro_feed_posts)`)
+	if err != nil {
+		return fmt.Errorf("failed to check intro_feed_posts schema: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue *string
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("failed to scan table_info: %w", err)
+		}
+		if name == "is_bump" {
+			hasIsBump = true
+			break
+		}
+	}
+	if !hasIsBump {
+		// Old schema: drop and let next startup recreate with new schema
+		if _, err := db.conn.Exec(`DROP TABLE intro_feed_posts`); err != nil {
+			return fmt.Errorf("failed to drop old intro_feed_posts table: %w", err)
+		}
+		if _, err := db.conn.Exec(`
+			CREATE TABLE intro_feed_posts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id TEXT NOT NULL,
+				thread_id TEXT NOT NULL,
+				feed_message_id TEXT,
+				is_bump BOOLEAN NOT NULL DEFAULT 0,
+				posted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`); err != nil {
+			return fmt.Errorf("failed to recreate intro_feed_posts table: %w", err)
+		}
+		if _, err := db.conn.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
+			CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_posted_at ON intro_feed_posts(posted_at);
+		`); err != nil {
+			return fmt.Errorf("failed to recreate intro_feed_posts indexes: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // Roulette signup methods
@@ -451,18 +501,17 @@ type IntroFeedPost struct {
 	UserID        string    `json:"user_id"`
 	ThreadID      string    `json:"thread_id"`
 	FeedMessageID string    `json:"feed_message_id"`
+	IsBump        bool      `json:"is_bump"`
 	PostedAt      time.Time `json:"posted_at"`
 }
 
-// RecordIntroFeedPost records that a user's intro was posted to the feed channel.
-// If the same thread_id is inserted again, it updates the posted_at timestamp.
-func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string) error {
+// RecordIntroFeedPost records that a user's intro was posted or bumped to the feed channel.
+func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string, isBump bool) error {
 	query := `
-	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, posted_at)
-	VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-	ON CONFLICT(thread_id) DO UPDATE SET posted_at = CURRENT_TIMESTAMP, feed_message_id = excluded.feed_message_id
+	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, is_bump, posted_at)
+	VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
 	`
-	_, err := db.conn.Exec(query, userID, threadID, feedMessageID)
+	_, err := db.conn.Exec(query, userID, threadID, feedMessageID, isBump)
 	if err != nil {
 		return fmt.Errorf("failed to record intro feed post: %w", err)
 	}
@@ -472,7 +521,7 @@ func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string) error 
 // GetLastIntroFeedPostTime returns the most recent time a user had their intro posted to the feed.
 // Returns zero time if no record exists.
 func (db *DB) GetLastIntroFeedPostTime(userID string) (time.Time, error) {
-	query := `SELECT posted_at FROM intro_feed_posts WHERE user_id = ? ORDER BY posted_at DESC LIMIT 1`
+	query := `SELECT posted_at FROM intro_feed_posts WHERE user_id = ? AND feed_message_id != '' ORDER BY posted_at DESC LIMIT 1`
 	var postedAt time.Time
 	err := db.conn.QueryRow(query, userID).Scan(&postedAt)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -504,4 +553,15 @@ func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool
 		return true, 0, nil
 	}
 	return false, eligibleAt.Sub(now), nil
+}
+
+// GetUserIntroPostCount returns the number of times a user has posted (not bumped) to the intro feed.
+func (db *DB) GetUserIntroPostCount(userID string) (int, error) {
+	query := `SELECT COUNT(*) FROM intro_feed_posts WHERE user_id = ? AND is_bump = 0`
+	var count int
+	err := db.conn.QueryRow(query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user intro post count: %w", err)
+	}
+	return count, nil
 }

@@ -96,7 +96,9 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	// Get user's post count (excluding bumps)
 	postCount := 0
 	if s.deps.DB != nil {
-		if count, err := s.deps.DB.GetUserIntroPostCount(userID); err == nil {
+		if count, err := s.deps.DB.GetUserIntroPostCount(userID); err != nil {
+			s.deps.Config.Logger.Warnf("Failed to get intro post count for user %s: %v", userID, err)
+		} else {
 			postCount = count
 		}
 		// For new posts, include the current one in the count

@@ -508,9 +508,9 @@ func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool
 	return false, eligibleAt.Sub(now), nil
 }
 
-// GetUserIntroPostCount returns the number of times a user has posted (not bumped) to the intro feed.
+// GetUserIntroPostCount returns the number of distinct intro threads a user has posted to the feed.
 func (db *DB) GetUserIntroPostCount(userID string) (int, error) {
-	query := `SELECT COUNT(*) FROM intro_feed_posts WHERE user_id = ? AND is_bump = 0`
+	query := `SELECT COUNT(DISTINCT thread_id) FROM intro_feed_posts WHERE user_id = ?`
 	var count int
 	err := db.conn.QueryRow(query, userID).Scan(&count)
 	if err != nil {

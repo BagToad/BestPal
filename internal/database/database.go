@@ -138,7 +138,51 @@ func (db *DB) initTables() error {
 	`
 
 	_, err := db.conn.Exec(query)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// One-time migration: recreate intro_feed_posts if it has the old schema
+	// (missing is_bump column due to UNIQUE(thread_id) constraint).
+	var hasIsBump bool
+	rows, err := db.conn.Query(`PRAGMA table_info(intro_feed_posts)`)
+	if err != nil {
+		return fmt.Errorf("failed to check intro_feed_posts schema: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue *string
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("failed to scan table_info: %w", err)
+		}
+		if name == "is_bump" {
+			hasIsBump = true
+			break
+		}
+	}
+	if !hasIsBump {
+		// Old schema: drop and let next startup recreate with new schema
+		if _, err := db.conn.Exec(`DROP TABLE intro_feed_posts`); err != nil {
+			return fmt.Errorf("failed to drop old intro_feed_posts table: %w", err)
+		}
+		if _, err := db.conn.Exec(`
+			CREATE TABLE intro_feed_posts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id TEXT NOT NULL,
+				thread_id TEXT NOT NULL,
+				feed_message_id TEXT,
+				is_bump BOOLEAN NOT NULL DEFAULT 0,
+				posted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			)`); err != nil {
+			return fmt.Errorf("failed to recreate intro_feed_posts table: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // Roulette signup methods

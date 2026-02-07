@@ -90,8 +90,7 @@ func (s *Service) RunScheduledIntroPrune() error {
 		return nil
 	}
 
-	// TODO: Set to false when ready to enable live deletions
-	dryRun := true
+	dryRun := false
 
 	s.cfg.Logger.Infof("[IntroPrune] Starting scheduled intro prune (dryRun=%v)...", dryRun)
 

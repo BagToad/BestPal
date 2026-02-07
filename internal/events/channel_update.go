@@ -16,7 +16,7 @@ import (
 // OnChannelUpdate handles channel updates
 func OnChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
 	// Handle voice permission sync (runs for all channel updates, not just renames)
-	OnVoicePermissionSync(s, c, cfg)
+	HandleVoicePermissionSyncUpdate(s, c, cfg)
 
 	// Handle support ticket close (only for renamed channels)
 	handleSupportTicketRename(s, c, cfg)

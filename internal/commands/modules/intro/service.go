@@ -63,7 +63,7 @@ func (s *IntroFeedService) CheckFeedEligibility(userID string) (*EligibilityResu
 
 // ForwardThreadToFeed posts a notification about a new/bumped intro thread to the feed channel.
 // Returns the message ID of the feed post, or an error.
-func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName string, tagIDs []string) (string, error) {
+func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName string, tagIDs []string, isBump bool) (string, error) {
 	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
 	if feedChannelID == "" {
 		return "", fmt.Errorf("intro feed channel not configured")
@@ -85,10 +85,32 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	// Get user's avatar URL (prefer server avatar over global)
 	avatarURL := s.getUserAvatarURL(guildID, userID)
 
+	// Determine title and description based on post vs bump
+	title := "👋 New Introduction!"
+	action := "just posted an introduction!"
+	if isBump {
+		title = "🔄 Introduction Bump!"
+		action = "just bumped their introduction!"
+	}
+
+	// Get user's post count (excluding bumps)
+	postCount := 0
+	if s.deps.DB != nil {
+		if count, err := s.deps.DB.GetUserIntroPostCount(userID); err == nil {
+			postCount = count
+		}
+		// For new posts, include the current one in the count
+		if !isBump {
+			postCount++
+		}
+	}
+
+	mention := fmt.Sprintf("<@%s>", userID)
+
 	// Create the feed embed
 	embed := &discordgo.MessageEmbed{
-		Title:       "👋 New Introduction!",
-		Description: fmt.Sprintf("**%s** just posted an introduction!", displayName),
+		Title:       title,
+		Description: fmt.Sprintf("**%s** (%s) %s", displayName, mention, action),
 		Color:       utils.Colors.Fancy(),
 		Timestamp:   time.Now().Format(time.RFC3339),
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
@@ -111,6 +133,11 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 				Inline: true,
 			},
 			{
+				Name:   "📊 # posts",
+				Value:  fmt.Sprintf("%d", postCount),
+				Inline: true,
+			},
+			{
 				Name:   "🔗 Link",
 				Value:  fmt.Sprintf("[Click here to view](%s)", threadURL),
 				Inline: false,
@@ -125,7 +152,7 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 
 	// Record this in the database
 	if s.deps.DB != nil {
-		if err := s.deps.DB.RecordIntroFeedPost(userID, threadID, msg.ID); err != nil {
+		if err := s.deps.DB.RecordIntroFeedPost(userID, threadID, msg.ID, isBump); err != nil {
 			s.deps.Config.Logger.Warnf("Failed to record intro feed post: %v", err)
 			// Don't return error - the message was sent successfully
 		}
@@ -178,7 +205,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	// Forward to feed
-	_, err = s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName, thread.Name, thread.AppliedTags)
+	_, err = s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName, thread.Name, thread.AppliedTags, false)
 	if err != nil {
 		s.deps.Config.Logger.Errorf("Failed to forward intro to feed: %v", err)
 		return
@@ -213,7 +240,7 @@ func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayNam
 	}
 
 	// Forward to feed
-	_, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName, tagIDs)
+	_, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName, tagIDs, true)
 	if err != nil {
 		return err
 	}

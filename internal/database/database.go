@@ -129,6 +129,7 @@ func (db *DB) initTables() error {
 		user_id TEXT NOT NULL,
 		thread_id TEXT NOT NULL,
 		feed_message_id TEXT,
+		is_bump BOOLEAN NOT NULL DEFAULT 0,
 		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(thread_id)
 	);
@@ -451,18 +452,19 @@ type IntroFeedPost struct {
 	UserID        string    `json:"user_id"`
 	ThreadID      string    `json:"thread_id"`
 	FeedMessageID string    `json:"feed_message_id"`
+	IsBump        bool      `json:"is_bump"`
 	PostedAt      time.Time `json:"posted_at"`
 }
 
 // RecordIntroFeedPost records that a user's intro was posted to the feed channel.
 // If the same thread_id is inserted again, it updates the posted_at timestamp.
-func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string) error {
+func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string, isBump bool) error {
 	query := `
-	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, posted_at)
-	VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-	ON CONFLICT(thread_id) DO UPDATE SET posted_at = CURRENT_TIMESTAMP, feed_message_id = excluded.feed_message_id
+	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, is_bump, posted_at)
+	VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+	ON CONFLICT(thread_id) DO UPDATE SET posted_at = CURRENT_TIMESTAMP, feed_message_id = excluded.feed_message_id, is_bump = excluded.is_bump
 	`
-	_, err := db.conn.Exec(query, userID, threadID, feedMessageID)
+	_, err := db.conn.Exec(query, userID, threadID, feedMessageID, isBump)
 	if err != nil {
 		return fmt.Errorf("failed to record intro feed post: %w", err)
 	}
@@ -504,4 +506,15 @@ func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool
 		return true, 0, nil
 	}
 	return false, eligibleAt.Sub(now), nil
+}
+
+// GetUserIntroPostCount returns the number of times a user has posted (not bumped) to the intro feed.
+func (db *DB) GetUserIntroPostCount(userID string) (int, error) {
+	query := `SELECT COUNT(*) FROM intro_feed_posts WHERE user_id = ? AND is_bump = 0`
+	var count int
+	err := db.conn.QueryRow(query, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get user intro post count: %w", err)
+	}
+	return count, nil
 }

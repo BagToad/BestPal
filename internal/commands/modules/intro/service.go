@@ -192,6 +192,10 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 
 	if !eligibility.Eligible {
 		s.deps.Config.Logger.Infof("Skipping intro feed for user %s: %s", thread.OwnerID, eligibility.Reason)
+		// Still record the post so the post count increments
+		if err := s.deps.DB.RecordIntroFeedPost(thread.OwnerID, thread.ID, "", false); err != nil {
+			s.deps.Config.Logger.Warnf("Failed to record skipped intro feed post: %v", err)
+		}
 		return
 	}
 

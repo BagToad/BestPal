@@ -180,6 +180,12 @@ func (db *DB) initTables() error {
 			)`); err != nil {
 			return fmt.Errorf("failed to recreate intro_feed_posts table: %w", err)
 		}
+		if _, err := db.conn.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
+			CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_posted_at ON intro_feed_posts(posted_at);
+		`); err != nil {
+			return fmt.Errorf("failed to recreate intro_feed_posts indexes: %w", err)
+		}
 	}
 
 	return nil

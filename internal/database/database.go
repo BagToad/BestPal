@@ -130,8 +130,7 @@ func (db *DB) initTables() error {
 		thread_id TEXT NOT NULL,
 		feed_message_id TEXT,
 		is_bump BOOLEAN NOT NULL DEFAULT 0,
-		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-		UNIQUE(thread_id)
+		posted_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
@@ -456,13 +455,11 @@ type IntroFeedPost struct {
 	PostedAt      time.Time `json:"posted_at"`
 }
 
-// RecordIntroFeedPost records that a user's intro was posted to the feed channel.
-// If the same thread_id is inserted again, it updates the posted_at timestamp.
+// RecordIntroFeedPost records that a user's intro was posted or bumped to the feed channel.
 func (db *DB) RecordIntroFeedPost(userID, threadID, feedMessageID string, isBump bool) error {
 	query := `
 	INSERT INTO intro_feed_posts (user_id, thread_id, feed_message_id, is_bump, posted_at)
 	VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-	ON CONFLICT(thread_id) DO UPDATE SET posted_at = CURRENT_TIMESTAMP, feed_message_id = excluded.feed_message_id, is_bump = excluded.is_bump
 	`
 	_, err := db.conn.Exec(query, userID, threadID, feedMessageID, isBump)
 	if err != nil {
@@ -508,9 +505,9 @@ func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool
 	return false, eligibleAt.Sub(now), nil
 }
 
-// GetUserIntroPostCount returns the number of distinct intro threads a user has posted to the feed.
+// GetUserIntroPostCount returns the number of times a user has posted (not bumped) to the intro feed.
 func (db *DB) GetUserIntroPostCount(userID string) (int, error) {
-	query := `SELECT COUNT(DISTINCT thread_id) FROM intro_feed_posts WHERE user_id = ?`
+	query := `SELECT COUNT(*) FROM intro_feed_posts WHERE user_id = ? AND is_bump = 0`
 	var count int
 	err := db.conn.QueryRow(query, userID).Scan(&count)
 	if err != nil {

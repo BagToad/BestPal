@@ -67,7 +67,26 @@ func (m *IntroModule) pinMessageInIntroThread(s *discordgo.Session, i *discordgo
 
 	// Check that the invoking user owns this thread
 	if ch.OwnerID != userID {
-		respondEphemeral(s, i, "❌ You can only pin messages in your own introduction thread.")
+		respondEphemeral(s, i, "❌ You can only pin/unpin messages in your own introduction thread.")
+		return
+	}
+
+	// Fetch the message to check if it's already pinned
+	msg, err := s.ChannelMessage(channelID, messageID)
+	if err != nil {
+		respondEphemeral(s, i, "❌ Could not find that message. Make sure the link is correct.")
+		return
+	}
+
+	if msg.Pinned {
+		// Unpin
+		err = s.ChannelMessageUnpin(channelID, messageID)
+		if err != nil {
+			m.config.Config.Logger.Errorf("Failed to unpin message %s in channel %s: %v", messageID, channelID, err)
+			respondEphemeral(s, i, "❌ Failed to unpin the message. Please try again later.")
+			return
+		}
+		respondEphemeral(s, i, "✅ Message unpinned from your introduction thread!")
 		return
 	}
 
@@ -137,13 +156,13 @@ func (m *IntroModule) registerPinCommands(cmds map[string]*types.Command) {
 	cmds["pin"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "pin",
-			Description: "Pin a message in your introduction thread",
+			Description: "Pin or unpin a message in your introduction thread",
 			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "message_link",
-					Description: "Link to the message to pin (right-click message → Copy Message Link)",
+					Description: "Link to the message to pin or unpin (right-click message → Copy Message Link)",
 					Required:    true,
 				},
 			},

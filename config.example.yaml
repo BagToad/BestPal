@@ -28,3 +28,8 @@ gamerpals_lfg_forum_channel_id: "your-lfg-forum-channel-id-here"
 intro_feed_channel_id: "your-intro-feed-channel-id-here"
 # Hours between allowed feed posts per user (prevents spam from delete+repost)
 intro_feed_rate_limit_hours: 48
+
+# Voice Channel Permission Sync
+# When @everyone Connect is denied on voice channels in this category,
+# also deny View Channel (and vice versa for allowing)
+gamerpals_voice_sync_category_id: "your-category-id-here"

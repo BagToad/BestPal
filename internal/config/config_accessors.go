@@ -54,6 +54,10 @@ func (c *Config) GetGamerPalsLFGForumChannelID() string {
 	return c.v.GetString("gamerpals_lfg_forum_channel_id")
 }
 
+func (c *Config) GetGamerPalsVoiceSyncCategoryID() string {
+	return c.v.GetString("gamerpals_voice_sync_category_id")
+}
+
 // LFG Looking NOW panel channel ID (persisted so panel survives restarts)
 func (c *Config) GetLFGNowPanelChannelID() string {
 	return c.v.GetString("gamerpals_lfg_now_panel_channel_id")

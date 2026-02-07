@@ -15,9 +15,16 @@ import (
 
 // OnChannelUpdate handles channel updates
 func OnChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
-	renamed := c.BeforeUpdate.Name != c.Name
+	// Handle voice permission sync (runs for all channel updates, not just renames)
+	OnVoicePermissionSync(s, c, cfg)
+
+	// Handle support ticket close (only for renamed channels)
+	handleSupportTicketRename(s, c, cfg)
+}
+
+func handleSupportTicketRename(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *config.Config) {
+	renamed := c.BeforeUpdate != nil && c.BeforeUpdate.Name != c.Name
 	if !renamed {
-		cfg.Logger.Info("Channel was not renamed, ignoring update")
 		return
 	}
 
@@ -38,7 +45,6 @@ func OnChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *conf
 		}
 
 		handleSupportTicketClose(s, c, cfg)
-		return
 	}
 }
 

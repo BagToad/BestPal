@@ -122,7 +122,7 @@ func syncViewPermission(s *discordgo.Session, c *discordgo.ChannelUpdate, cfg *c
 
 	embed := &discordgo.MessageEmbed{
 		Title:       "🔊 Voice Permission Sync",
-		Description: fmt.Sprintf("Automatically synced View Channel permission for voice channel."),
+		Description: "Automatically synced View Channel permission for voice channel.",
 		Color:       color,
 		Fields: []*discordgo.MessageEmbedField{
 			{

@@ -144,15 +144,24 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 	}
 
 	configItems := []configItem{
+		{"bot_token", false},                               // Token, don't show value
 		{"igdb_client_id", false},                          // Token-like, don't show value
 		{"igdb_client_secret", false},                      // Token-like, don't show value
 		{"igdb_client_token", false},                       // Token, don't show value
 		{"github_models_token", false},                     // Token, don't show value
 		{"crypto_salt", false},                             // Sensitive, don't show value
+		{"super_admins", false},                            // Sensitive, don't show value
 		{"gamerpals_server_id", true},                      // Harmless ID
 		{"gamerpals_mod_action_log_channel_id", true},      // Harmless ID
+		{"gamerpals_log_channel_id", true},                 // Harmless ID
 		{"gamerpals_pairing_category_id", true},            // Harmless ID
 		{"gamerpals_introductions_forum_channel_id", true}, // Harmless ID
+		{"gamerpals_help_desk_channel_id", true},           // Harmless ID
+		{"gamerpals_lfg_forum_channel_id", true},           // Harmless ID
+		{"gamerpals_lfg_now_panel_channel_id", true},       // Harmless ID
+		{"gamerpals_voice_sync_category_id", true},         // Harmless ID
+		{"intro_feed_channel_id", true},                    // Harmless ID
+		{"intro_feed_rate_limit_hours", true},              // Duration setting
 		{"new_pals_system_enabled", true},                  // Boolean setting
 		{"new_pals_role_id", true},                         // Harmless ID
 		{"new_pals_channel_id", true},                      // Harmless ID
@@ -160,7 +169,6 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"new_pals_time_between_welcome_messages", true},   // Duration setting
 		{"database_path", true},                            // File path
 		{"log_dir", true},                                  // Directory path
-		{"gamerpals_log_channel_id", true},                 // Harmless ID
 	}
 
 	// Format the keys into a readable list
@@ -191,5 +199,5 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 
 // Service returns nil as this module has no services requiring initialization
 func (m *ConfigModule) Service() types.ModuleService {
-return nil
+	return nil
 }

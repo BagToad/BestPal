@@ -163,7 +163,7 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	modelsClient := utils.NewModelsClient(svc.deps.Config)
 	result := modelsClient.ModelsRequest(rollupSystemPrompt, sb.String(), rollupModel)
 	if result == "" {
-		return "", fmt.Errorf("model returned an empty response")
+		return "", fmt.Errorf("model request failed; try again later")
 	}
 
 	return result, nil

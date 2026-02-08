@@ -588,5 +588,8 @@ func (db *DB) GetRecentIntroFeedPosts(since time.Time) ([]IntroFeedPost, error) 
 		}
 		posts = append(posts, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate intro feed posts: %w", err)
+	}
 	return posts, nil
 }

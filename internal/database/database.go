@@ -565,3 +565,28 @@ func (db *DB) GetUserIntroPostCount(userID string) (int, error) {
 	}
 	return count, nil
 }
+
+// GetRecentIntroFeedPosts returns all intro feed posts since the given time.
+func (db *DB) GetRecentIntroFeedPosts(since time.Time) ([]IntroFeedPost, error) {
+	query := `
+	SELECT id, user_id, thread_id, feed_message_id, is_bump, posted_at
+	FROM intro_feed_posts
+	WHERE posted_at >= ?
+	ORDER BY posted_at ASC
+	`
+	rows, err := db.conn.Query(query, since)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent intro feed posts: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var posts []IntroFeedPost
+	for rows.Next() {
+		var p IntroFeedPost
+		if err := rows.Scan(&p.ID, &p.UserID, &p.ThreadID, &p.FeedMessageID, &p.IsBump, &p.PostedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan intro feed post: %w", err)
+		}
+		posts = append(posts, p)
+	}
+	return posts, nil
+}

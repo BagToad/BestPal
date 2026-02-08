@@ -15,6 +15,7 @@ import (
 
 // IntroFeedService handles posting introductions to the feed channel
 type IntroFeedService struct {
+	types.BaseService
 	deps *types.Dependencies
 }
 
@@ -373,4 +374,14 @@ func (s *IntroFeedService) getUserAvatarURL(guildID, userID string) string {
 	}
 
 	return ""
+}
+
+// ScheduledFuncs returns nil for now. To enable automatic daily rollup posting,
+// return a cron schedule mapping, e.g.:
+//
+//	return map[string]func() error{
+//		"0 9 * * *": s.AutoRollup, // 9 AM daily
+//	}
+func (s *IntroFeedService) ScheduledFuncs() map[string]func() error {
+	return nil
 }

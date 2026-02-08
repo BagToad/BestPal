@@ -111,7 +111,13 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	// Fetch thread content for each unique user
 	var entries []introEntry
 	for _, p := range uniquePosts {
-		entry := introEntry{UserID: p.UserID}
+		// Fetch thread info — skip this user if the thread no longer exists
+		thread, err := s.Channel(p.ThreadID)
+		if err != nil || thread == nil {
+			continue
+		}
+
+		entry := introEntry{UserID: p.UserID, ThreadTitle: thread.Name}
 
 		// Resolve display name
 		member, err := s.GuildMember(guildID, p.UserID)
@@ -122,14 +128,6 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 			}
 		} else {
 			entry.DisplayName = "Unknown"
-		}
-
-		// Fetch thread info for title
-		thread, err := s.Channel(p.ThreadID)
-		if err == nil && thread != nil {
-			entry.ThreadTitle = thread.Name
-		} else {
-			entry.ThreadTitle = "Introduction"
 		}
 
 		// Fetch the first message (starter message) of the thread

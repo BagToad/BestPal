@@ -97,7 +97,7 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	}
 
 	if len(posts) == 0 {
-		return "☀️ No new introductions in the last 24 hours — but we're always excited to meet new people!", nil, nil
+		return "☀️ No new introductions in the last 24 hours", nil, nil
 	}
 
 	// Deduplicate by user ID (keep first occurrence's thread)
@@ -150,7 +150,7 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	}
 
 	if len(entries) == 0 {
-		return "☀️ No new introductions in the last 24 hours — but we're always excited to meet new people!", nil, nil
+		return "☀️ No new unique introductions in the last 24 hours", nil, nil
 	}
 
 	// Collect mentioned user IDs

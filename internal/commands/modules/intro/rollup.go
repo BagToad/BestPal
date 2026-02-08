@@ -107,39 +107,34 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 		return "☀️ No new introductions in the last 24 hours", nil, nil
 	}
 
-	// Deduplicate by user ID (keep first occurrence's thread)
+	// Deduplicate to unique user IDs
 	seen := make(map[string]bool)
-	var uniquePosts []struct {
-		UserID   string
-		ThreadID string
-	}
+	var uniqueUserIDs []string
 	for _, p := range posts {
 		if seen[p.UserID] {
 			continue
 		}
 		seen[p.UserID] = true
-		uniquePosts = append(uniquePosts, struct {
-			UserID   string
-			ThreadID string
-		}{p.UserID, p.ThreadID})
+		uniqueUserIDs = append(uniqueUserIDs, p.UserID)
 	}
 
-	svc.deps.Config.Logger.Infof("[Rollup] %d unique users after dedup", len(uniquePosts))
+	svc.deps.Config.Logger.Infof("[Rollup] %d unique users after dedup", len(uniqueUserIDs))
 
-	// Fetch thread content for each unique user
+	// Resolve each user's latest intro thread via the forum cache,
+	// which tracks the current (non-deleted) thread per user.
+	introForumID := svc.deps.Config.GetGamerPalsIntroductionsForumChannelID()
 	var entries []introEntry
-	for _, p := range uniquePosts {
-		// Fetch thread info — skip this user if the thread no longer exists
-		thread, err := s.Channel(p.ThreadID)
-		if err != nil || thread == nil {
-			svc.deps.Config.Logger.Warnf("[Rollup] s.Channel(%s) failed for user %s: %v", p.ThreadID, p.UserID, err)
+	for _, userID := range uniqueUserIDs {
+		meta, ok := svc.deps.ForumCache.GetLatestUserThread(introForumID, userID)
+		if !ok || meta == nil {
+			svc.deps.Config.Logger.Warnf("[Rollup] No cached thread for user %s, skipping", userID)
 			continue
 		}
 
-		entry := introEntry{UserID: p.UserID, ThreadTitle: thread.Name}
+		entry := introEntry{UserID: userID, ThreadTitle: meta.Name}
 
 		// Resolve display name
-		member, err := s.GuildMember(guildID, p.UserID)
+		member, err := s.GuildMember(guildID, userID)
 		if err == nil && member != nil {
 			entry.DisplayName = member.DisplayName()
 			if member.Nick != "" {
@@ -151,11 +146,11 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 
 		// Fetch the starter message of the thread.
 		// For forum posts, the starter message ID equals the thread ID.
-		msg, err := s.ChannelMessage(p.ThreadID, p.ThreadID)
+		msg, err := s.ChannelMessage(meta.ID, meta.ID)
 		if err == nil && msg != nil {
 			entry.Body = msg.Content
 		} else {
-			svc.deps.Config.Logger.Warnf("[Rollup] s.ChannelMessage(%s, %s) failed: %v", p.ThreadID, p.ThreadID, err)
+			svc.deps.Config.Logger.Warnf("[Rollup] s.ChannelMessage(%s, %s) failed: %v", meta.ID, meta.ID, err)
 		}
 
 		entries = append(entries, entry)

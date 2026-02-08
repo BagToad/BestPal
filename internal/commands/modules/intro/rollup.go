@@ -49,7 +49,7 @@ func (m *IntroModule) handleIntroductionRollup(s *discordgo.Session, i *discordg
 		return
 	}
 
-	rollupText, err := m.feedService.GenerateRollup(s, i.GuildID)
+	rollupText, mentionedUserIDs, err := m.feedService.GenerateRollup(s, i.GuildID)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 			Content: utils.StringPtr(fmt.Sprintf("❌ %s", err.Error())),
@@ -57,10 +57,18 @@ func (m *IntroModule) handleIntroductionRollup(s *discordgo.Session, i *discordg
 		return
 	}
 
+	// Only allow mentions for the specific newcomer user IDs
+	allowedMentions := &discordgo.MessageAllowedMentions{
+		Users: mentionedUserIDs,
+	}
+
 	// Split and send the rollup as visible messages in the channel
 	chunks := splitMessage(rollupText, 2000)
 	for _, chunk := range chunks {
-		_, err = s.ChannelMessageSend(i.ChannelID, chunk)
+		_, err = s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
+			Content:         chunk,
+			AllowedMentions: allowedMentions,
+		})
 		if err != nil {
 			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 				Content: utils.StringPtr(fmt.Sprintf("❌ Failed to send rollup message: %s", err.Error())),
@@ -76,19 +84,20 @@ func (m *IntroModule) handleIntroductionRollup(s *discordgo.Session, i *discordg
 
 // GenerateRollup fetches recent intros and generates an AI-powered rollup message.
 // The guildID is used to resolve display names.
-func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string) (string, error) {
+// Returns the rollup text and the list of user IDs mentioned in the rollup.
+func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string) (string, []string, error) {
 	if svc.deps.DB == nil {
-		return "", fmt.Errorf("database not available")
+		return "", nil, fmt.Errorf("database not available")
 	}
 
 	since := time.Now().Add(-24 * time.Hour)
 	posts, err := svc.deps.DB.GetRecentIntroFeedPosts(since)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch recent intro posts: %w", err)
+		return "", nil, fmt.Errorf("failed to fetch recent intro posts: %w", err)
 	}
 
 	if len(posts) == 0 {
-		return "☀️ No new introductions in the last 24 hours", nil
+		return "☀️ No new introductions in the last 24 hours — but we're always excited to meet new people!", nil, nil
 	}
 
 	// Deduplicate by user ID (keep first occurrence's thread)
@@ -141,7 +150,13 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	}
 
 	if len(entries) == 0 {
-		return "☀️ No new introductions in the last 24 hours", nil
+		return "☀️ No new introductions in the last 24 hours — but we're always excited to meet new people!", nil, nil
+	}
+
+	// Collect mentioned user IDs
+	var mentionedUserIDs []string
+	for _, e := range entries {
+		mentionedUserIDs = append(mentionedUserIDs, e.UserID)
 	}
 
 	// Build the user prompt
@@ -164,10 +179,10 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	modelsClient := utils.NewModelsClient(svc.deps.Config)
 	result := modelsClient.ModelsRequest(rollupSystemPrompt, sb.String(), rollupModel)
 	if result == "" {
-		return "", fmt.Errorf("model request failed; try again later")
+		return "", nil, fmt.Errorf("model request failed; try again later")
 	}
 
-	return result, nil
+	return result, mentionedUserIDs, nil
 }
 
 // splitMessage splits text into chunks of at most maxLen runes,

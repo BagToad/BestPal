@@ -130,10 +130,11 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 			entry.DisplayName = "Unknown"
 		}
 
-		// Fetch the first message (starter message) of the thread
-		msgs, err := s.ChannelMessages(p.ThreadID, 1, "", "", "")
-		if err == nil && len(msgs) > 0 {
-			entry.Body = msgs[0].Content
+		// Fetch the starter message of the thread.
+		// For forum posts, the starter message ID equals the thread ID.
+		msg, err := s.ChannelMessage(p.ThreadID, p.ThreadID)
+		if err == nil && msg != nil {
+			entry.Body = msg.Content
 		}
 
 		entries = append(entries, entry)

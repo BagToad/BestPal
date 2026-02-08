@@ -90,7 +90,7 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 		return "", nil, fmt.Errorf("database not available")
 	}
 
-	since := time.Now().Add(-24 * time.Hour)
+	since := time.Now().UTC().Add(-24 * time.Hour)
 	posts, err := svc.deps.DB.GetRecentIntroFeedPosts(since)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch recent intro posts: %w", err)

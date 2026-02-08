@@ -67,6 +67,7 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 
 	req, err := http.NewRequest("POST", modelsURL, bytes.NewBuffer(reqBody))
 	if err != nil {
+		m.config.Logger.Errorf("ModelsRequest: failed to create HTTP request: %v", err)
 		return ""
 	}
 
@@ -76,17 +77,20 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 
 	response, err := client.Do(req)
 	if err != nil {
+		m.config.Logger.Errorf("ModelsRequest: HTTP request failed: %v", err)
 		return ""
 	}
 	defer func() { _ = response.Body.Close() }()
 
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
+		m.config.Logger.Errorf("ModelsRequest: failed to read response body: %v", err)
 		return ""
 	}
 
 	var modelsResp ModelsResponse
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
+		m.config.Logger.Errorf("ModelsRequest: failed to unmarshal response (status %d): %v | body: %s", response.StatusCode, err, string(body))
 		return ""
 	}
 
@@ -94,5 +98,6 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 		return modelsResp.Choices[0].Message.Content
 	}
 
+	m.config.Logger.Errorf("ModelsRequest: no choices in response: %s", string(body))
 	return ""
 }

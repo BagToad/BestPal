@@ -88,6 +88,18 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 		HandlerFunc: m.handleIntroUserContext,
 	}
 
+	// Introduction rollup command – moderator-only
+	modPerms := int64(discordgo.PermissionManageMessages)
+	cmds["introduction-rollup"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "introduction-rollup",
+			Description:              "Generate a summary of introductions from the last 24 hours",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+		},
+		HandlerFunc: m.handleIntroductionRollup,
+	}
+
 	// Pin commands (slash + message context)
 	m.registerPinCommands(cmds)
 }
@@ -433,7 +445,7 @@ func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
 	return 0
 }
 
-// Service returns nil as this module has no scheduled tasks or hydration needs
+// Service returns the feed service for session hydration and future scheduling
 func (m *IntroModule) Service() types.ModuleService {
-	return nil
+	return m.feedService
 }

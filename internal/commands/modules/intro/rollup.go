@@ -10,7 +10,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const rollupModel = "gpt-5-mini"
+const rollupModel = "openai/gpt-5-mini"
 
 const rollupSystemPrompt = `You are a friendly community bot for GamerPals, a gaming community Discord server. You're writing a daily rollup of new introductions. Your tone should be warm, welcoming, and enthusiastic — like a friend greeting newcomers at a party. Keep it casual and fun.
 

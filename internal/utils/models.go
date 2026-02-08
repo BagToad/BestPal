@@ -90,7 +90,7 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 
 	var modelsResp ModelsResponse
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
-		m.config.Logger.Errorf("ModelsRequest: failed to unmarshal response: %v", err)
+		m.config.Logger.Errorf("ModelsRequest: failed to unmarshal response (status %d): %v | body: %s", response.StatusCode, err, string(body))
 		return ""
 	}
 

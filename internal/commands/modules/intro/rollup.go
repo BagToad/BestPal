@@ -169,31 +169,40 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	return result, nil
 }
 
-// splitMessage splits text into chunks of at most maxLen characters,
+// splitMessage splits text into chunks of at most maxLen runes,
 // preferring to break at newline boundaries.
 func splitMessage(text string, maxLen int) []string {
-	if len(text) <= maxLen {
+	runes := []rune(text)
+	if len(runes) <= maxLen {
 		return []string{text}
 	}
 
 	var chunks []string
-	for len(text) > 0 {
-		if len(text) <= maxLen {
-			chunks = append(chunks, text)
+	for len(runes) > 0 {
+		if len(runes) <= maxLen {
+			chunks = append(chunks, string(runes))
 			break
 		}
 
-		// Find the last newline within the limit
-		cut := strings.LastIndex(text[:maxLen], "\n")
+		// Look for the last newline within the rune limit
+		limit := maxLen
+		if limit > len(runes) {
+			limit = len(runes)
+		}
+		cut := -1
+		for i := limit - 1; i >= 0; i-- {
+			if runes[i] == '\n' {
+				cut = i + 1 // include the newline in the current chunk
+				break
+			}
+		}
 		if cut <= 0 {
-			// No newline found — hard cut at maxLen
-			cut = maxLen
-		} else {
-			cut++ // include the newline in the current chunk
+			// No newline found — hard cut at maxLen runes
+			cut = limit
 		}
 
-		chunks = append(chunks, text[:cut])
-		text = text[cut:]
+		chunks = append(chunks, string(runes[:cut]))
+		runes = runes[cut:]
 	}
 	return chunks
 }

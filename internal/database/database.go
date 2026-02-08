@@ -574,7 +574,9 @@ func (db *DB) GetRecentIntroFeedPosts(since time.Time) ([]IntroFeedPost, error) 
 	WHERE posted_at >= ?
 	ORDER BY posted_at ASC
 	`
-	rows, err := db.conn.Query(query, since)
+	// Format to match SQLite's CURRENT_TIMESTAMP format for reliable comparison
+	sinceStr := since.UTC().Format("2006-01-02 15:04:05")
+	rows, err := db.conn.Query(query, sinceStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get recent intro feed posts: %w", err)
 	}

@@ -67,6 +67,7 @@ func (m *ModelsClient) ModelsRequest(systemPrompt, userPrompt string, model stri
 
 	req, err := http.NewRequest("POST", modelsURL, bytes.NewBuffer(reqBody))
 	if err != nil {
+		m.config.Logger.Errorf("ModelsRequest: failed to create HTTP request: %v", err)
 		return ""
 	}
 

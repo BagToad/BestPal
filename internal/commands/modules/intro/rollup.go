@@ -91,9 +91,16 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 	}
 
 	since := time.Now().UTC().Add(-24 * time.Hour)
+	svc.deps.Config.Logger.Infof("[Rollup] Querying intro_feed_posts since %s", since.Format("2006-01-02 15:04:05"))
+
 	posts, err := svc.deps.DB.GetRecentIntroFeedPosts(since)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch recent intro posts: %w", err)
+	}
+
+	svc.deps.Config.Logger.Infof("[Rollup] Found %d posts from DB", len(posts))
+	for i, p := range posts {
+		svc.deps.Config.Logger.Infof("[Rollup]   post[%d]: user=%s thread=%s isBump=%v postedAt=%v", i, p.UserID, p.ThreadID, p.IsBump, p.PostedAt)
 	}
 
 	if len(posts) == 0 {
@@ -117,12 +124,15 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 		}{p.UserID, p.ThreadID})
 	}
 
+	svc.deps.Config.Logger.Infof("[Rollup] %d unique users after dedup", len(uniquePosts))
+
 	// Fetch thread content for each unique user
 	var entries []introEntry
 	for _, p := range uniquePosts {
 		// Fetch thread info — skip this user if the thread no longer exists
 		thread, err := s.Channel(p.ThreadID)
 		if err != nil || thread == nil {
+			svc.deps.Config.Logger.Warnf("[Rollup] s.Channel(%s) failed for user %s: %v", p.ThreadID, p.UserID, err)
 			continue
 		}
 
@@ -144,10 +154,14 @@ func (svc *IntroFeedService) GenerateRollup(s *discordgo.Session, guildID string
 		msg, err := s.ChannelMessage(p.ThreadID, p.ThreadID)
 		if err == nil && msg != nil {
 			entry.Body = msg.Content
+		} else {
+			svc.deps.Config.Logger.Warnf("[Rollup] s.ChannelMessage(%s, %s) failed: %v", p.ThreadID, p.ThreadID, err)
 		}
 
 		entries = append(entries, entry)
 	}
+
+	svc.deps.Config.Logger.Infof("[Rollup] %d entries after thread fetch", len(entries))
 
 	if len(entries) == 0 {
 		return "☀️ No new unique introductions in the last 24 hours", nil, nil

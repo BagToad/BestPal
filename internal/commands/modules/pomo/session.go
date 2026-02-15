@@ -40,9 +40,10 @@ type PomoSession struct {
 	config  *config.Config
 	voiceMgr *internalVoice.Manager
 
-	// Music player (managed outside the mutex)
+	// Music player (protected by musicMu)
+	musicMu     sync.Mutex
 	musicPlayer *internalVoice.StreamPlayer
-	musicTracks [][]byte // set via SetMusicTrack
+	musicTracks [][]byte
 }
 
 // GetOrCreateSession returns an existing session for the voice channel, or creates a new one.
@@ -301,15 +302,15 @@ func (ps *PomoSession) State() (phase Phase, minutesLeft int, currentPomo int, t
 // SetMusicTrack sets the opus frames data to stream during work phases.
 // Can be called while a session is idle or running.
 func (ps *PomoSession) SetMusicTrack(data []byte) {
-	ps.mu.Lock()
+	ps.musicMu.Lock()
 	ps.musicTracks = [][]byte{data}
-	ps.mu.Unlock()
+	ps.musicMu.Unlock()
 }
 
 // HasMusic returns true if the session has music tracks loaded.
 func (ps *PomoSession) HasMusic() bool {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
+	ps.musicMu.Lock()
+	defer ps.musicMu.Unlock()
 	return len(ps.musicTracks) > 0
 }
 
@@ -366,6 +367,8 @@ func (ps *PomoSession) playThenLeave(soundFile string) {
 
 // startMusic creates and starts the music stream player if tracks are available.
 func (ps *PomoSession) startMusic() {
+	ps.musicMu.Lock()
+	defer ps.musicMu.Unlock()
 	if len(ps.musicTracks) == 0 {
 		return
 	}
@@ -375,6 +378,8 @@ func (ps *PomoSession) startMusic() {
 
 // stopMusic stops the music player if it's running.
 func (ps *PomoSession) stopMusic() {
+	ps.musicMu.Lock()
+	defer ps.musicMu.Unlock()
 	if ps.musicPlayer != nil {
 		ps.musicPlayer.Stop()
 		ps.musicPlayer = nil
@@ -383,6 +388,8 @@ func (ps *PomoSession) stopMusic() {
 
 // pauseMusic pauses the music player during breaks.
 func (ps *PomoSession) pauseMusic() {
+	ps.musicMu.Lock()
+	defer ps.musicMu.Unlock()
 	if ps.musicPlayer != nil {
 		ps.musicPlayer.Pause()
 	}
@@ -390,6 +397,8 @@ func (ps *PomoSession) pauseMusic() {
 
 // resumeMusic resumes the music player for work phases.
 func (ps *PomoSession) resumeMusic() {
+	ps.musicMu.Lock()
+	defer ps.musicMu.Unlock()
 	if ps.musicPlayer != nil {
 		ps.musicPlayer.Resume()
 	}

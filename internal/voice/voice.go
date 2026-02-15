@@ -260,7 +260,7 @@ func (r *frameReader) next() ([]byte, error) {
 	}
 	frameLen := int(binary.LittleEndian.Uint16(r.data[r.offset : r.offset+2]))
 	r.offset += 2
-	if frameLen == 0 || r.offset+frameLen > len(r.data) {
+	if frameLen == 0 || frameLen > len(r.data)-r.offset {
 		return nil, io.EOF
 	}
 	frame := r.data[r.offset : r.offset+frameLen]

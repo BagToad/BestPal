@@ -1,330 +1,259 @@
 package pomo
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
-
-	goaudio "github.com/go-audio/audio"
-	"github.com/go-audio/wav"
-	mp3 "github.com/hajimehoshi/go-mp3"
-	opusenc "github.com/kazzmir/opus-go/opus"
+	"sync"
 )
 
 const (
-	opusSampleRate = 48000
-	opusChannels   = 2
-	opusFrameSize  = 960 // 20ms at 48kHz
-	opusBitrate    = 64000
+	ffmpegVersion = "7.1"
+	ffmpegBaseURL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
 )
 
-// convertToOpusFrames converts raw audio data (mp3, wav) to
-// 2-byte LE length-prefixed opus frames suitable for Discord voice.
-// Streams the conversion in chunks to handle large files without
-// loading the entire PCM buffer into memory.
-func convertToOpusFrames(input []byte, filename string) ([]byte, error) {
-	ext := strings.ToLower(filename)
+var (
+	ffmpegPath string
+	ffmpegOnce sync.Once
+	ffmpegErr  error
+)
 
-	// pcmReader delivers interleaved stereo int16 LE PCM at 48kHz
-	var pcmReader io.Reader
-	var err error
+// ensureFFmpeg downloads a static ffmpeg binary if not already cached.
+func ensureFFmpeg() (string, error) {
+	ffmpegOnce.Do(func() {
+		ffmpegPath, ffmpegErr = resolveFFmpeg()
+	})
+	return ffmpegPath, ffmpegErr
+}
+
+func resolveFFmpeg() (string, error) {
+	// Check if ffmpeg is already on PATH
+	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		return p, nil
+	}
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		cacheDir = "/tmp"
+	}
+	binDir := filepath.Join(cacheDir, "gamerpal", "bin")
+	binPath := filepath.Join(binDir, "ffmpeg")
+
+	if _, err := os.Stat(binPath); err == nil {
+		return binPath, nil
+	}
+
+	// Download static ffmpeg
+	url, err := ffmpegDownloadURL()
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", fmt.Errorf("create cache dir: %w", err)
+	}
+
+	if err := downloadAndExtractFFmpeg(url, binPath); err != nil {
+		os.Remove(binPath)
+		return "", fmt.Errorf("download ffmpeg: %w", err)
+	}
+
+	return binPath, nil
+}
+
+func ffmpegDownloadURL() (string, error) {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
 
 	switch {
-	case strings.HasSuffix(ext, ".mp3"):
-		pcmReader, err = newMp3PcmReader(input)
-	case strings.HasSuffix(ext, ".wav"):
-		pcmReader, err = newWavPcmReader(input)
+	case goos == "linux" && goarch == "amd64":
+		return ffmpegBaseURL + "ffmpeg-master-latest-linux64-gpl.tar.xz", nil
+	case goos == "linux" && goarch == "arm64":
+		return ffmpegBaseURL + "ffmpeg-master-latest-linuxarm64-gpl.tar.xz", nil
+	case goos == "darwin":
+		// BtbN doesn't provide macOS builds; use evermeet.cx
+		return "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip", nil
 	default:
-		return nil, fmt.Errorf("unsupported format: %s (supported: mp3, wav)", ext)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("decode audio: %w", err)
-	}
-
-	return streamEncodeOpus(pcmReader)
-}
-
-// streamEncodeOpus reads interleaved stereo int16 LE PCM from r one frame
-// at a time and encodes each frame to opus, returning length-prefixed output.
-func streamEncodeOpus(r io.Reader) ([]byte, error) {
-	enc, err := opusenc.NewEncoder(opusSampleRate, opusChannels, opusenc.ApplicationAudio)
-	if err != nil {
-		return nil, fmt.Errorf("opus encoder: %w", err)
-	}
-	defer enc.Close()
-
-	if err := enc.SetBitrate(opusBitrate); err != nil {
-		return nil, fmt.Errorf("set bitrate: %w", err)
-	}
-
-	samplesPerFrame := opusFrameSize * opusChannels
-	// Read one opus frame worth of PCM bytes at a time (960 samples * 2 channels * 2 bytes)
-	pcmBuf := make([]byte, samplesPerFrame*2)
-	pcmSamples := make([]int16, samplesPerFrame)
-	packet := make([]byte, 4000)
-	var out bytes.Buffer
-
-	for {
-		_, err := io.ReadFull(r, pcmBuf)
-		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read pcm: %w", err)
-		}
-
-		for i := range pcmSamples {
-			pcmSamples[i] = int16(binary.LittleEndian.Uint16(pcmBuf[i*2 : i*2+2]))
-		}
-
-		n, err := enc.Encode(pcmSamples, opusFrameSize, packet)
-		if err != nil {
-			return nil, fmt.Errorf("opus encode: %w", err)
-		}
-
-		var lenBuf [2]byte
-		binary.LittleEndian.PutUint16(lenBuf[:], uint16(n))
-		out.Write(lenBuf[:])
-		out.Write(packet[:n])
-	}
-
-	if out.Len() == 0 {
-		return nil, fmt.Errorf("no audio frames produced")
-	}
-	return out.Bytes(), nil
-}
-
-// newMp3PcmReader returns an io.Reader that produces interleaved stereo
-// int16 LE PCM at 48kHz from MP3 data. Resamples if needed.
-func newMp3PcmReader(data []byte) (io.Reader, error) {
-	dec, err := mp3.NewDecoder(bytes.NewReader(data))
-	if err != nil {
-		return nil, fmt.Errorf("mp3 init: %w", err)
-	}
-
-	// go-mp3 outputs signed 16-bit LE stereo PCM — already an io.Reader
-	var r io.Reader = dec
-	if dec.SampleRate() != opusSampleRate {
-		r = newResampleReader(r, opusChannels, dec.SampleRate(), opusSampleRate)
-	}
-	return r, nil
-}
-
-// newWavPcmReader returns an io.Reader that produces interleaved stereo
-// int16 LE PCM at 48kHz from WAV data. Handles mono→stereo and resampling.
-func newWavPcmReader(data []byte) (io.Reader, error) {
-	dec := wav.NewDecoder(bytes.NewReader(data))
-	if !dec.IsValidFile() {
-		return nil, fmt.Errorf("invalid wav file")
-	}
-
-	srcChannels := int(dec.NumChans)
-	srcRate := int(dec.SampleRate)
-	bitDepth := int(dec.BitDepth)
-
-	r := &wavChunkReader{
-		dec:         dec,
-		srcChannels: srcChannels,
-		bitDepth:    bitDepth,
-	}
-
-	var pcmReader io.Reader = r
-	if srcChannels == 1 {
-		pcmReader = newMonoToStereoReader(pcmReader)
-	}
-	if srcRate != opusSampleRate {
-		pcmReader = newResampleReader(pcmReader, opusChannels, srcRate, opusSampleRate)
-	}
-	return pcmReader, nil
-}
-
-// wavChunkReader reads WAV data in chunks and outputs int16 LE bytes.
-type wavChunkReader struct {
-	dec         *wav.Decoder
-	srcChannels int
-	bitDepth    int
-	buf         []byte // leftover bytes from previous read
-}
-
-func (w *wavChunkReader) Read(p []byte) (int, error) {
-	// Drain leftover first
-	if len(w.buf) > 0 {
-		n := copy(p, w.buf)
-		w.buf = w.buf[n:]
-		return n, nil
-	}
-
-	// Read a chunk of PCM from the WAV decoder
-	chunkSamples := 4096
-	intBuf := &goaudio.IntBuffer{
-		Format:         w.dec.Format(),
-		Data:           make([]int, chunkSamples),
-		SourceBitDepth: w.bitDepth,
-	}
-	n, err := w.dec.PCMBuffer(intBuf)
-	if n == 0 {
-		if err == nil {
-			err = io.EOF
-		}
-		return 0, err
-	}
-
-	// Convert int samples to int16 LE bytes
-	shift := w.bitDepth - 16
-	if shift < 0 {
-		shift = 0
-	}
-	raw := make([]byte, n*2)
-	for i := 0; i < n; i++ {
-		s := int16(intBuf.Data[i] >> shift)
-		binary.LittleEndian.PutUint16(raw[i*2:], uint16(s))
-	}
-
-	copied := copy(p, raw)
-	if copied < len(raw) {
-		w.buf = raw[copied:]
-	}
-	return copied, nil
-}
-
-// monoToStereoReader duplicates mono int16 LE samples to stereo.
-type monoToStereoReader struct {
-	src io.Reader
-	buf []byte
-}
-
-func newMonoToStereoReader(src io.Reader) *monoToStereoReader {
-	return &monoToStereoReader{src: src}
-}
-
-func (m *monoToStereoReader) Read(p []byte) (int, error) {
-	if len(m.buf) > 0 {
-		n := copy(p, m.buf)
-		m.buf = m.buf[n:]
-		return n, nil
-	}
-
-	// Read mono samples (2 bytes each), produce stereo (4 bytes each)
-	monoBytes := make([]byte, len(p)/2)
-	n, err := m.src.Read(monoBytes)
-	if n == 0 {
-		return 0, err
-	}
-
-	// Ensure we have complete samples
-	n = (n / 2) * 2
-	stereo := make([]byte, n*2)
-	for i := 0; i < n; i += 2 {
-		copy(stereo[i*2:], monoBytes[i:i+2])
-		copy(stereo[i*2+2:], monoBytes[i:i+2])
-	}
-
-	copied := copy(p, stereo)
-	if copied < len(stereo) {
-		m.buf = stereo[copied:]
-	}
-	return copied, nil
-}
-
-// resampleReader performs streaming linear interpolation resampling on
-// interleaved int16 LE PCM data.
-type resampleReader struct {
-	src      io.Reader
-	channels int
-	ratio    float64 // srcRate / dstRate
-	srcPos   float64 // current fractional position in source frames
-	prev     []int16 // previous source frame (per channel)
-	curr     []int16 // current source frame (per channel)
-	hasPrev  bool
-	buf      []byte // leftover output bytes
-	eof      bool
-}
-
-func newResampleReader(src io.Reader, channels, srcRate, dstRate int) *resampleReader {
-	return &resampleReader{
-		src:      src,
-		channels: channels,
-		ratio:    float64(srcRate) / float64(dstRate),
-		prev:     make([]int16, channels),
-		curr:     make([]int16, channels),
+		return "", fmt.Errorf("unsupported platform: %s/%s — install ffmpeg manually", goos, goarch)
 	}
 }
 
-func (r *resampleReader) readSourceFrame() error {
-	buf := make([]byte, r.channels*2)
-	_, err := io.ReadFull(r.src, buf)
+func downloadAndExtractFFmpeg(url, destPath string) error {
+	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
-	copy(r.prev, r.curr)
-	for ch := 0; ch < r.channels; ch++ {
-		r.curr[ch] = int16(binary.LittleEndian.Uint16(buf[ch*2 : ch*2+2]))
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 	}
-	r.hasPrev = true
-	return nil
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	if strings.HasSuffix(url, ".tar.xz") {
+		return extractFromTarXz(data, destPath)
+	}
+	if strings.HasSuffix(url, "/zip") || strings.HasSuffix(url, ".zip") {
+		return extractFromZip(data, destPath)
+	}
+	return fmt.Errorf("unknown archive format: %s", url)
 }
 
-func (r *resampleReader) Read(p []byte) (int, error) {
-	if len(r.buf) > 0 {
-		n := copy(p, r.buf)
-		r.buf = r.buf[n:]
-		return n, nil
+func extractFromTarXz(data []byte, destPath string) error {
+	// Decompress xz → tar using xz command (available on Linux)
+	cmd := exec.Command("xz", "-d", "-c")
+	cmd.Stdin = bytes.NewReader(data)
+	var tarData bytes.Buffer
+	cmd.Stdout = &tarData
+	if err := cmd.Run(); err != nil {
+		// Fallback: try gzip in case the format changed
+		return extractFromTarGz(data, destPath)
 	}
-	if r.eof {
-		return 0, io.EOF
-	}
+	return extractFFmpegFromTar(&tarData, destPath)
+}
 
-	// Seed the first frame
-	if !r.hasPrev {
-		if err := r.readSourceFrame(); err != nil {
-			return 0, err
+func extractFromTarGz(data []byte, destPath string) error {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	return extractFFmpegFromTar(gz, destPath)
+}
+
+func extractFFmpegFromTar(r io.Reader, destPath string) error {
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return fmt.Errorf("ffmpeg binary not found in archive")
 		}
-		copy(r.prev, r.curr)
-	}
-
-	// Generate output frames until we fill p or run out of source
-	outFrameBytes := r.channels * 2
-	maxFrames := len(p) / outFrameBytes
-	if maxFrames == 0 {
-		maxFrames = 1
-	}
-	out := make([]byte, 0, maxFrames*outFrameBytes)
-
-	for len(out)+outFrameBytes <= cap(out) {
-		srcIdx := int(r.srcPos)
-
-		// Advance source frames to catch up
-		for !r.eof && srcIdx > 0 {
-			if err := r.readSourceFrame(); err != nil {
-				r.eof = true
-				break
+		if err != nil {
+			return err
+		}
+		if filepath.Base(hdr.Name) == "ffmpeg" && hdr.Typeflag == tar.TypeReg {
+			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+			if err != nil {
+				return err
 			}
-			srcIdx--
-			r.srcPos -= 1.0
+			_, err = io.Copy(f, tr)
+			f.Close()
+			return err
 		}
-		if r.eof {
+	}
+}
+
+func extractFromZip(data []byte, destPath string) error {
+	// macOS zip is just the binary
+	return os.WriteFile(destPath, data, 0o755)
+}
+
+// convertToOpusFrames converts audio data to 2-byte LE length-prefixed opus
+// frames using ffmpeg. Downloads a static ffmpeg binary on first use if needed.
+func convertToOpusFrames(input []byte, _ string) ([]byte, error) {
+	ffmpeg, err := ensureFFmpeg()
+	if err != nil {
+		return nil, fmt.Errorf("ffmpeg not available: %w", err)
+	}
+
+	cmd := exec.Command(ffmpeg,
+		"-i", "pipe:0",
+		"-c:a", "libopus",
+		"-b:a", "64k",
+		"-ar", "48000",
+		"-ac", "2",
+		"-frame_duration", "20",
+		"-vn",
+		"-f", "ogg",
+		"pipe:1",
+	)
+	cmd.Stdin = bytes.NewReader(input)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: %w: %s", err, stderr.String())
+	}
+
+	return extractOpusFromOgg(stdout.Bytes())
+}
+
+// extractOpusFromOgg extracts opus frames from an OGG container and returns
+// them as 2-byte LE length-prefixed frames.
+func extractOpusFromOgg(oggData []byte) ([]byte, error) {
+	r := bytes.NewReader(oggData)
+	var frames bytes.Buffer
+
+	for {
+		frame, err := readOggOpusFrame(r)
+		if err == io.EOF {
 			break
 		}
-
-		frac := r.srcPos - float64(int(r.srcPos))
-		for ch := 0; ch < r.channels; ch++ {
-			v := float64(r.prev[ch])*(1-frac) + float64(r.curr[ch])*frac
-			var b [2]byte
-			binary.LittleEndian.PutUint16(b[:], uint16(int16(v)))
-			out = append(out, b[:]...)
+		if err != nil {
+			return nil, err
 		}
-		r.srcPos += r.ratio
+		if len(frame) == 0 {
+			continue
+		}
+
+		var lenBuf [2]byte
+		binary.LittleEndian.PutUint16(lenBuf[:], uint16(len(frame)))
+		frames.Write(lenBuf[:])
+		frames.Write(frame)
 	}
 
-	if len(out) == 0 {
-		return 0, io.EOF
+	if frames.Len() == 0 {
+		return nil, fmt.Errorf("no opus frames found in audio")
 	}
-
-	copied := copy(p, out)
-	if copied < len(out) {
-		r.buf = out[copied:]
-	}
-	return copied, nil
+	return frames.Bytes(), nil
 }
+
+// readOggOpusFrame reads the next OGG page and extracts the opus data.
+func readOggOpusFrame(r io.Reader) ([]byte, error) {
+	var header [27]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return nil, err
+	}
+
+	if string(header[0:4]) != "OggS" {
+		return nil, fmt.Errorf("invalid OGG page magic")
+	}
+
+	numSegments := int(header[26])
+	segmentTable := make([]byte, numSegments)
+	if _, err := io.ReadFull(r, segmentTable); err != nil {
+		return nil, err
+	}
+
+	totalSize := 0
+	for _, s := range segmentTable {
+		totalSize += int(s)
+	}
+
+	data := make([]byte, totalSize)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return nil, err
+	}
+
+	// Skip OGG header pages (OpusHead, OpusTags)
+	if len(data) >= 4 && string(data[0:4]) == "Opus" {
+		return nil, nil
+	}
+
+	return data, nil
+}
+

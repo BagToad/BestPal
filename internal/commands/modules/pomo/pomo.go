@@ -136,13 +136,6 @@ func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
-	// Size limit: 25 MB
-	const maxSize = 25 * 1024 * 1024
-	if attachment.Size > maxSize {
-		respondEphemeral(s, i, "❌ File too large. Maximum size is 25 MB.")
-		return
-	}
-
 	// Defer response since conversion may take a few seconds
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,

@@ -26,6 +26,7 @@ import (
 	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/forumcache"
+	internalVoice "gamerpal/internal/voice"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -39,6 +40,7 @@ type ModuleHandler struct {
 	db         *database.DB
 	deps       *types.Dependencies
 	igdbClient *igdb.Client
+	VoiceMgr   *internalVoice.Manager
 }
 
 // NewModuleHandler creates a new module-based command handler
@@ -55,12 +57,15 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 		fc.HydrateSession(session)
 	}
 
+	voiceMgr := internalVoice.NewManager()
+
 	h := &ModuleHandler{
 		commands:   make(map[string]*types.Command),
 		modules:    make(map[string]types.CommandModule),
 		config:     cfg,
 		db:         db,
 		igdbClient: igdbClient,
+		VoiceMgr:   voiceMgr,
 		deps: &types.Dependencies{
 			Config:     cfg,
 			DB:         db,
@@ -99,7 +104,7 @@ func (h *ModuleHandler) registerModules() {
 		{"welcome", welcome.New(h.deps)},
 		{"poll", poll.New(h.deps)},
 		{"status", status.New(h.deps)},
-		{"pomo", pomo.New(h.deps)},
+		{"pomo", pomo.New(h.deps, h.VoiceMgr)},
 	}
 
 	for _, m := range modules {
@@ -248,6 +253,9 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	if h.deps.ForumCache != nil {
 		h.deps.ForumCache.HydrateSession(s)
 	}
+
+	// Initialize voice bridge with the live session
+	h.VoiceMgr.SetSession(s)
 
 	// Hydrate services for all modules with the Discord session
 	for _, module := range h.modules {

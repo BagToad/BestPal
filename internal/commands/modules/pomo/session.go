@@ -1,10 +1,12 @@
 package pomo
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"gamerpal/internal/config"
+	internalVoice "gamerpal/internal/voice"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -36,14 +38,12 @@ type PomoSession struct {
 	// Dependencies
 	session *discordgo.Session
 	config  *config.Config
-
-	// Voice connection (managed outside the mutex)
-	voiceConn *discordgo.VoiceConnection
+	voiceMgr *internalVoice.Manager
 }
 
 // GetOrCreateSession returns an existing session for the voice channel, or creates a new one.
 // Returns the session and true if it already existed.
-func GetOrCreateSession(s *discordgo.Session, cfg *config.Config, guildID, voiceChannelID, channelID, messageID string) (*PomoSession, bool) {
+func GetOrCreateSession(s *discordgo.Session, cfg *config.Config, voiceMgr *internalVoice.Manager, guildID, voiceChannelID, channelID, messageID string) (*PomoSession, bool) {
 	if existing, ok := sessions.Load(voiceChannelID); ok {
 		ps := existing.(*PomoSession)
 		// Update the message ID in case /pomo was re-run
@@ -68,6 +68,7 @@ func GetOrCreateSession(s *discordgo.Session, cfg *config.Config, guildID, voice
 		done:           make(chan struct{}),
 		session:        s,
 		config:         cfg,
+		voiceMgr:       voiceMgr,
 	}
 
 	sessions.Store(voiceChannelID, ps)
@@ -287,55 +288,52 @@ func (ps *PomoSession) State() (phase Phase, minutesLeft int, currentPomo int, t
 	return ps.phase, ps.minutesLeft, ps.currentPomo, ps.totalPomos
 }
 
-// joinVC joins the voice channel. Called outside the mutex (blocking network call).
+// joinVC joins the voice channel via the disgo voice bridge.
 func (ps *PomoSession) joinVC() {
-	if ps.voiceConn != nil {
-		return
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	ps.config.Logger.Infof("Pomo: joining voice channel %s in guild %s", ps.voiceChannelID, ps.guildID)
-	vc, err := joinVoice(ps.session, ps.guildID, ps.voiceChannelID)
-	if err != nil {
+	if err := ps.voiceMgr.Join(ctx, ps.guildID, ps.voiceChannelID); err != nil {
 		ps.config.Logger.Errorf("Pomo: failed to join voice: %v", err)
 		return
 	}
-	ps.config.Logger.Infof("Pomo: voice joined successfully, Ready=%v", vc.Ready)
-	ps.voiceConn = vc
+	ps.config.Logger.Infof("Pomo: voice joined successfully")
 }
 
-// leaveVC disconnects from the voice channel. Called outside the mutex.
+// leaveVC disconnects from the voice channel via the disgo voice bridge.
 func (ps *PomoSession) leaveVC() {
-	if ps.voiceConn != nil {
-		leaveVoice(ps.voiceConn)
-		ps.voiceConn = nil
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ps.voiceMgr.Leave(ctx, ps.guildID)
 }
 
 // playSoundAsync plays a sound in a goroutine (non-blocking, safe to call with mutex held).
 func (ps *PomoSession) playSoundAsync(soundFile string) {
-	vc := ps.voiceConn
-	if vc != nil {
-		vc.RLock()
-		ready := vc.Ready
-		vc.RUnlock()
-		ps.config.Logger.Infof("Pomo: playing sound %s, vc.Ready=%v", soundFile, ready)
-		if !ready {
-			ps.config.Logger.Warnf("Pomo: voice not ready, skipping sound playback")
-			return
-		}
-		go func() {
-			if err := playSound(vc, soundFile); err != nil {
-				ps.config.Logger.Errorf("Pomo: failed to play sound: %v", err)
-			}
-		}()
+	data, err := audioAssets.ReadFile(soundFile)
+	if err != nil {
+		ps.config.Logger.Errorf("Pomo: failed to read sound file %s: %v", soundFile, err)
+		return
 	}
+	ps.config.Logger.Infof("Pomo: playing sound %s", soundFile)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := ps.voiceMgr.PlaySound(ctx, ps.guildID, data); err != nil {
+			ps.config.Logger.Errorf("Pomo: failed to play sound: %v", err)
+		}
+	}()
 }
 
 // playThenLeave plays a sound then disconnects from voice. Called outside the mutex.
 func (ps *PomoSession) playThenLeave(soundFile string) {
-	vc := ps.voiceConn
-	ps.voiceConn = nil
-	if vc != nil {
-		_ = playSound(vc, soundFile)
-		leaveVoice(vc)
+	data, err := audioAssets.ReadFile(soundFile)
+	if err != nil {
+		ps.config.Logger.Errorf("Pomo: failed to read sound file %s: %v", soundFile, err)
+		ps.leaveVC()
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = ps.voiceMgr.PlaySound(ctx, ps.guildID, data)
+	ps.leaveVC()
 }

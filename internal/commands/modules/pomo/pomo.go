@@ -3,18 +3,20 @@ package pomo
 import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
+	internalVoice "gamerpal/internal/voice"
 
 	"github.com/bwmarrin/discordgo"
 )
 
 // PomoModule implements the CommandModule interface for the pomodoro command
 type PomoModule struct {
-	config *config.Config
+	config   *config.Config
+	voiceMgr *internalVoice.Manager
 }
 
 // New creates a new pomo module
-func New(deps *types.Dependencies) *PomoModule {
-	return &PomoModule{config: deps.Config}
+func New(deps *types.Dependencies, voiceMgr *internalVoice.Manager) *PomoModule {
+	return &PomoModule{config: deps.Config, voiceMgr: voiceMgr}
 }
 
 // Register adds the pomo command to the command map
@@ -76,7 +78,7 @@ func (m *PomoModule) handlePomo(s *discordgo.Session, i *discordgo.InteractionCr
 	}
 
 	// Create or update the session for this voice channel
-	GetOrCreateSession(s, m.config, i.GuildID, voiceChannelID, i.ChannelID, msg.ID)
+	GetOrCreateSession(s, m.config, m.voiceMgr, i.GuildID, voiceChannelID, i.ChannelID, msg.ID)
 }
 
 // HandleComponent handles component interactions for pomo buttons

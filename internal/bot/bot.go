@@ -71,6 +71,14 @@ func New(cfg *config.Config) (*Bot, error) {
 		events.OnGuildMemberAdd(s, r, cfg)
 	})
 
+	// Voice state events forwarded to disgo voice bridge
+	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
+		handler.VoiceMgr.OnVoiceStateUpdate(vs)
+	})
+	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceServerUpdate) {
+		handler.VoiceMgr.OnVoiceServerUpdate(vs)
+	})
+
 	// Forum thread lifecycle events wired into cache service and intro feed
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) {
 		handler.GetForumCache().OnThreadCreate(s, e)

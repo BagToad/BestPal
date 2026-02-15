@@ -145,6 +145,7 @@ func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.Interact
 	})
 
 	// Download the attachment
+	m.config.Logger.Infof("Pomo: downloading attachment %s (%d bytes)", attachment.Filename, attachment.Size)
 	resp, err := http.Get(attachment.URL)
 	if err != nil {
 		m.editResponse(s, i, "❌ Failed to download file.")
@@ -157,6 +158,7 @@ func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.Interact
 		m.editResponse(s, i, "❌ Failed to read file.")
 		return
 	}
+	m.config.Logger.Infof("Pomo: downloaded %d bytes, starting conversion", len(rawAudio))
 
 	// Convert to opus frames
 	opusFrames, err := convertToOpusFrames(rawAudio, attachment.Filename)
@@ -165,6 +167,7 @@ func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.Interact
 		m.editResponse(s, i, fmt.Sprintf("❌ Failed to convert audio. Make sure it's a valid audio file.\n```%v```", err))
 		return
 	}
+	m.config.Logger.Infof("Pomo: conversion complete, %d bytes of opus frames", len(opusFrames))
 
 	// Set the track on the session
 	ps.SetMusicTrack(opusFrames)

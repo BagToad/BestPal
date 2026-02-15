@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -38,6 +39,7 @@ func ensureFFmpeg() (string, error) {
 func resolveFFmpeg() (string, error) {
 	// Check if ffmpeg is already on PATH
 	if p, err := exec.LookPath("ffmpeg"); err == nil {
+		log.Printf("pomo: using system ffmpeg at %s", p)
 		return p, nil
 	}
 
@@ -49,6 +51,7 @@ func resolveFFmpeg() (string, error) {
 	binPath := filepath.Join(binDir, "ffmpeg")
 
 	if _, err := os.Stat(binPath); err == nil {
+		log.Printf("pomo: using cached ffmpeg at %s", binPath)
 		return binPath, nil
 	}
 
@@ -57,6 +60,8 @@ func resolveFFmpeg() (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	log.Printf("pomo: downloading ffmpeg from %s", url)
 
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("create cache dir: %w", err)
@@ -67,6 +72,7 @@ func resolveFFmpeg() (string, error) {
 		return "", fmt.Errorf("download ffmpeg: %w", err)
 	}
 
+	log.Printf("pomo: ffmpeg downloaded to %s", binPath)
 	return binPath, nil
 }
 

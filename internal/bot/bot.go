@@ -47,8 +47,8 @@ func New(cfg *config.Config) (*Bot, error) {
 	// mark not ready yet (zero value false, explicit for clarity)
 	bot.ready.Store(false)
 
-	// Set intents - we need guild, member, message, message content, direct message intents
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages
+	// Set intents - we need guild, member, message, message content, direct message, and voice state intents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildVoiceStates
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)

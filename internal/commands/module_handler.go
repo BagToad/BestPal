@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"strings"
+
 	"gamerpal/internal/commands/modules/config"
 	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
@@ -10,6 +12,7 @@ import (
 	"gamerpal/internal/commands/modules/log"
 	"gamerpal/internal/commands/modules/ping"
 	"gamerpal/internal/commands/modules/poll"
+	"gamerpal/internal/commands/modules/pomo"
 	"gamerpal/internal/commands/modules/prune"
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/roulette"
@@ -96,6 +99,7 @@ func (h *ModuleHandler) registerModules() {
 		{"welcome", welcome.New(h.deps)},
 		{"poll", poll.New(h.deps)},
 		{"status", status.New(h.deps)},
+		{"pomo", pomo.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -170,12 +174,25 @@ func (h *ModuleHandler) HandleInteraction(s *discordgo.Session, i *discordgo.Int
 }
 
 // HandleComponentInteraction routes component interactions to appropriate module handlers
+// based on customID prefix.
 func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Currently only LFG module uses component interactions
-	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
-		lfgMod.HandleComponent(s, i)
-	} else {
-		h.config.Logger.Warn("Component interaction received but LFG module not available")
+	cid := i.MessageComponentData().CustomID
+
+	switch {
+	case strings.HasPrefix(cid, "lfg_"):
+		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+			lfgMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Component interaction received but LFG module not available")
+		}
+	case strings.HasPrefix(cid, "pomo::"):
+		if pomoMod, ok := h.GetModule("pomo").(*pomo.PomoModule); ok {
+			pomoMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Component interaction received but pomo module not available")
+		}
+	default:
+		h.config.Logger.Warnf("Unhandled component interaction with customID: %s", cid)
 	}
 }
 

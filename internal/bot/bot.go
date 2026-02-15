@@ -13,6 +13,7 @@ import (
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/intro"
+	"gamerpal/internal/commands/modules/pomo"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -47,8 +48,8 @@ func New(cfg *config.Config) (*Bot, error) {
 	// mark not ready yet (zero value false, explicit for clarity)
 	bot.ready.Store(false)
 
-	// Set intents - we need guild, member, message, message content, direct message intents
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages
+	// Set intents - we need guild, member, message, message content, direct message, and voice state intents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildVoiceStates
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)
@@ -69,6 +70,19 @@ func New(cfg *config.Config) (*Bot, error) {
 	})
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.GuildMemberAdd) {
 		events.OnGuildMemberAdd(s, r, cfg)
+	})
+
+	// Voice state events forwarded to disgo voice bridge
+	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
+		handler.VoiceMgr.OnVoiceStateUpdate(vs)
+
+		// Check if a pomo voice channel was emptied
+		if pomoMod, ok := handler.GetModule("pomo").(*pomo.PomoModule); ok {
+			pomoMod.HandleVoiceStateUpdate(s, vs)
+		}
+	})
+	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceServerUpdate) {
+		handler.VoiceMgr.OnVoiceServerUpdate(vs)
 	})
 
 	// Forum thread lifecycle events wired into cache service and intro feed

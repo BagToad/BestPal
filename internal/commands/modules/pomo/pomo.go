@@ -169,3 +169,50 @@ func deferUpdate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func (m *PomoModule) Service() types.ModuleService {
 	return nil
 }
+
+// HandleVoiceStateUpdate checks whether a voice channel with an active pomo
+// session has been emptied (all humans left). If so, it resets and cleans up.
+func (m *PomoModule) HandleVoiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
+	// We care about users leaving a channel (ChannelID empty or changed).
+	// Check the *previous* channel — if it had a pomo session and is now
+	// empty of humans, tear it down.
+	if vs.BeforeUpdate == nil {
+		return
+	}
+	prevChannel := vs.BeforeUpdate.ChannelID
+	if prevChannel == "" {
+		return
+	}
+	// Only act if the user actually left this channel
+	if vs.ChannelID == prevChannel {
+		return
+	}
+
+	ps := GetSession(prevChannel)
+	if ps == nil {
+		return
+	}
+
+	// Count humans still in the channel (exclude bots)
+	guild, err := s.State.Guild(vs.GuildID)
+	if err != nil {
+		return
+	}
+	botID := s.State.User.ID
+	humans := 0
+	for _, v := range guild.VoiceStates {
+		if v.ChannelID == prevChannel && v.UserID != botID {
+			humans++
+		}
+	}
+
+	if humans > 0 {
+		return
+	}
+
+	m.config.Logger.Infof("Pomo: voice channel %s is empty, resetting session", prevChannel)
+	go func() {
+		ps.Reset()
+		RemoveSession(prevChannel)
+	}()
+}

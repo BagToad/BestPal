@@ -13,6 +13,7 @@ import (
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/intro"
+	"gamerpal/internal/commands/modules/pomo"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -74,6 +75,11 @@ func New(cfg *config.Config) (*Bot, error) {
 	// Voice state events forwarded to disgo voice bridge
 	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
 		handler.VoiceMgr.OnVoiceStateUpdate(vs)
+
+		// Check if a pomo voice channel was emptied
+		if pomoMod, ok := handler.GetModule("pomo").(*pomo.PomoModule); ok {
+			pomoMod.HandleVoiceStateUpdate(s, vs)
+		}
 	})
 	session.AddHandler(func(s *discordgo.Session, vs *discordgo.VoiceServerUpdate) {
 		handler.VoiceMgr.OnVoiceServerUpdate(vs)

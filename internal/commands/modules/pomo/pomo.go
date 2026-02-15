@@ -1,6 +1,10 @@
 package pomo
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	internalVoice "gamerpal/internal/voice"
@@ -28,6 +32,22 @@ func (m *PomoModule) Register(cmds map[string]*types.Command, deps *types.Depend
 			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 		},
 		HandlerFunc: m.handlePomo,
+	}
+	cmds["pomo-music"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "pomo-music",
+			Description: "Set focus music for your pomodoro session",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionAttachment,
+					Name:        "audio",
+					Description: "Audio file to play during focus sessions (mp3, wav, ogg, etc.)",
+					Required:    true,
+				},
+			},
+		},
+		HandlerFunc: m.handlePomoMusic,
 	}
 }
 
@@ -79,6 +99,91 @@ func (m *PomoModule) handlePomo(s *discordgo.Session, i *discordgo.InteractionCr
 
 	// Create or update the session for this voice channel
 	GetOrCreateSession(s, m.config, m.voiceMgr, i.GuildID, voiceChannelID, i.ChannelID, msg.ID)
+}
+
+// handlePomoMusic handles the /pomo-music slash command
+func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Validate: must be in a voice channel text chat
+	channel, err := s.Channel(i.ChannelID)
+	if err != nil || channel.Type != discordgo.ChannelTypeGuildVoice {
+		respondEphemeral(s, i, "❌ This command must be run in a voice channel's text chat.")
+		return
+	}
+	voiceChannelID := channel.ID
+
+	// Must have an active pomo session
+	ps := GetSession(voiceChannelID)
+	if ps == nil {
+		respondEphemeral(s, i, "❌ No active pomodoro session. Run `/pomo` first.")
+		return
+	}
+
+	// Get the attachment
+	opts := i.ApplicationCommandData().Options
+	if len(opts) == 0 {
+		respondEphemeral(s, i, "❌ Please provide an audio file.")
+		return
+	}
+	attachmentID := opts[0].Value.(string)
+	resolved := i.ApplicationCommandData().Resolved
+	if resolved == nil || resolved.Attachments == nil {
+		respondEphemeral(s, i, "❌ Could not resolve attachment.")
+		return
+	}
+	attachment, ok := resolved.Attachments[attachmentID]
+	if !ok {
+		respondEphemeral(s, i, "❌ Could not find attachment.")
+		return
+	}
+
+	// Size limit: 25 MB
+	const maxSize = 25 * 1024 * 1024
+	if attachment.Size > maxSize {
+		respondEphemeral(s, i, "❌ File too large. Maximum size is 25 MB.")
+		return
+	}
+
+	// Defer response since conversion may take a few seconds
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Download the attachment
+	resp, err := http.Get(attachment.URL)
+	if err != nil {
+		m.editResponse(s, i, "❌ Failed to download file.")
+		return
+	}
+	defer resp.Body.Close()
+
+	rawAudio, err := io.ReadAll(resp.Body)
+	if err != nil {
+		m.editResponse(s, i, "❌ Failed to read file.")
+		return
+	}
+
+	// Convert to opus frames via ffmpeg
+	opusFrames, err := convertToOpusFrames(rawAudio)
+	if err != nil {
+		m.config.Logger.Errorf("Pomo: ffmpeg conversion failed: %v", err)
+		m.editResponse(s, i, fmt.Sprintf("❌ Failed to convert audio. Make sure it's a valid audio file.\n```%v```", err))
+		return
+	}
+
+	// Set the track on the session
+	ps.SetMusicTrack(opusFrames)
+
+	m.editResponse(s, i, fmt.Sprintf("🎵 Music set! **%s** will play during focus sessions.", attachment.Filename))
+}
+
+// editResponse edits a deferred interaction response
+func (m *PomoModule) editResponse(s *discordgo.Session, i *discordgo.InteractionCreate, msg string) {
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &msg,
+	})
 }
 
 // HandleComponent handles component interactions for pomo buttons

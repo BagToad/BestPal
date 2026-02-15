@@ -39,6 +39,10 @@ type PomoSession struct {
 	session *discordgo.Session
 	config  *config.Config
 	voiceMgr *internalVoice.Manager
+
+	// Music player (managed outside the mutex)
+	musicPlayer *internalVoice.StreamPlayer
+	musicTracks [][]byte // set via SetMusicTrack
 }
 
 // GetOrCreateSession returns an existing session for the voice channel, or creates a new one.
@@ -103,6 +107,7 @@ func (ps *PomoSession) Start() {
 
 		// Join voice outside the lock (blocking network call)
 		ps.joinVC()
+		ps.startMusic()
 
 		go ps.runTimer()
 
@@ -118,6 +123,7 @@ func (ps *PomoSession) Start() {
 
 		// Join voice outside the lock (blocking network call)
 		ps.joinVC()
+		ps.startMusic()
 
 		go ps.runTimer()
 
@@ -144,7 +150,8 @@ func (ps *PomoSession) Stop() {
 	// Wait for the goroutine to exit
 	<-ps.done
 
-	// Leave voice outside the lock
+	// Stop music and leave voice outside the lock
+	ps.stopMusic()
 	ps.leaveVC()
 }
 
@@ -172,7 +179,8 @@ func (ps *PomoSession) Reset() {
 		ps.mu.Unlock()
 	}
 
-	// Leave voice outside the lock
+	// Stop music and leave voice outside the lock
+	ps.stopMusic()
 	ps.leaveVC()
 }
 
@@ -242,6 +250,7 @@ func (ps *PomoSession) handlePhaseTransition() {
 		ps.minutesLeft = BreakDuration
 		ps.phase = PhaseBreak
 		ps.updatePanel()
+		ps.pauseMusic()
 		ps.playSoundAsync(SoundBreakBell)
 
 	case PhaseBreak:
@@ -251,7 +260,7 @@ func (ps *PomoSession) handlePhaseTransition() {
 			ps.phase = PhaseComplete
 			ps.minutesLeft = 0
 			ps.updatePanel()
-			// Voice cleanup handled by caller after unlock
+			// Voice/music cleanup handled by caller after unlock
 		} else {
 			// Start next pomo
 			ps.currentPomo++
@@ -259,6 +268,7 @@ func (ps *PomoSession) handlePhaseTransition() {
 			ps.phase = PhaseWorking
 			ps.updatePanel()
 			ps.playSoundAsync(SoundResumeChime)
+			ps.resumeMusic()
 		}
 	}
 }
@@ -286,6 +296,21 @@ func (ps *PomoSession) State() (phase Phase, minutesLeft int, currentPomo int, t
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	return ps.phase, ps.minutesLeft, ps.currentPomo, ps.totalPomos
+}
+
+// SetMusicTrack sets the opus frames data to stream during work phases.
+// Can be called while a session is idle or running.
+func (ps *PomoSession) SetMusicTrack(data []byte) {
+	ps.mu.Lock()
+	ps.musicTracks = [][]byte{data}
+	ps.mu.Unlock()
+}
+
+// HasMusic returns true if the session has music tracks loaded.
+func (ps *PomoSession) HasMusic() bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return len(ps.musicTracks) > 0
 }
 
 // joinVC joins the voice channel via the disgo voice bridge.
@@ -324,8 +349,9 @@ func (ps *PomoSession) playSoundAsync(soundFile string) {
 	}()
 }
 
-// playThenLeave plays a sound then disconnects from voice. Called outside the mutex.
+// playThenLeave stops music, plays a sound, then disconnects from voice.
 func (ps *PomoSession) playThenLeave(soundFile string) {
+	ps.stopMusic()
 	data, err := audioAssets.ReadFile(soundFile)
 	if err != nil {
 		ps.config.Logger.Errorf("Pomo: failed to read sound file %s: %v", soundFile, err)
@@ -336,4 +362,35 @@ func (ps *PomoSession) playThenLeave(soundFile string) {
 	defer cancel()
 	_ = ps.voiceMgr.PlaySound(ctx, ps.guildID, data)
 	ps.leaveVC()
+}
+
+// startMusic creates and starts the music stream player if tracks are available.
+func (ps *PomoSession) startMusic() {
+	if len(ps.musicTracks) == 0 {
+		return
+	}
+	ps.musicPlayer = internalVoice.NewStreamPlayer(ps.voiceMgr, ps.guildID, ps.musicTracks)
+	ps.musicPlayer.Play()
+}
+
+// stopMusic stops the music player if it's running.
+func (ps *PomoSession) stopMusic() {
+	if ps.musicPlayer != nil {
+		ps.musicPlayer.Stop()
+		ps.musicPlayer = nil
+	}
+}
+
+// pauseMusic pauses the music player during breaks.
+func (ps *PomoSession) pauseMusic() {
+	if ps.musicPlayer != nil {
+		ps.musicPlayer.Pause()
+	}
+}
+
+// resumeMusic resumes the music player for work phases.
+func (ps *PomoSession) resumeMusic() {
+	if ps.musicPlayer != nil {
+		ps.musicPlayer.Resume()
+	}
 }

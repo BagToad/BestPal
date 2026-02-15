@@ -130,30 +130,9 @@ func (h *ModuleHandler) GetDB() *database.DB {
 func (h *ModuleHandler) GetForumCache() *forumcache.Service { return h.deps.ForumCache }
 
 // RegisterCommands registers all slash commands with Discord using a single bulk overwrite call.
+// BulkOverwrite replaces the full command set atomically — any commands not in the list
+// (including development-only commands) are automatically removed by Discord.
 func (h *ModuleHandler) RegisterCommands(s *discordgo.Session) error {
-	// Clean up development-only commands that may still be registered.
-	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
-	if err != nil {
-		h.config.Logger.Warn("Error fetching existing commands: %v", err)
-		return err
-	}
-
-	devNames := make(map[string]struct{})
-	for _, c := range h.commands {
-		if c.Development {
-			devNames[c.ApplicationCommand.Name] = struct{}{}
-		}
-	}
-	for _, ec := range existingCommands {
-		if _, ok := devNames[ec.Name]; ok {
-			if err := s.ApplicationCommandDelete(s.State.User.ID, "", ec.ID); err != nil {
-				h.config.Logger.Warn("Error deleting dev command %s: %v", ec.Name, err)
-			} else {
-				h.config.Logger.Infof("Unregistered dev command: %s", ec.Name)
-			}
-		}
-	}
-
 	// Collect all production commands for a single bulk overwrite.
 	var cmds []*discordgo.ApplicationCommand
 	for _, c := range h.commands {

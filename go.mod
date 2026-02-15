@@ -11,6 +11,10 @@ require (
 	github.com/charmbracelet/log v0.4.2
 	github.com/disgoorg/disgo v0.19.2
 	github.com/disgoorg/snowflake/v2 v2.0.3
+	github.com/go-audio/audio v1.0.0
+	github.com/go-audio/wav v1.1.0
+	github.com/hajimehoshi/go-mp3 v0.3.4
+	github.com/kazzmir/opus-go v1.2.1
 	github.com/markusmobius/go-dateparser v1.2.4
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/robfig/cron/v3 v3.0.1
@@ -33,6 +37,7 @@ require (
 	github.com/disgoorg/json/v2 v2.0.0 // indirect
 	github.com/disgoorg/omit v1.0.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
+	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect

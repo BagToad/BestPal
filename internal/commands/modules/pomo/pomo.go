@@ -165,11 +165,11 @@ func (m *PomoModule) handlePomoMusic(s *discordgo.Session, i *discordgo.Interact
 		return
 	}
 
-	// Convert to opus frames via ffmpeg
-	opusFrames, err := convertToOpusFrames(rawAudio)
+	// Convert to opus frames
+	opusFrames, err := convertToOpusFrames(rawAudio, attachment.Filename)
 	if err != nil {
-		m.config.Logger.Errorf("Pomo: ffmpeg conversion failed: %v", err)
-		m.editResponse(s, i, fmt.Sprintf("❌ Failed to convert audio. Make sure it's a valid audio file.\n```%v```", err))
+		m.config.Logger.Errorf("Pomo: audio conversion failed: %v", err)
+		m.editResponse(s, i, fmt.Sprintf("❌ Failed to convert audio. Supported formats: mp3, wav.\n```%v```", err))
 		return
 	}
 

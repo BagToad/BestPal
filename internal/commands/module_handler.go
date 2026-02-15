@@ -129,51 +129,30 @@ func (h *ModuleHandler) GetDB() *database.DB {
 // GetForumCache exposes the forum cache service for event handlers.
 func (h *ModuleHandler) GetForumCache() *forumcache.Service { return h.deps.ForumCache }
 
-// RegisterCommands registers all slash commands with Discord
+// RegisterCommands registers all slash commands with Discord using a single bulk overwrite call.
+// BulkOverwrite replaces the full command set atomically — any commands not in the list
+// (including development-only commands) are automatically removed by Discord.
 func (h *ModuleHandler) RegisterCommands(s *discordgo.Session) error {
-	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")
-	if err != nil {
-		h.config.Logger.Warn("Error fetching existing commands: %v", err)
-		return err
-	}
-
-	existingByName := make(map[string]*discordgo.ApplicationCommand)
-	for _, ec := range existingCommands {
-		existingByName[ec.Name] = ec
-	}
-
+	// Collect all production commands for a single bulk overwrite.
+	var cmds []*discordgo.ApplicationCommand
 	for _, c := range h.commands {
-		if c.Development {
-			// Unregister development commands if they exist
-			for _, existingCmd := range existingCommands {
-				if existingCmd.Name == c.ApplicationCommand.Name {
-					err := s.ApplicationCommandDelete(s.State.User.ID, "", existingCmd.ID)
-					if err != nil {
-						h.config.Logger.Warn("Error deleting command %s: %v", c.ApplicationCommand.Name, err)
-					} else {
-						h.config.Logger.Infof("Unregistered command: %s", c.ApplicationCommand.Name)
-					}
-				}
-			}
-			continue
-		}
-
-		if existing := existingByName[c.ApplicationCommand.Name]; existing != nil {
-			cmd, err := s.ApplicationCommandEdit(s.State.User.ID, "", existing.ID, c.ApplicationCommand)
-			if err != nil {
-				return err
-			}
-			c.ApplicationCommand.ID = cmd.ID
-			h.config.Logger.Infof("Updated command: %s", cmd.Name)
-		} else {
-			cmd, err := s.ApplicationCommandCreate(s.State.User.ID, "", c.ApplicationCommand)
-			if err != nil {
-				return err
-			}
-			c.ApplicationCommand.ID = cmd.ID
-			h.config.Logger.Infof("Registered command: %s", cmd.Name)
+		if !c.Development {
+			cmds = append(cmds, c.ApplicationCommand)
 		}
 	}
+
+	registered, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", cmds)
+	if err != nil {
+		return fmt.Errorf("bulk command registration failed: %w", err)
+	}
+
+	// Map returned IDs back to the internal command map.
+	for _, rc := range registered {
+		if c, ok := h.commands[rc.Name]; ok {
+			c.ApplicationCommand.ID = rc.ID
+		}
+	}
+	h.config.Logger.Infof("Registered %d commands (bulk overwrite)", len(registered))
 
 	return nil
 }

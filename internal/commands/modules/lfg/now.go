@@ -105,7 +105,7 @@ func (m *LfgModule) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionC
 			}},
 		}
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content:    utils.StringPtr("Are you looking for a **specific game** or **any game**?"),
+			Content:    utils.StringPtr("Are you looking to play a **specific game** or **any game**?"),
 			Components: &components,
 		})
 		return
@@ -161,10 +161,10 @@ func (m *LfgModule) postToFeed(s *discordgo.Session, guildID, userID, region, me
 
 	nameLabel := fmt.Sprintf("<@%s>", userID)
 	if displayName != "" {
-		nameLabel = fmt.Sprintf("<@%s> (%s)", userID, displayName)
+		nameLabel = fmt.Sprintf("<@%s> (**%s**)", userID, displayName)
 	}
 
-	description := fmt.Sprintf("🧵 %s is looking to play **any game**!", nameLabel)
+	description := fmt.Sprintf("🎮 %s is looking to play **any game**!", nameLabel)
 	footer := "Run /lfg now to make a post like this!"
 	if thread != nil {
 		threadURL := fmt.Sprintf("https://discord.com/channels/%s/%s", guildID, thread.ID)

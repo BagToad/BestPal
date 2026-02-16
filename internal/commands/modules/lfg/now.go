@@ -186,7 +186,7 @@ func (m *LfgModule) postToFeed(s *discordgo.Session, guildID, userID, region, me
 		Embeds: []*discordgo.MessageEmbed{embed},
 	}
 	if roleID := m.config.GetLFGNowRoleID(); roleID != "" {
-		msgSend.Content = fmt.Sprintf("<@&%s>", roleID)
+		msgSend.Content = fmt.Sprintf(":bell: <@&%s>", roleID)
 	}
 	_, _ = s.ChannelMessageSendComplex(feedChannelID, msgSend)
 }
@@ -214,7 +214,7 @@ func (m *LfgModule) handleLFGNowAnyGame(s *discordgo.Session, i *discordgo.Inter
 	if roleID := m.config.GetLFGNowRoleID(); roleID != "" {
 		expiresAt := m.service.AssignLFGNowRole(i.GuildID, pending.UserID)
 		if !expiresAt.IsZero() {
-			confirmMsg = fmt.Sprintf("✅ Posted to Looking NOW feed. You've been given the <@&%s> role — it expires <t:%d:R>.", roleID, expiresAt.Unix())
+			confirmMsg = fmt.Sprintf("✅ Posted to Looking NOW feed.\nYou've also been given the <@&%s> role until <t:%d:R>.", roleID, expiresAt.Unix())
 		}
 	}
 

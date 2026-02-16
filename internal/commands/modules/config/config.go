@@ -159,6 +159,8 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"gamerpals_help_desk_channel_id", true},           // Harmless ID
 		{"gamerpals_lfg_forum_channel_id", true},           // Harmless ID
 		{"gamerpals_lfg_now_panel_channel_id", true},       // Harmless ID
+		{"lfg_now_role_id", true},                          // Harmless ID
+		{"lfg_now_role_duration", true},                    // Duration setting
 		{"gamerpals_voice_sync_category_id", true},         // Harmless ID
 		{"intro_feed_channel_id", true},                    // Harmless ID
 		{"intro_feed_rate_limit_hours", true},              // Duration setting

@@ -180,7 +180,15 @@ func (m *LfgModule) postToFeed(s *discordgo.Session, guildID, userID, region, me
 		Color:       utils.Colors.Fancy(),
 		Footer:      &discordgo.MessageEmbedFooter{Text: footer},
 	}
-	_, _ = s.ChannelMessageSendEmbeds(feedChannelID, []*discordgo.MessageEmbed{embed})
+
+	// Send with role mention as message content (embeds don't trigger pings)
+	msgSend := &discordgo.MessageSend{
+		Embeds: []*discordgo.MessageEmbed{embed},
+	}
+	if roleID := m.config.GetLFGNowRoleID(); roleID != "" {
+		msgSend.Content = fmt.Sprintf("<@&%s>", roleID)
+	}
+	_, _ = s.ChannelMessageSendComplex(feedChannelID, msgSend)
 }
 
 // handleLFGNowAnyGame handles the "Any game" button press from the /lfg now prompt.
@@ -201,9 +209,18 @@ func (m *LfgModule) handleLFGNowAnyGame(s *discordgo.Session, i *discordgo.Inter
 
 	m.postToFeed(s, i.GuildID, pending.UserID, pending.Region, pending.Message, pending.PlayerCount, pending.VoiceChannelID, nil)
 
+	// Assign the LFG Now role if configured
+	confirmMsg := "✅ Posted to Looking NOW feed."
+	if roleID := m.config.GetLFGNowRoleID(); roleID != "" {
+		expiresAt := m.service.AssignLFGNowRole(i.GuildID, pending.UserID)
+		if !expiresAt.IsZero() {
+			confirmMsg = fmt.Sprintf("✅ Posted to Looking NOW feed. You've been given the <@&%s> role — it expires <t:%d:R>.", roleID, expiresAt.Unix())
+		}
+	}
+
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{Content: "✅ Posted to Looking NOW feed.", Components: []discordgo.MessageComponent{}},
+		Data: &discordgo.InteractionResponseData{Content: confirmMsg, Components: []discordgo.MessageComponent{}},
 	})
 }
 

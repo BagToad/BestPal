@@ -63,6 +63,15 @@ func (c *Config) GetLFGNowPanelChannelID() string {
 	return c.v.GetString("gamerpals_lfg_now_panel_channel_id")
 }
 
+// LFG Looking NOW role
+func (c *Config) GetLFGNowRoleID() string {
+	return c.v.GetString("lfg_now_role_id")
+}
+
+func (c *Config) GetLFGNowRoleDuration() time.Duration {
+	return c.v.GetDuration("lfg_now_role_duration")
+}
+
 // New Pals systems
 // -----
 func (c *Config) GetNewPalsSystemEnabled() bool {

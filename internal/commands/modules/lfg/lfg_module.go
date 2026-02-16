@@ -28,11 +28,17 @@ type LfgModule struct {
 	igdbClient *igdb.Client
 	forumCache *forumcache.Service
 	pendingNow sync.Map
+	service    *LfgService
 }
 
 // New creates a new LFG module
 func New(deps *types.Dependencies) *LfgModule {
-	return &LfgModule{config: deps.Config, igdbClient: deps.IGDBClient, forumCache: deps.ForumCache}
+	return &LfgModule{
+		config:     deps.Config,
+		igdbClient: deps.IGDBClient,
+		forumCache: deps.ForumCache,
+		service:    NewLfgService(deps.Config),
+	}
 }
 
 // Register adds LFG commands to the command map
@@ -171,7 +177,7 @@ func (m *LfgModule) HandleAutocomplete(s *discordgo.Session, i *discordgo.Intera
 	m.handleGameThreadAutocomplete(s, i)
 }
 
-// Service returns nil as this module has no services requiring initialization
+// Service returns the LFG service for scheduled task registration.
 func (m *LfgModule) Service() types.ModuleService {
-	return nil
+	return m.service
 }

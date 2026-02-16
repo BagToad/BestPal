@@ -4,16 +4,30 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/forumcache"
+	"sync"
+	"time"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
+
+// pendingLFGNow holds command options between the initial /lfg now invocation
+// (outside a game thread) and the subsequent button press.
+type pendingLFGNow struct {
+	Region         string
+	Message        string
+	PlayerCount    int
+	VoiceChannelID string
+	UserID         string
+	ExpiresAt      time.Time
+}
 
 // Module implements the CommandModule interface for LFG commands
 type LfgModule struct {
 	config     *config.Config
 	igdbClient *igdb.Client
 	forumCache *forumcache.Service
+	pendingNow sync.Map
 }
 
 // New creates a new LFG module

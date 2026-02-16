@@ -26,6 +26,10 @@ func (m *LfgModule) handleLFGComponent(s *discordgo.Session, i *discordgo.Intera
 		m.handleMoreSuggestions(s, i)
 	case strings.HasPrefix(cid, lfgCreateSuggestionPrefix+"::"):
 		m.handleCreateSuggestionThread(s, i)
+	case strings.HasPrefix(cid, lfgNowAnyGamePrefix+"::"):
+		m.handleLFGNowAnyGame(s, i)
+	case strings.HasPrefix(cid, lfgNowSpecificGamePrefix+"::"):
+		m.handleLFGNowSpecificGame(s, i)
 	default:
 		// ignore
 	}

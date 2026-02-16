@@ -24,6 +24,8 @@ const (
 	lfgModalInputCustomID     = "lfg_game_name"
 	lfgMoreSuggestionsPrefix  = "lfg_more_suggestions"  // lfg_more_suggestions::<normalizedQuery>
 	lfgCreateSuggestionPrefix = "lfg_create_suggestion" // lfg_create_suggestion::<id>
+	lfgNowAnyGamePrefix       = "lfg_now_any_game"      // lfg_now_any_game::<pendingKey>
+	lfgNowSpecificGamePrefix  = "lfg_now_specific_game" // lfg_now_specific_game::<pendingKey>
 )
 
 // handleLFG processes /lfg and /lfg-admin commands

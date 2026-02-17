@@ -18,6 +18,7 @@ const (
 type banOpts struct {
 	CreateBan    func(s *discordgo.Session, guildID, userID, reason string, days int) error
 	Respond      func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
+	EditResponse func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error
 	SendDM       func(s *discordgo.Session, userID, message string) error
 	LogToChannel func(cfg *config.Config, s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed) error
 	LogToBestPal func(cfg *config.Config, s *discordgo.Session, msg string) error
@@ -27,6 +28,7 @@ func defaultBanOpts() banOpts {
 	return banOpts{
 		CreateBan:    createBan,
 		Respond:      respond,
+		EditResponse: editResponse,
 		SendDM:       sendDM,
 		LogToChannel: logToChannel,
 		LogToBestPal: logToBestPal,
@@ -39,6 +41,11 @@ func createBan(s *discordgo.Session, guildID, userID, reason string, days int) e
 
 func respond(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 	return s.InteractionRespond(i, resp)
+}
+
+func editResponse(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error {
+	_, err := s.InteractionResponseEdit(i, edit)
+	return err
 }
 
 func sendDM(s *discordgo.Session, userID, message string) error {
@@ -151,22 +158,16 @@ func (m *BanModule) Register(cmds map[string]*types.Command, deps *types.Depende
 func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
-	targetID := data.Options[0].Value.(string)
-	targetUser := data.Resolved.Users[targetID]
-	if targetUser == nil {
-		m.respondEphemeral(s, i, "❌ Could not resolve the specified user.")
-		return
-	}
+	// Defer response immediately to avoid 3s timeout
+	m.deferEphemeral(s, i)
 
-	if err := m.validateTarget(s, i, targetUser.ID); err != nil {
-		m.respondEphemeral(s, i, err.Error())
-		return
-	}
-
+	// Parse options by name, not position
+	var targetID, reason string
 	days := 0
-	reason := ""
-	for _, opt := range data.Options[1:] {
+	for _, opt := range data.Options {
 		switch opt.Name {
+		case "user":
+			targetID = opt.Value.(string)
 		case "days":
 			days = int(opt.IntValue())
 		case "reason":
@@ -174,20 +175,45 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 		}
 	}
 
+	if targetID == "" {
+		m.editEphemeral(s, i, "❌ No user specified.")
+		return
+	}
+
+	if data.Resolved == nil || data.Resolved.Users[targetID] == nil {
+		m.editEphemeral(s, i, "❌ Could not resolve the specified user.")
+		return
+	}
+	targetUser := data.Resolved.Users[targetID]
+
+	if err := m.validateTarget(s, i, targetUser.ID); err != nil {
+		m.editEphemeral(s, i, err.Error())
+		return
+	}
+
+	if days < 0 || days > 7 {
+		m.editEphemeral(s, i, "❌ Days must be between 0 and 7.")
+		return
+	}
+
 	m.executeBan(s, i, targetUser, reason, days, "slash command")
 }
 
 func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
+
+	// Defer response immediately to avoid 3s timeout
+	m.deferEphemeral(s, i)
+
 	targetID := data.TargetID
-	targetUser := data.Resolved.Users[targetID]
-	if targetUser == nil {
-		m.respondEphemeral(s, i, "❌ Could not resolve the target user.")
+	if data.Resolved == nil || data.Resolved.Users[targetID] == nil {
+		m.editEphemeral(s, i, "❌ Could not resolve the target user.")
 		return
 	}
+	targetUser := data.Resolved.Users[targetID]
 
 	if err := m.validateTarget(s, i, targetUser.ID); err != nil {
-		m.respondEphemeral(s, i, err.Error())
+		m.editEphemeral(s, i, err.Error())
 		return
 	}
 
@@ -219,7 +245,7 @@ func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCre
 
 	// Execute the ban
 	if err := m.opts.CreateBan(s, guildID, targetUser.ID, reason, days); err != nil {
-		m.respondEphemeral(s, i, fmt.Sprintf("❌ Failed to ban user: %v", err))
+		m.editEphemeral(s, i, fmt.Sprintf("❌ Failed to ban user: %v", err))
 		return
 	}
 
@@ -230,7 +256,7 @@ func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCre
 	if displayReason == "" {
 		displayReason = "No reason provided"
 	}
-	m.respondEphemeral(s, i, fmt.Sprintf("✅ Banned **%s** (%s). Reason: %s. Messages purged: %d day(s).", targetUser.Username, targetUser.ID, displayReason, days))
+	m.editEphemeral(s, i, fmt.Sprintf("✅ Banned **%s** (%s). Reason: %s. Messages purged: %d day(s).", targetUser.Username, targetUser.ID, displayReason, days))
 }
 
 func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason string, days int, source string) {
@@ -260,13 +286,18 @@ func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionC
 	_ = m.opts.LogToChannel(m.config, s, channelID, embed)
 }
 
-func (m *BanModule) respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+func (m *BanModule) deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = m.opts.Respond(s, i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: content,
-			Flags:   discordgo.MessageFlagsEphemeral,
+			Flags: discordgo.MessageFlagsEphemeral,
 		},
+	})
+}
+
+func (m *BanModule) editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	_ = m.opts.EditResponse(s, i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
 	})
 }
 

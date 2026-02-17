@@ -12,7 +12,7 @@ import (
 
 type banCapture struct {
 	banCalls   []banCall
-	responds   []string
+	edits      []string
 	dmCalls    []dmCall
 	modLogs    []*discordgo.MessageEmbed
 	bestpalLog []string
@@ -43,8 +43,11 @@ func testOpts(cap *banCapture) banOpts {
 			return nil
 		},
 		Respond: func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
-			if resp != nil && resp.Data != nil {
-				cap.responds = append(cap.responds, resp.Data.Content)
+			return nil
+		},
+		EditResponse: func(_ *discordgo.Session, _ *discordgo.Interaction, edit *discordgo.WebhookEdit) error {
+			if edit != nil && edit.Content != nil {
+				cap.edits = append(cap.edits, *edit.Content)
 			}
 			return nil
 		},
@@ -185,8 +188,8 @@ func TestSlashBanRejectsSelfBan(t *testing.T) {
 	mod.handleBanSlash(s, buildSlashInteraction("mod1", "mod1", nil, nil))
 
 	assert.Empty(t, cap.banCalls, "no ban should be issued")
-	require.Len(t, cap.responds, 1)
-	assert.Contains(t, cap.responds[0], "cannot ban yourself")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "cannot ban yourself")
 }
 
 func TestSlashBanRejectsBotBan(t *testing.T) {
@@ -198,8 +201,8 @@ func TestSlashBanRejectsBotBan(t *testing.T) {
 	mod.handleBanSlash(s, buildSlashInteraction("mod1", "bot123", nil, nil))
 
 	assert.Empty(t, cap.banCalls, "no ban should be issued")
-	require.Len(t, cap.responds, 1)
-	assert.Contains(t, cap.responds[0], "cannot ban myself")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "cannot ban myself")
 }
 
 func TestContextBanUserNoPurge(t *testing.T) {
@@ -239,8 +242,8 @@ func TestContextBanRejectsSelfBan(t *testing.T) {
 	mod.handleBanContext(s, buildContextInteraction("mod1", "mod1", "Ban User"))
 
 	assert.Empty(t, cap.banCalls)
-	require.Len(t, cap.responds, 1)
-	assert.Contains(t, cap.responds[0], "cannot ban yourself")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "cannot ban yourself")
 }
 
 func TestDMSentBeforeBan(t *testing.T) {
@@ -304,4 +307,18 @@ func TestModActionLogFields(t *testing.T) {
 	assert.Equal(t, "spam", embed.Fields[2].Value)
 	assert.Contains(t, embed.Fields[3].Value, "5")
 	assert.Equal(t, "slash command", embed.Fields[4].Value)
+}
+
+func TestSlashBanRejectsInvalidDays(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	days := 10
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	mod.handleBanSlash(s, buildSlashInteraction("mod1", "target1", &days, nil))
+
+	assert.Empty(t, cap.banCalls, "no ban should be issued for invalid days")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "between 0 and 7")
 }

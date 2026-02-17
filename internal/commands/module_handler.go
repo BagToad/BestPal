@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
 	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
@@ -80,6 +81,7 @@ func (h *ModuleHandler) registerModules() {
 		module types.CommandModule
 	}{
 		{"ping", ping.New(h.deps)},
+		{"ban", ban.New(h.deps)},
 		{"time", time.New(h.deps)},
 		{"say", say.New(h.deps)},
 		{"help", help.New(h.deps)},

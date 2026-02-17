@@ -161,6 +161,11 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 	// Defer response immediately to avoid 3s timeout
 	m.deferEphemeral(s, i)
 
+	if i.Member == nil || i.Member.User == nil {
+		m.editEphemeral(s, i, "❌ This command can only be used in a server.")
+		return
+	}
+
 	// Parse options by name, not position
 	var targetID, reason string
 	days := 0
@@ -204,6 +209,11 @@ func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.Interact
 
 	// Defer response immediately to avoid 3s timeout
 	m.deferEphemeral(s, i)
+
+	if i.Member == nil || i.Member.User == nil {
+		m.editEphemeral(s, i, "❌ This command can only be used in a server.")
+		return
+	}
 
 	targetID := data.TargetID
 	if data.Resolved == nil || data.Resolved.Users[targetID] == nil {

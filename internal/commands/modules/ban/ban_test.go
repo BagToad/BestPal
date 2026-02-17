@@ -322,3 +322,35 @@ func TestSlashBanRejectsInvalidDays(t *testing.T) {
 	require.Len(t, cap.edits, 1)
 	assert.Contains(t, cap.edits[0], "between 0 and 7")
 }
+
+func TestSlashBanRejectsNilMember(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	inter := buildSlashInteraction("mod1", "target1", nil, nil)
+	inter.Interaction.Member = nil
+
+	mod.handleBanSlash(s, inter)
+
+	assert.Empty(t, cap.banCalls, "no ban should be issued")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "only be used in a server")
+}
+
+func TestContextBanRejectsNilMember(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	inter := buildContextInteraction("mod1", "target1", "Ban User")
+	inter.Interaction.Member = nil
+
+	mod.handleBanContext(s, inter)
+
+	assert.Empty(t, cap.banCalls, "no ban should be issued")
+	require.Len(t, cap.edits, 1)
+	assert.Contains(t, cap.edits[0], "only be used in a server")
+}

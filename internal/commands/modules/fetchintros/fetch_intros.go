@@ -69,9 +69,6 @@ func (m *Module) handleFetchIntros(s *discordgo.Session, i *discordgo.Interactio
 		return
 	}
 
-	// Immediately update the deferred response with a status message
-	m.editResponse(s, i, "Fetching introduction posts... This may take a minute.")
-
 	// Check if database is available
 	if m.deps.DB == nil {
 		m.editResponse(s, i, "❌ Error: Database is not available")

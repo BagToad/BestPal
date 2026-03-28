@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
+	"gamerpal/internal/commands/modules/fetchintros"
 	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
@@ -86,6 +87,7 @@ func (h *ModuleHandler) registerModules() {
 		{"say", say.New(h.deps)},
 		{"help", help.New(h.deps)},
 		{"intro", intro.New(h.deps)},
+		{"fetchintros", fetchintros.New(h.deps)},
 		{"config", config.New(h.deps)},
 		{"refreshigdb", refreshigdb.New(h.deps)},
 		{"game", game.New(h.deps)},

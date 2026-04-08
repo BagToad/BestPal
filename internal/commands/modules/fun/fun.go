@@ -49,13 +49,20 @@ func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Depende
 					Name:        "channel",
 					Description: "The channel to type in",
 					Required:    true,
+					ChannelTypes: []discordgo.ChannelType{
+						discordgo.ChannelTypeGuildText,
+						discordgo.ChannelTypeGuildNews,
+						discordgo.ChannelTypeGuildPublicThread,
+						discordgo.ChannelTypeGuildPrivateThread,
+						discordgo.ChannelTypeGuildNewsThread,
+					},
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "minutes",
 					Description: "How many minutes to show as typing (1-10)",
 					Required:    true,
-					MinValue:    floatPtr(1),
+					MinValue:    utils.Float64Ptr(1),
 					MaxValue:    10,
 				},
 			},
@@ -141,7 +148,10 @@ func (m *FunModule) handleTyping(s *discordgo.Session, i *discordgo.InteractionC
 	for _, opt := range options {
 		switch opt.Name {
 		case "channel":
-			channelID = opt.ChannelValue(s).ID
+			ch := opt.ChannelValue(s)
+			if ch != nil {
+				channelID = ch.ID
+			}
 		case "minutes":
 			minutes = opt.IntValue()
 		}
@@ -159,6 +169,18 @@ func (m *FunModule) handleTyping(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 
+	perms, err := s.UserChannelPermissions(s.State.User.ID, channelID)
+	if err != nil || perms&discordgo.PermissionSendMessages == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ I don't have permission to send messages in %s.", ch.Mention()),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -169,18 +191,24 @@ func (m *FunModule) handleTyping(s *discordgo.Session, i *discordgo.InteractionC
 
 	// Discord typing indicator lasts ~10 seconds, so we re-trigger every 8s
 	go func() {
+		ticker := time.NewTicker(8 * time.Second)
+		defer ticker.Stop()
 		end := time.Now().Add(time.Duration(minutes) * time.Minute)
-		for time.Now().Before(end) {
-			_ = s.ChannelTyping(channelID)
-			time.Sleep(8 * time.Second)
+
+		// Fire immediately, then on each tick
+		_ = s.ChannelTyping(channelID)
+		for t := range ticker.C {
+			if t.After(end) {
+				return
+			}
+			if err := s.ChannelTyping(channelID); err != nil {
+				m.config.Logger.Warnf("typing loop stopped for channel %s: %v", channelID, err)
+				return
+			}
 		}
 	}()
 }
 
 func strPtr(s string) *string {
 	return &s
-}
-
-func floatPtr(f float64) *float64 {
-	return &f
 }

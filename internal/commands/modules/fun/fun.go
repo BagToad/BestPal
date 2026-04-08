@@ -5,6 +5,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -35,6 +36,39 @@ func New(deps *types.Dependencies) *FunModule {
 // Register adds fun-related commands to the command map
 func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var modPerms int64 = discordgo.PermissionBanMembers
+
+	cmds["typing"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "typing",
+			Description:              "Make the bot show as typing in a channel",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionChannel,
+					Name:        "channel",
+					Description: "The channel to type in",
+					Required:    true,
+					ChannelTypes: []discordgo.ChannelType{
+						discordgo.ChannelTypeGuildText,
+						discordgo.ChannelTypeGuildNews,
+						discordgo.ChannelTypeGuildPublicThread,
+						discordgo.ChannelTypeGuildPrivateThread,
+						discordgo.ChannelTypeGuildNewsThread,
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionInteger,
+					Name:        "minutes",
+					Description: "How many minutes to show as typing (1-10)",
+					Required:    true,
+					MinValue:    utils.Float64Ptr(1),
+					MaxValue:    10,
+				},
+			},
+		},
+		HandlerFunc: m.handleTyping,
+	}
 
 	cmds["Translate to caveman"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
@@ -103,6 +137,76 @@ func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.In
 // Service returns nil as this module has no services requiring initialization
 func (m *FunModule) Service() types.ModuleService {
 	return nil
+}
+
+// handleTyping makes the bot show as typing in a channel for a specified duration.
+func (m *FunModule) handleTyping(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	var channelID string
+	var minutes int64
+
+	for _, opt := range options {
+		switch opt.Name {
+		case "channel":
+			ch := opt.ChannelValue(s)
+			if ch != nil {
+				channelID = ch.ID
+			}
+		case "minutes":
+			minutes = opt.IntValue()
+		}
+	}
+
+	ch, err := s.Channel(channelID)
+	if err != nil {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Could not access that channel.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	perms, err := s.UserChannelPermissions(s.State.User.ID, channelID)
+	if err != nil || perms&discordgo.PermissionSendMessages == 0 {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: fmt.Sprintf("❌ I don't have permission to send messages in %s.", ch.Mention()),
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("⌨️ Typing in %s for %d minute(s)...", ch.Mention(), minutes),
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	// Discord typing indicator lasts ~10 seconds, so we re-trigger every 8s
+	go func() {
+		ticker := time.NewTicker(8 * time.Second)
+		defer ticker.Stop()
+		end := time.Now().Add(time.Duration(minutes) * time.Minute)
+
+		// Fire immediately, then on each tick
+		_ = s.ChannelTyping(channelID)
+		for t := range ticker.C {
+			if t.After(end) {
+				return
+			}
+			if err := s.ChannelTyping(channelID); err != nil {
+				m.config.Logger.Warnf("typing loop stopped for channel %s: %v", channelID, err)
+				return
+			}
+		}
+	}()
 }
 
 func strPtr(s string) *string {

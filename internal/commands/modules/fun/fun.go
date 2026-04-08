@@ -78,6 +78,23 @@ func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		},
 		HandlerFunc: m.handleCavemanTranslate,
 	}
+
+	cmds["connect4"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "connect4",
+			Description: "Challenge someone to a game of Connect 4",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "opponent",
+					Description: "The player you want to challenge",
+					Required:    true,
+				},
+			},
+		},
+		HandlerFunc: m.handleConnect4Challenge,
+	}
 }
 
 // handleCavemanTranslate handles the "Translate to caveman" message context menu command.

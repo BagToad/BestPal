@@ -5,6 +5,7 @@ import (
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
 	"gamerpal/internal/commands/modules/fetchintros"
+	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
@@ -100,6 +101,7 @@ func (h *ModuleHandler) registerModules() {
 		{"welcome", welcome.New(h.deps)},
 		{"poll", poll.New(h.deps)},
 		{"status", status.New(h.deps)},
+		{"fun", fun.New(h.deps)},
 	}
 
 	for _, m := range modules {

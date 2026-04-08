@@ -13,10 +13,12 @@ const cavemanSystemPrompt = `translate to broken caveman english in roughly the 
 
 ONLY reply with the translation in this format:
 
-"hey, I translated this to caveman for you:
+<format>
+
+hey, I translated this to caveman for you:
 
 > <translation>
-"`
+</format>`
 
 // FunModule implements the CommandModule interface for fun commands
 type FunModule struct {

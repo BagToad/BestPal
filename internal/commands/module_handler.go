@@ -26,6 +26,7 @@ import (
 	internalConfig "gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/forumcache"
+	"strings"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -177,11 +178,22 @@ func (h *ModuleHandler) HandleInteraction(s *discordgo.Session, i *discordgo.Int
 
 // HandleComponentInteraction routes component interactions to appropriate module handlers
 func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Currently only LFG module uses component interactions
-	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
-		lfgMod.HandleComponent(s, i)
-	} else {
-		h.config.Logger.Warn("Component interaction received but LFG module not available")
+	cid := i.MessageComponentData().CustomID
+
+	switch {
+	case strings.HasPrefix(cid, "c4:"):
+		if funMod, ok := h.GetModule("fun").(*fun.FunModule); ok {
+			funMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Connect 4 interaction received but fun module not available")
+		}
+	default:
+		// LFG module handles all other component interactions
+		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+			lfgMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Component interaction received but LFG module not available")
+		}
 	}
 }
 
@@ -207,6 +219,13 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
 		}
+	}
+}
+
+// HandleReactionAdd routes message reaction events to modules that use them.
+func (h *ModuleHandler) HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	if fun.IsConnect4Message(r.MessageID) {
+		fun.HandleReactionAdd(s, r)
 	}
 }
 

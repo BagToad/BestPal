@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +36,9 @@ const (
 	c4ColorBlue   = 0x3498DB
 )
 
+// Column reaction emoji — users react with these to pick a column.
+var c4ColumnEmoji = []string{"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"}
+
 type c4Status int
 
 const (
@@ -54,7 +56,7 @@ type Connect4Game struct {
 	Player2      string // challenged (🟡)
 	Turn         int    // c4Player1 or c4Player2
 	ChannelID    string
-	MessageID    string
+	MessageID    string // the game board message
 	Status       c4Status
 	Winner       int // 0 = draw, c4Player1 or c4Player2
 	WinReason    string
@@ -64,15 +66,17 @@ type Connect4Game struct {
 // --- Manager ---
 
 type connect4Manager struct {
-	games   map[string]*Connect4Game
-	mu      sync.Mutex
-	session *discordgo.Session
-	cfg     *config.Config
-	once    sync.Once
+	games      map[string]*Connect4Game
+	msgToGame  map[string]string // messageID → gameID for fast reaction lookup
+	mu         sync.Mutex
+	session    *discordgo.Session
+	cfg        *config.Config
+	once       sync.Once
 }
 
 var c4mgr = &connect4Manager{
-	games: make(map[string]*Connect4Game),
+	games:     make(map[string]*Connect4Game),
+	msgToGame: make(map[string]string),
 }
 
 func (mgr *connect4Manager) init(s *discordgo.Session, cfg *config.Config) {
@@ -100,13 +104,29 @@ func (mgr *connect4Manager) createChallenge(player1, player2, channelID string) 
 	return game
 }
 
+// linkMessage associates a message ID with a game for reaction lookups.
+func (mgr *connect4Manager) linkMessage(messageID, gameID string) {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	mgr.msgToGame[messageID] = gameID
+}
+
 func (mgr *connect4Manager) getGame(id string) *Connect4Game {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 	return mgr.games[id]
 }
 
-// cleanupLoop periodically checks for timed-out and stale games.
+func (mgr *connect4Manager) getGameByMessage(messageID string) *Connect4Game {
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	gameID, ok := mgr.msgToGame[messageID]
+	if !ok {
+		return nil
+	}
+	return mgr.games[gameID]
+}
+
 func (mgr *connect4Manager) cleanupLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -114,19 +134,12 @@ func (mgr *connect4Manager) cleanupLoop() {
 	for range ticker.C {
 		expired := mgr.collectExpired()
 		for _, game := range expired {
-			embed := c4BuildGameEmbed(game)
-			_, _ = mgr.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
-				Channel:    game.ChannelID,
-				ID:         game.MessageID,
-				Embeds:     &[]*discordgo.MessageEmbed{embed},
-				Components: &[]discordgo.MessageComponent{},
-			})
+			mgr.updateGameMessage(game)
 		}
 		mgr.removeStale()
 	}
 }
 
-// collectExpired marks timed-out games as finished and returns them for message updates.
 func (mgr *connect4Manager) collectExpired() []*Connect4Game {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -158,7 +171,6 @@ func (mgr *connect4Manager) collectExpired() []*Connect4Game {
 	return expired
 }
 
-// removeStale deletes finished games that have been idle for 5+ minutes.
 func (mgr *connect4Manager) removeStale() {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -166,14 +178,29 @@ func (mgr *connect4Manager) removeStale() {
 	now := time.Now()
 	for id, game := range mgr.games {
 		if game.Status == c4Finished && now.Sub(game.LastActivity) > 5*time.Minute {
+			delete(mgr.msgToGame, game.MessageID)
 			delete(mgr.games, id)
 		}
 	}
 }
 
+// updateGameMessage edits the game's Discord message with the current state.
+func (mgr *connect4Manager) updateGameMessage(game *Connect4Game) {
+	if mgr.session == nil || game.MessageID == "" {
+		return
+	}
+	embed := c4BuildGameEmbed(game)
+	components := c4BuildComponents(game)
+	_, _ = mgr.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Channel:    game.ChannelID,
+		ID:         game.MessageID,
+		Embeds:     &[]*discordgo.MessageEmbed{embed},
+		Components: &components,
+	})
+}
+
 // --- Game Logic ---
 
-// dropPiece drops a piece in the given column. Returns the row it landed on, or -1 if the column is full.
 func c4DropPiece(game *Connect4Game, col, player int) int {
 	for row := c4Rows - 1; row >= 0; row-- {
 		if game.Board[row][col] == c4Empty {
@@ -184,10 +211,8 @@ func c4DropPiece(game *Connect4Game, col, player int) int {
 	return -1
 }
 
-// checkWin checks if the last move at (row, col) created a four-in-a-row.
 func c4CheckWin(game *Connect4Game, row, col, player int) bool {
 	directions := [][2]int{{0, 1}, {1, 0}, {1, 1}, {1, -1}}
-
 	for _, dir := range directions {
 		count := 1
 		for i := 1; i < 4; i++ {
@@ -211,7 +236,6 @@ func c4CheckWin(game *Connect4Game, row, col, player int) bool {
 	return false
 }
 
-// checkDraw returns true if the board is completely full.
 func c4CheckDraw(game *Connect4Game) bool {
 	for col := 0; col < c4Cols; col++ {
 		if game.Board[0][col] == c4Empty {
@@ -238,19 +262,21 @@ func c4RenderBoard(game *Connect4Game) string {
 		}
 		sb.WriteString("\n")
 	}
+	// Column labels below the board
+	sb.WriteString(strings.Join(c4ColumnEmoji, ""))
 	return sb.String()
 }
 
 func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 	embed := &discordgo.MessageEmbed{
-		Footer: &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Game %s", game.ID)},
+		Footer: &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Game %s • React with 1️⃣-7️⃣ to play, 🏳️ to forfeit", game.ID)},
 	}
-
 	var desc strings.Builder
 
 	switch game.Status {
 	case c4Pending:
 		embed.Title = "⚔️ Connect 4 Challenge"
+		embed.Footer.Text = fmt.Sprintf("Game %s", game.ID)
 		desc.WriteString(fmt.Sprintf("%s <@%s> has challenged %s <@%s> to a game of Connect 4!\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
 		desc.WriteString(fmt.Sprintf("Waiting for <@%s> to respond...", game.Player2))
 		embed.Color = c4ColorBlue
@@ -269,6 +295,7 @@ func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 
 	case c4Finished:
 		embed.Title = "🎮 Connect 4"
+		embed.Footer.Text = fmt.Sprintf("Game %s • Game over", game.ID)
 		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
 		desc.WriteString(c4RenderBoard(game))
 		desc.WriteString("\n")
@@ -292,20 +319,25 @@ func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 	return embed
 }
 
-func c4BuildChallengeComponents(gameID string) []discordgo.MessageComponent {
+// c4BuildComponents returns Accept/Decline buttons for pending games, empty otherwise.
+// Active games use reactions instead of buttons for moves.
+func c4BuildComponents(game *Connect4Game) []discordgo.MessageComponent {
+	if game.Status != c4Pending {
+		return []discordgo.MessageComponent{}
+	}
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{
 			Components: []discordgo.MessageComponent{
 				discordgo.Button{
 					Label:    "Accept",
 					Style:    discordgo.SuccessButton,
-					CustomID: fmt.Sprintf("c4:a:%s", gameID),
+					CustomID: fmt.Sprintf("c4:a:%s", game.ID),
 					Emoji:    &discordgo.ComponentEmoji{Name: "✅"},
 				},
 				discordgo.Button{
 					Label:    "Decline",
 					Style:    discordgo.DangerButton,
-					CustomID: fmt.Sprintf("c4:d:%s", gameID),
+					CustomID: fmt.Sprintf("c4:d:%s", game.ID),
 					Emoji:    &discordgo.ComponentEmoji{Name: "❌"},
 				},
 			},
@@ -313,49 +345,15 @@ func c4BuildChallengeComponents(gameID string) []discordgo.MessageComponent {
 	}
 }
 
-func c4BuildGameComponents(game *Connect4Game) []discordgo.MessageComponent {
-	if game.Status == c4Finished {
-		return []discordgo.MessageComponent{}
+// c4AddReactions adds column emoji + forfeit reactions to the game message.
+func c4AddReactions(s *discordgo.Session, channelID, messageID string) {
+	for _, emoji := range c4ColumnEmoji {
+		_ = s.MessageReactionAdd(channelID, messageID, emoji)
 	}
-
-	// Row 1: columns 1-5
-	row1 := discordgo.ActionsRow{Components: make([]discordgo.MessageComponent, 5)}
-	for i := 0; i < 5; i++ {
-		row1.Components[i] = discordgo.Button{
-			Label:    fmt.Sprintf("%d", i+1),
-			Style:    discordgo.SecondaryButton,
-			CustomID: fmt.Sprintf("c4:m:%s:%d", game.ID, i),
-			Disabled: game.Board[0][i] != c4Empty,
-		}
-	}
-
-	// Row 2: columns 6-7
-	row2 := discordgo.ActionsRow{Components: make([]discordgo.MessageComponent, 2)}
-	for i := 5; i < 7; i++ {
-		row2.Components[i-5] = discordgo.Button{
-			Label:    fmt.Sprintf("%d", i+1),
-			Style:    discordgo.SecondaryButton,
-			CustomID: fmt.Sprintf("c4:m:%s:%d", game.ID, i),
-			Disabled: game.Board[0][i] != c4Empty,
-		}
-	}
-
-	// Row 3: forfeit
-	row3 := discordgo.ActionsRow{
-		Components: []discordgo.MessageComponent{
-			discordgo.Button{
-				Label:    "Forfeit",
-				Style:    discordgo.DangerButton,
-				CustomID: fmt.Sprintf("c4:f:%s", game.ID),
-				Emoji:    &discordgo.ComponentEmoji{Name: "🏳️"},
-			},
-		},
-	}
-
-	return []discordgo.MessageComponent{row1, row2, row3}
+	_ = s.MessageReactionAdd(channelID, messageID, "🏳️")
 }
 
-// --- Interaction Handlers ---
+// --- Slash Command Handler ---
 
 func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c4mgr.init(s, m.config)
@@ -373,7 +371,6 @@ func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.I
 	}
 
 	challenger := i.Member.User
-
 	if opponent.ID == challenger.ID {
 		c4RespondEphemeral(s, i, "❌ You can't challenge yourself!")
 		return
@@ -385,7 +382,7 @@ func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.I
 
 	game := c4mgr.createChallenge(challenger.ID, opponent.ID, i.ChannelID)
 	embed := c4BuildGameEmbed(game)
-	components := c4BuildChallengeComponents(game.ID)
+	components := c4BuildComponents(game)
 
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
@@ -399,44 +396,33 @@ func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.I
 		return
 	}
 
-	// Store message ID so we can edit it later (timeout cleanup)
 	msg, err := s.InteractionResponse(i.Interaction)
 	if err == nil {
 		c4mgr.mu.Lock()
 		game.MessageID = msg.ID
 		c4mgr.mu.Unlock()
+		c4mgr.linkMessage(msg.ID, game.ID)
 	}
 }
 
-// HandleComponent routes Connect 4 component interactions.
+// --- Component Handlers (Accept / Decline only) ---
+
 func (m *FunModule) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c4mgr.init(s, m.config)
 
 	cid := i.MessageComponentData().CustomID
-	parts := strings.SplitN(cid, ":", 4) // c4:action:gameID[:data]
+	parts := strings.SplitN(cid, ":", 4)
 	if len(parts) < 3 {
 		return
 	}
 
-	action := parts[1]
 	gameID := parts[2]
 
-	switch action {
+	switch parts[1] {
 	case "a":
 		m.handleC4Accept(s, i, gameID)
 	case "d":
 		m.handleC4Decline(s, i, gameID)
-	case "m":
-		if len(parts) < 4 {
-			return
-		}
-		col, err := strconv.Atoi(parts[3])
-		if err != nil || col < 0 || col >= c4Cols {
-			return
-		}
-		m.handleC4Move(s, i, gameID, col)
-	case "f":
-		m.handleC4Forfeit(s, i, gameID)
 	}
 }
 
@@ -464,16 +450,18 @@ func (m *FunModule) handleC4Accept(s *discordgo.Session, i *discordgo.Interactio
 	c4mgr.mu.Unlock()
 
 	embed := c4BuildGameEmbed(game)
-	components := c4BuildGameComponents(game)
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Content:    "",
 			Embeds:     []*discordgo.MessageEmbed{embed},
-			Components: components,
+			Components: []discordgo.MessageComponent{}, // remove accept/decline buttons
 		},
 	})
+
+	// Add column reactions for gameplay
+	go c4AddReactions(s, game.ChannelID, game.MessageID)
 }
 
 func (m *FunModule) handleC4Decline(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
@@ -516,43 +504,80 @@ func (m *FunModule) handleC4Decline(s *discordgo.Session, i *discordgo.Interacti
 	})
 }
 
-func (m *FunModule) handleC4Move(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string, col int) {
-	game := c4mgr.getGame(gameID)
-	if game == nil {
-		c4RespondEphemeral(s, i, "❌ This game no longer exists.")
+// --- Reaction Handler ---
+
+// IsConnect4Message returns true if the given message ID belongs to an active Connect 4 game.
+func IsConnect4Message(messageID string) bool {
+	c4mgr.mu.Lock()
+	defer c4mgr.mu.Unlock()
+	_, ok := c4mgr.msgToGame[messageID]
+	return ok
+}
+
+// HandleReactionAdd processes a reaction on a Connect 4 game message.
+// Called from the bot's reaction event handler.
+func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	// Ignore bot's own reactions
+	if r.UserID == s.State.User.ID {
 		return
 	}
 
-	userID := c4GetUserID(i)
+	game := c4mgr.getGameByMessage(r.MessageID)
+	if game == nil {
+		return
+	}
 
+	// Always remove the user's reaction to keep the board clean
+	defer func() {
+		_ = s.MessageReactionRemove(r.ChannelID, r.MessageID, r.Emoji.APIName(), r.UserID)
+	}()
+
+	if game.Status != c4Active {
+		return
+	}
+
+	// Handle forfeit
+	if r.Emoji.Name == "🏳️" {
+		c4HandleReactionForfeit(s, game, r.UserID)
+		return
+	}
+
+	// Determine column from emoji
+	col := -1
+	for i, emoji := range c4ColumnEmoji {
+		if r.Emoji.Name == emoji {
+			col = i
+			break
+		}
+	}
+	if col == -1 {
+		return
+	}
+
+	c4HandleReactionMove(s, game, r.UserID, col)
+}
+
+func c4HandleReactionMove(s *discordgo.Session, game *Connect4Game, userID string, col int) {
 	var player int
 	if userID == game.Player1 {
 		player = c4Player1
 	} else if userID == game.Player2 {
 		player = c4Player2
 	} else {
-		c4RespondEphemeral(s, i, "❌ You're not a player in this game.")
-		return
+		return // not a player
 	}
 
 	c4mgr.mu.Lock()
 
-	if game.Status != c4Active {
+	if game.Status != c4Active || game.Turn != player {
 		c4mgr.mu.Unlock()
-		c4RespondEphemeral(s, i, "❌ This game is not active.")
-		return
-	}
-	if game.Turn != player {
-		c4mgr.mu.Unlock()
-		c4RespondEphemeral(s, i, "❌ It's not your turn!")
 		return
 	}
 
 	row := c4DropPiece(game, col, player)
 	if row == -1 {
 		c4mgr.mu.Unlock()
-		c4RespondEphemeral(s, i, "❌ That column is full!")
-		return
+		return // column full, just ignore
 	}
 
 	game.LastActivity = time.Now()
@@ -573,32 +598,14 @@ func (m *FunModule) handleC4Move(s *discordgo.Session, i *discordgo.InteractionC
 
 	c4mgr.mu.Unlock()
 
-	embed := c4BuildGameEmbed(game)
-	components := c4BuildGameComponents(game)
-
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
-			Components: components,
-		},
-	})
+	c4mgr.updateGameMessage(game)
 }
 
-func (m *FunModule) handleC4Forfeit(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
-	game := c4mgr.getGame(gameID)
-	if game == nil {
-		c4RespondEphemeral(s, i, "❌ This game no longer exists.")
-		return
-	}
-
-	userID := c4GetUserID(i)
-
+func c4HandleReactionForfeit(s *discordgo.Session, game *Connect4Game, userID string) {
 	c4mgr.mu.Lock()
 
 	if game.Status != c4Active {
 		c4mgr.mu.Unlock()
-		c4RespondEphemeral(s, i, "❌ This game is not active.")
 		return
 	}
 
@@ -610,24 +617,14 @@ func (m *FunModule) handleC4Forfeit(s *discordgo.Session, i *discordgo.Interacti
 		game.WinReason = fmt.Sprintf("🏳️ <@%s> forfeited — %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
 	} else {
 		c4mgr.mu.Unlock()
-		c4RespondEphemeral(s, i, "❌ You're not a player in this game.")
 		return
 	}
 
 	game.Status = c4Finished
 	game.LastActivity = time.Now()
-
 	c4mgr.mu.Unlock()
 
-	embed := c4BuildGameEmbed(game)
-
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseUpdateMessage,
-		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{embed},
-			Components: []discordgo.MessageComponent{},
-		},
-	})
+	c4mgr.updateGameMessage(game)
 }
 
 // --- Helpers ---

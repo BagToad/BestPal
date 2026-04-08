@@ -48,7 +48,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	bot.ready.Store(false)
 
 	// Set intents - we need guild, member, message, message content, direct message intents
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildMessageReactions
 
 	// Add event handlers
 	session.AddHandler(bot.onReady)
@@ -91,6 +91,11 @@ func New(cfg *config.Config) (*Bot, error) {
 	})
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadListSync) {
 		handler.GetForumCache().OnThreadListSync(s, e)
+	})
+
+	// Reaction events (used by Connect 4 and other reaction-based features)
+	session.AddHandler(func(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+		handler.HandleReactionAdd(s, r)
 	})
 
 	return bot, nil

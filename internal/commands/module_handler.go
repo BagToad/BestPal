@@ -222,6 +222,13 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 	}
 }
 
+// HandleReactionAdd routes message reaction events to modules that use them.
+func (h *ModuleHandler) HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
+	if fun.IsConnect4Message(r.MessageID) {
+		fun.HandleReactionAdd(s, r)
+	}
+}
+
 // UnregisterCommands removes all registered commands
 func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")

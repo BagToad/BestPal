@@ -15,6 +15,11 @@ func OnGuildScheduledEventCreate(s *discordgo.Session, e *discordgo.GuildSchedul
 		return
 	}
 
+	gamerPalsServerID := cfg.GetGamerPalsServerID()
+	if gamerPalsServerID != "" && e.GuildID != gamerPalsServerID {
+		return
+	}
+
 	eventURL := fmt.Sprintf("https://discord.com/events/%s/%s", e.GuildID, e.ID)
 
 	msg := heredoc.Docf(`

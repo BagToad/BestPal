@@ -47,7 +47,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	// mark not ready yet (zero value false, explicit for clarity)
 	bot.ready.Store(false)
 
-	// Set intents - we need guild, member, message, message content, direct message intents
+	// Set intents - we need guild, member, message, message content, direct message, message reaction, and guild scheduled event intents
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildScheduledEvents
 
 	// Add event handlers

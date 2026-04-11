@@ -18,10 +18,8 @@ func OnGuildScheduledEventCreate(s *discordgo.Session, e *discordgo.GuildSchedul
 	eventURL := fmt.Sprintf("https://discord.com/events/%s/%s", e.GuildID, e.ID)
 
 	msg := heredoc.Docf(`
-		New event created! [Link](<%s>)
-
-		Title: %s
-	`, eventURL, e.Name)
+		New event created! [Click here to view details](%s)
+	`, eventURL)
 
 	if _, err := s.ChannelMessageSend(feedChannelID, msg); err != nil {
 		cfg.Logger.Errorf("Failed to send event feed message: %v", err)

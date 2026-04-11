@@ -23,6 +23,10 @@ gamerpals_pairing_category_id: "your-pairing-category-id-here"
 gamerpals_introductions_forum_channel_id: "your-introductions-forum-channel-id-here"
 gamerpals_lfg_forum_channel_id: "your-lfg-forum-channel-id-here"
 
+# Event Feed Configuration
+# When a new scheduled event is created, it is forwarded to this channel
+event_feed_channel_id: "your-event-feed-channel-id-here"
+
 # Introduction Feed Configuration
 # When a new intro is posted, it can be forwarded to a dedicated channel
 intro_feed_channel_id: "your-intro-feed-channel-id-here"

@@ -122,6 +122,14 @@ func (c *Config) GetString(key string) string {
 	return c.v.GetString(key)
 }
 
+// Event Feed configuration
+// -----
+
+// GetEventFeedChannelID returns the channel ID where new scheduled events are forwarded
+func (c *Config) GetEventFeedChannelID() string {
+	return c.v.GetString("event_feed_channel_id")
+}
+
 // Introduction Feed configuration
 // -----
 

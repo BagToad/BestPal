@@ -146,3 +146,16 @@ func (c *Config) GetIntroFeedRateLimitHours() int {
 	}
 	return hours
 }
+
+// Translate language configuration
+// -----
+
+// GetTranslateLanguage returns the configured translate language style.
+// Valid values: "caveman", "gen_alpha", "old_man", "80s", "high_society", "random"
+func (c *Config) GetTranslateLanguage() string {
+	lang := c.v.GetString("translate_language")
+	if lang == "" {
+		return "random"
+	}
+	return lang
+}

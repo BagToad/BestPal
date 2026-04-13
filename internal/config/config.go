@@ -168,6 +168,7 @@ func setDefaults(v *viper.Viper) {
 	// Add any default values here if needed in the future
 	v.SetDefault("log_dir", "./logs")
 	v.SetDefault("database_path", "./gamerpal.db")
+	v.SetDefault("translate_language", "random")
 }
 
 // bindEnvs binds environment variables to viper keys

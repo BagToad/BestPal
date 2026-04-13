@@ -33,6 +33,12 @@ intro_feed_channel_id: "your-intro-feed-channel-id-here"
 # Hours between allowed feed posts per user (prevents spam from delete+repost)
 intro_feed_rate_limit_hours: 48
 
+# Translate Command Configuration
+# Controls which language style the "Translate" context menu command uses.
+# Options: "caveman", "gen_alpha", "old_man", "80s", "high_society", "random"
+# "random" will pick a random language each time.
+translate_language: "random"
+
 # Voice Channel Permission Sync
 # When @everyone Connect is denied on voice channels in this category,
 # also deny View Channel (and vice versa for allowing)

@@ -5,21 +5,86 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
+	"math/rand"
+	"strings"
 	"time"
 
+	"github.com/MakeNowJust/heredoc"
 	"github.com/bwmarrin/discordgo"
 )
 
-const cavemanSystemPrompt = `translate to broken caveman english in roughly the same word length.
+type translateLanguage struct {
+	Name         string
+	SystemPrompt string
+}
 
-ONLY reply with the translation in this format:
+var translateLanguages = map[string]translateLanguage{
+	"caveman": {
+		Name: "Caveman",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to broken caveman english in roughly the same word length.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
+	"gen_alpha": {
+		Name: "Gen Alpha",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to gen alpha slang (skibidi, rizz, no cap, bussin, slay, fr fr, sus, brainrot, etc.) in roughly the same word length.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
+	"old_man": {
+		Name: "Old Man",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to grumpy old man talk.
+			Use phrases like "back in my day", "what? speak up!", "you kids these days", "in my time we...", "I tell ya", etc.
+			Keep roughly the same word length.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
+	"80s": {
+		Name: "80's",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to 1980s slang.
+			Use phrases like "totally tubular", "gnarly", "radical", "gag me with a spoon", "like, totally", "bodacious", "righteous", "bogus", "grody", etc.
+			Keep roughly the same word length.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
+	"high_society": {
+		Name: "High Society",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to fancy high society English.
+			Use eloquent, sophisticated vocabulary, formal phrasing, and an air of aristocratic refinement.
+			Think Victorian upper class, "indeed", "most assuredly", "I dare say", "one finds", "indubitably", etc.
+			Keep roughly the same word length.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
+}
 
-<format>
+// translateLanguageKeys returns a stable list of language keys for random selection
+var translateLanguageKeys = func() []string {
+	keys := make([]string, 0, len(translateLanguages))
+	for k := range translateLanguages {
+		keys = append(keys, k)
+	}
+	return keys
+}()
 
-hey, I translated this to caveman for you:
-
-> <translation>
-</format>`
+// getTranslateLanguage returns the configured translate language, resolving "random" to a random pick.
+func (m *FunModule) getTranslateLanguage() translateLanguage {
+	key := m.config.GetTranslateLanguage()
+	if key == "random" {
+		key = translateLanguageKeys[rand.Intn(len(translateLanguageKeys))]
+	}
+	lang, ok := translateLanguages[key]
+	if !ok {
+		// Fall back to caveman if the config value is invalid
+		return translateLanguages["caveman"]
+	}
+	return lang
+}
 
 // FunModule implements the CommandModule interface for fun commands
 type FunModule struct {
@@ -70,13 +135,13 @@ func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Depende
 		HandlerFunc: m.handleTyping,
 	}
 
-	cmds["Translate to caveman"] = &types.Command{
+	cmds["Translate"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name:                     "Translate to caveman",
+			Name:                     "Translate",
 			Type:                     discordgo.MessageApplicationCommand,
 			DefaultMemberPermissions: &modPerms,
 		},
-		HandlerFunc: m.handleCavemanTranslate,
+		HandlerFunc: m.handleTranslate,
 	}
 
 	cmds["connect4"] = &types.Command{
@@ -97,8 +162,8 @@ func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Depende
 	}
 }
 
-// handleCavemanTranslate handles the "Translate to caveman" message context menu command.
-func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+// handleTranslate handles the "Translate" message context menu command.
+func (m *FunModule) handleTranslate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	targetMsg := data.Resolved.Messages[data.TargetID]
 
@@ -113,6 +178,8 @@ func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.In
 		return
 	}
 
+	lang := m.getTranslateLanguage()
+
 	// Defer so the user knows we're working on it
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -122,7 +189,7 @@ func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.In
 	})
 
 	modelsClient := utils.NewModelsClient(m.config)
-	translation := modelsClient.ModelsRequest(cavemanSystemPrompt, targetMsg.Content, "deepseek/DeepSeek-V3-0324")
+	translation := modelsClient.ModelsRequest(lang.SystemPrompt, targetMsg.Content, "deepseek/DeepSeek-V3-0324")
 
 	if translation == "" {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
@@ -131,9 +198,13 @@ func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.In
 		return
 	}
 
+	// Format the raw translation into a quote block
+	quoted := "> " + strings.ReplaceAll(strings.TrimSpace(translation), "\n", "\n> ")
+	message := fmt.Sprintf("Hey, I translated this to %s for you:\n\n%s", lang.Name, quoted)
+
 	// Reply to the original message in the channel
 	_, err := s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
-		Content: translation,
+		Content: message,
 		Reference: &discordgo.MessageReference{
 			MessageID: targetMsg.ID,
 			ChannelID: i.ChannelID,
@@ -147,7 +218,7 @@ func (m *FunModule) handleCavemanTranslate(s *discordgo.Session, i *discordgo.In
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: strPtr("🪨 Caveman translation sent!"),
+		Content: strPtr(fmt.Sprintf("✅ %s translation sent!", lang.Name)),
 	})
 }
 

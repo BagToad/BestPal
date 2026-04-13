@@ -23,13 +23,15 @@ var translateLanguages = map[string]translateLanguage{
 		Name: "Caveman",
 		SystemPrompt: heredoc.Doc(`
 			Translate the user's message to broken caveman english in roughly the same word length.
+			Do not use em-dashes.
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
 	"gen_alpha": {
 		Name: "Gen Alpha",
 		SystemPrompt: heredoc.Doc(`
-			Translate the user's message to gen alpha slang (skibidi, rizz, no cap, bussin, slay, fr fr, sus, brainrot, etc.) in roughly the same word length.
+			Translate the user's message to gen alpha slang (skibidi, rizz, no cap, bussin, slay, fr fr, sus, brainrot, sigma, gyat, mid, delulu, aura, cooked, fanum tax, NPC, dog water, touch grass, etc.) in roughly the same word length.
+			Do not use em-dashes.
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
@@ -37,8 +39,9 @@ var translateLanguages = map[string]translateLanguage{
 		Name: "Old Man",
 		SystemPrompt: heredoc.Doc(`
 			Translate the user's message to grumpy old man talk.
-			Use phrases like "back in my day", "what? speak up!", "you kids these days", "in my time we...", "I tell ya", etc.
+			Use phrases like "back in my day", "what? speak up!", "you kids these days", "when I was your age", "they don't make 'em like they used to", "turn that racket down!", "I tell ya", "the world's gone crazy", etc.
 			Keep roughly the same word length.
+			Do not use em-dashes.
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
@@ -46,8 +49,9 @@ var translateLanguages = map[string]translateLanguage{
 		Name: "80's",
 		SystemPrompt: heredoc.Doc(`
 			Translate the user's message to 1980s slang.
-			Use phrases like "totally tubular", "gnarly", "radical", "gag me with a spoon", "like, totally", "bodacious", "righteous", "bogus", "grody", etc.
+			Use phrases like "totally tubular", "gnarly", "radical", "rad", "gag me with a spoon", "like, totally", "bodacious", "righteous", "bogus", "grody", "bitchin'", "fresh", "take a chill pill", "no duh", etc.
 			Keep roughly the same word length.
+			Do not use em-dashes.
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
@@ -58,6 +62,7 @@ var translateLanguages = map[string]translateLanguage{
 			Use eloquent, sophisticated vocabulary, formal phrasing, and an air of aristocratic refinement.
 			Think Victorian upper class, "indeed", "most assuredly", "I dare say", "one finds", "indubitably", etc.
 			Keep roughly the same word length.
+			Do not use em-dashes.
 			ONLY reply with the translated text, nothing else.
 		`),
 	},

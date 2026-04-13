@@ -66,6 +66,17 @@ var translateLanguages = map[string]translateLanguage{
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
+	"doakes": {
+		Name: "Sergeant Doakes",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message in the style of Sergeant Doakes from Dexter, who has just discovered that Dexter is the Bay Harbor Butcher.
+			He is intense, suspicious, confrontational, and angry. Use phrases like "surprise, motherfucker", "I'm watching you", "you think I don't see what you're doing?", "I knew it", "you're a killer", etc.
+			Everything should drip with paranoid accusation and barely-contained rage.
+			Keep roughly the same word length.
+			Do not use em-dashes.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
 }
 
 // translateLanguageKeys returns a stable list of language keys for random selection

@@ -78,6 +78,17 @@ var translateLanguages = map[string]translateLanguage{
 			ONLY reply with the translated text, nothing else.
 		`),
 	},
+	"canadian": {
+		Name: "Canadian",
+		SystemPrompt: heredoc.Doc(`
+			Translate the user's message to stereotypical Canadian English.
+			Use phrases like "eh", "sorry", "aboot", "bud", "toque", "double-double", "give'r", "hoser", "beauty", "out for a rip", "take off", "you betcha", etc.
+			Be overly polite, apologetic, and reference hockey, Tim Hortons, and the cold when possible.
+			Keep roughly the same word length.
+			Do not use em-dashes.
+			ONLY reply with the translated text, nothing else.
+		`),
+	},
 }
 
 // translateLanguageKeys returns a stable list of language keys for random selection

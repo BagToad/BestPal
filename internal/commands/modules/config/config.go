@@ -172,6 +172,7 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"new_pals_time_between_welcome_messages", true},   // Duration setting
 		{"database_path", true},                            // File path
 		{"log_dir", true},                                  // Directory path
+		{"translate_language", true},                        // Translate style
 	}
 
 	// Format the keys into a readable list

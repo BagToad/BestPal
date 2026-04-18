@@ -9,6 +9,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -42,12 +44,18 @@ type Module struct {
 	// dispatchLog sends a fully-built payload to the given channel. Overridable
 	// in tests so handler logic can be exercised without hitting the network.
 	dispatchLog func(s *discordgo.Session, channelID string, p payload) error
+
+	// fetchImage downloads an image attachment URL and returns its bytes.
+	// Returns an error for non-image responses, oversized bodies, or any
+	// network failure. Overridable in tests so we never hit the network.
+	fetchImage func(url string, maxBytes int) ([]byte, error)
 }
 
 // New creates a new 1984 module instance.
 func New(deps *types.Dependencies) *Module {
 	m := &Module{config: deps.Config}
 	m.dispatchLog = m.defaultDispatchLog
+	m.fetchImage = defaultFetchImage
 	return m
 }
 
@@ -56,6 +64,9 @@ func (m *Module) Register(_ map[string]*types.Command, deps *types.Dependencies)
 	m.config = deps.Config
 	if m.dispatchLog == nil {
 		m.dispatchLog = m.defaultDispatchLog
+	}
+	if m.fetchImage == nil {
+		m.fetchImage = defaultFetchImage
 	}
 }
 
@@ -103,7 +114,12 @@ func (m *Module) OnMessageCreate(s *discordgo.Session, e *discordgo.MessageCreat
 		parts = append(parts, fmt.Sprintf("**Components:** %d", len(e.Components)))
 	}
 
-	m.send(s, strings.Join(parts, "\n"), namedFile("content.txt", body))
+	// Re-host image attachments in the log channel so evidence survives the
+	// original message being edited or deleted (its CDN URL is short-lived).
+	images, imgNotes := m.rehostImages(e.Attachments)
+	parts = append(parts, imgNotes...)
+
+	m.sendWithFiles(s, strings.Join(parts, "\n"), images, namedFile("content.txt", body))
 }
 
 // OnMessageUpdate logs message edits with a before/after view.
@@ -527,17 +543,26 @@ type payload struct {
 	files   []fileSpec
 }
 
-// buildPayload turns a rendered message body and a set of optional
-// attachments into a Discord-safe payload that:
+// buildPayload turns a rendered message body, a set of optional text
+// attachments (offered as .txt fallbacks for long inline content), and a
+// set of pre-built binary files (e.g. re-hosted images) into a Discord-safe
+// payload that:
 //   - has content <= maxMessageContentChars
 //   - has at most maxAttachmentsPerMessage attachments
 //   - has every attachment <= maxAttachmentBytes
 //
-// Long attachments are uploaded as files; if the content itself is too
-// long it is moved into a log.txt file and the content becomes a short
-// pointer message.
-func buildPayload(content string, attachments []fileAttachment) payload {
-	var files []fileSpec
+// Binary files take priority for attachment slots since their bytes can't
+// be losslessly merged into a .txt fallback. If the total file count
+// exceeds the per-message attachment cap, the excess is dropped and the
+// content gains a warning note.
+func buildPayload(content string, attachments []fileAttachment, extraFiles []fileSpec) payload {
+	files := make([]fileSpec, 0, len(extraFiles)+len(attachments)+1)
+	for _, f := range extraFiles {
+		if len(f.content) > maxAttachmentBytes {
+			f.content = clampBytes(f.content, maxAttachmentBytes)
+		}
+		files = append(files, f)
+	}
 	for _, a := range attachments {
 		if a.content == "" {
 			continue
@@ -559,23 +584,14 @@ func buildPayload(content string, attachments []fileAttachment) payload {
 	}
 
 	if len(files) > maxAttachmentsPerMessage {
-		// Merge overflow files into a single combined.txt to stay within
-		// Discord's per-message attachment cap.
-		keep := files[:maxAttachmentsPerMessage-1]
-		overflow := files[maxAttachmentsPerMessage-1:]
-		var buf bytes.Buffer
-		for _, f := range overflow {
-			buf.WriteString("=== ")
-			buf.WriteString(f.name)
-			buf.WriteString(" ===\n")
-			buf.Write(f.content)
-			buf.WriteString("\n\n")
+		dropped := len(files) - maxAttachmentsPerMessage
+		files = files[:maxAttachmentsPerMessage]
+		note := fmt.Sprintf("⚠️ %d attachment(s) omitted due to Discord per-message limit.\n", dropped)
+		content = note + content
+		if len(content) > maxMessageContentChars {
+			const ellipsis = "…"
+			content = truncateUTF8(content, maxMessageContentChars-len(ellipsis)) + ellipsis
 		}
-		merged := fileSpec{
-			name:    "combined.txt",
-			content: clampBytes(buf.Bytes(), maxAttachmentBytes),
-		}
-		files = append(keep, merged)
 	}
 
 	return payload{content: content, files: files}
@@ -615,12 +631,19 @@ func clampBytes(b []byte, max int) []byte {
 // otherwise needed because the rendered message is itself too long) are
 // uploaded as files to guarantee logging never fails for long messages.
 func (m *Module) send(s *discordgo.Session, content string, attachments ...fileAttachment) {
+	m.sendWithFiles(s, content, nil, attachments...)
+}
+
+// sendWithFiles is like send but also includes a set of pre-built binary
+// files (e.g. re-hosted image attachments). Binary files take priority
+// over text fallbacks if the per-message attachment cap is hit.
+func (m *Module) sendWithFiles(s *discordgo.Session, content string, extraFiles []fileSpec, attachments ...fileAttachment) {
 	channelID := m.config.GetGamerPals1984LogChannelID()
 	if channelID == "" {
 		return
 	}
 
-	p := buildPayload(content, attachments)
+	p := buildPayload(content, attachments, extraFiles)
 	if err := m.dispatchLog(s, channelID, p); err != nil {
 		m.config.Logger.Warnf("1984: failed to send log message: %v", err)
 	}
@@ -633,7 +656,7 @@ func (m *Module) defaultDispatchLog(s *discordgo.Session, channelID string, p pa
 	for _, f := range p.files {
 		files = append(files, &discordgo.File{
 			Name:        f.name,
-			ContentType: "text/plain",
+			ContentType: detectContentType(f.name, f.content),
 			Reader:      bytes.NewReader(f.content),
 		})
 	}
@@ -643,4 +666,89 @@ func (m *Module) defaultDispatchLog(s *discordgo.Session, channelID string, p pa
 		AllowedMentions: &discordgo.MessageAllowedMentions{}, // never ping anyone from the log
 	})
 	return err
+}
+
+// detectContentType picks a Content-Type for an upload. Anything that looks
+// like text uses text/plain; otherwise we use http.DetectContentType so
+// re-hosted images render inline in Discord.
+func detectContentType(name string, data []byte) string {
+	lower := strings.ToLower(name)
+	if strings.HasSuffix(lower, ".txt") || strings.HasSuffix(lower, ".patch") || strings.HasSuffix(lower, ".log") {
+		return "text/plain"
+	}
+	if len(data) == 0 {
+		return "application/octet-stream"
+	}
+	return http.DetectContentType(data)
+}
+
+// rehostImages downloads each image attachment and returns them as files
+// suitable for re-uploading to the log channel. Returns ancillary "notes"
+// the caller appends to the log message body (one per failed/oversized
+// download). Non-image attachments are skipped silently.
+func (m *Module) rehostImages(attachments []*discordgo.MessageAttachment) ([]fileSpec, []string) {
+	if len(attachments) == 0 || m.fetchImage == nil {
+		return nil, nil
+	}
+	var files []fileSpec
+	var notes []string
+	for _, a := range attachments {
+		if a == nil || !isImageAttachment(a) {
+			continue
+		}
+		if a.Size > maxAttachmentBytes {
+			notes = append(notes, fmt.Sprintf("⚠️ Image `%s` not re-hosted (%d bytes exceeds %d-byte cap).", a.Filename, a.Size, maxAttachmentBytes))
+			continue
+		}
+		data, err := m.fetchImage(a.URL, maxAttachmentBytes)
+		if err != nil {
+			notes = append(notes, fmt.Sprintf("⚠️ Image `%s` not re-hosted: %v.", a.Filename, err))
+			continue
+		}
+		files = append(files, fileSpec{name: a.Filename, content: data})
+	}
+	return files, notes
+}
+
+// isImageAttachment reports whether the given attachment is an image (by
+// content-type, falling back to extension).
+func isImageAttachment(a *discordgo.MessageAttachment) bool {
+	if strings.HasPrefix(strings.ToLower(a.ContentType), "image/") {
+		return true
+	}
+	lower := strings.ToLower(a.Filename)
+	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic", ".avif"} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultFetchImage is the production implementation of the fetchImage
+// hook. Performs a single GET with a short timeout, validates that the
+// response looks like an image, and reads at most maxBytes.
+func defaultFetchImage(url string, maxBytes int) ([]byte, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	}
+	ct := strings.ToLower(resp.Header.Get("Content-Type"))
+	if ct != "" && !strings.HasPrefix(ct, "image/") {
+		return nil, fmt.Errorf("not an image: %s", ct)
+	}
+	// Read up to maxBytes+1 so we can detect oversize.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBytes)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxBytes {
+		return nil, fmt.Errorf("image exceeds %d bytes", maxBytes)
+	}
+	return body, nil
 }

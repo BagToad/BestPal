@@ -58,6 +58,12 @@ func (c *Config) GetGamerPalsVoiceSyncCategoryID() string {
 	return c.v.GetString("gamerpals_voice_sync_category_id")
 }
 
+// GetGamerPals1984LogChannelID returns the channel ID where the 1984 module
+// posts message activity logs (creates, edits, deletes, reactions).
+func (c *Config) GetGamerPals1984LogChannelID() string {
+	return c.v.GetString("gamerpals_1984_log_channel_id")
+}
+
 // LFG Looking NOW panel channel ID (persisted so panel survives restarts)
 func (c *Config) GetLFGNowPanelChannelID() string {
 	return c.v.GetString("gamerpals_lfg_now_panel_channel_id")

@@ -162,6 +162,7 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"lfg_now_role_id", true},                          // Harmless ID
 		{"lfg_now_role_duration", true},                    // Duration setting
 		{"gamerpals_voice_sync_category_id", true},         // Harmless ID
+		{"gamerpals_1984_log_channel_id", true},            // Harmless ID
 		{"intro_feed_channel_id", true},                    // Harmless ID
 		{"intro_feed_rate_limit_hours", true},              // Duration setting
 		{"event_feed_channel_id", true},                    // Harmless ID
@@ -172,7 +173,7 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"new_pals_time_between_welcome_messages", true},   // Duration setting
 		{"database_path", true},                            // File path
 		{"log_dir", true},                                  // Directory path
-		{"translate_language", true},                        // Translate style
+		{"translate_language", true},                       // Translate style
 	}
 
 	// Format the keys into a readable list

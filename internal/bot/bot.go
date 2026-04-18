@@ -13,6 +13,7 @@ import (
 
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/intro"
+	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -50,6 +51,13 @@ func New(cfg *config.Config) (*Bot, error) {
 	// Set intents - we need guild, member, message, message content, direct message, message reaction, and guild scheduled event intents
 	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildScheduledEvents
 
+	// Enable per-channel message caching so the 1984 module can show the
+	// "before" version of edited and deleted messages. discordgo populates
+	// MessageUpdate.BeforeUpdate / MessageDelete.BeforeDelete from this cache.
+	if session.State != nil {
+		session.State.MaxMessageCount = 500
+	}
+
 	// Add event handlers
 	session.AddHandler(bot.onReady)
 
@@ -61,6 +69,20 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		events.OnMessageCreate(s, m, cfg)
 	})
+
+	// 1984 module - surveillance/audit logging across all channels.
+	if mod, ok := handler.GetModule("1984").(*nineteeneightyfour.Module); ok {
+		session.AddHandler(mod.OnMessageCreate)
+		session.AddHandler(mod.OnMessageUpdate)
+		session.AddHandler(mod.OnMessageDelete)
+		session.AddHandler(mod.OnMessageReactionAdd)
+		session.AddHandler(mod.OnMessageReactionRemove)
+		session.AddHandler(mod.OnChannelCreate)
+		session.AddHandler(mod.OnChannelUpdate)
+		// Raw event handler catches gateway events that discordgo doesn't
+		// model as typed events (e.g. VOICE_CHANNEL_STATUS_UPDATE).
+		session.AddHandler(mod.OnRawEvent)
+	}
 	session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		events.OnChannelUpdate(s, c, cfg)
 	})

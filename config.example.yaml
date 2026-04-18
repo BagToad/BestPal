@@ -39,6 +39,11 @@ intro_feed_rate_limit_hours: 48
 # "random" will pick a random language each time.
 translate_language: "random"
 
+# 1984 Module - message activity logging
+# Channel where every message create/edit/delete and reaction add/remove is logged.
+# Leave empty to disable the module.
+gamerpals_1984_log_channel_id: ""
+
 # Voice Channel Permission Sync
 # When @everyone Connect is denied on voice channels in this category,
 # also deny View Channel (and vice versa for allowing)

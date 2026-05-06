@@ -195,19 +195,19 @@ func bindEnvs(v *viper.Viper) error {
 // validateConfig validates that all required configuration fields are present
 func validateConfig(cfg *Config) error {
 	if cfg.v.GetString("bot_token") == "" {
-		return fmt.Errorf("bot_token is required (set DISCORD_BOT_TOKEN or GAMERPAL_BOT_TOKEN environment variable)")
+		return fmt.Errorf("bot_token is required (set GAMERPAL_BOT_TOKEN environment variable)")
 	}
 
 	if cfg.v.GetString("igdb_client_id") == "" {
-		cfg.Logger.Warn("igdb_client_id is not set (set IGDB_CLIENT_ID or GAMERPAL_IGDB_CLIENT_ID environment variable)")
+		cfg.Logger.Warn("igdb_client_id is not set (set GAMERPAL_IGDB_CLIENT_ID environment variable)")
 	}
 
 	if cfg.v.GetString("igdb_client_secret") == "" {
-		cfg.Logger.Warn("igdb_client_secret is not set (set IGDB_CLIENT_SECRET or GAMERPAL_IGDB_CLIENT_SECRET environment variable)")
+		cfg.Logger.Warn("igdb_client_secret is not set (set GAMERPAL_IGDB_CLIENT_SECRET environment variable)")
 	}
 
 	if cfg.v.GetString("igdb_client_token") == "" {
-		cfg.Logger.Warn("igdb_client_token is not set (set IGDB_CLIENT_TOKEN or GAMERPAL_IGDB_CLIENT_TOKEN environment variable)")
+		cfg.Logger.Warn("igdb_client_token is not set (set GAMERPAL_IGDB_CLIENT_TOKEN environment variable)")
 	}
 
 	return nil

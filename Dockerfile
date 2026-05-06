@@ -22,18 +22,9 @@ WORKDIR /gamerpal
 
 RUN chown 1000:1000 .
 
-# Some of if not all of the non "gamerpal" pal variants don't seem to exist anymore but terminal outputs makes it seem like they might?
-ENV DISCORD_BOT_TOKEN=""
 ENV GAMERPAL_BOT_TOKEN=""
-
 ENV IGDB_CLIENT_SECRET=""
-ENV GAMERPAL_IGDB_CLIENT_SECRET=""
-
 ENV IGDB_CLIENT_TOKEN=""
-ENV GAMERPAL_IGDB_CLIENT_TOKEN=""
-
-# Does "LOG_DIR" exist?
-ENV LOG_DIR=""
 ENV GAMERPAL_LOG_DIR=""
 
 ENTRYPOINT [ "/app/gamerpal" ]

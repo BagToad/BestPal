@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 func (c *Config) GetBotToken() string {
 	return c.v.GetString("bot_token")
@@ -101,6 +104,22 @@ func (c *Config) GetNewPalsTimeBetweenWelcomeMessages() time.Duration {
 
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
+
+	// When viper reads a string slice from an env var (e.g.
+	// GAMERPAL_SUPER_ADMINS=id1,id2,id3), it returns a single-element slice
+	// containing the raw comma-separated string. Split it ourselves so env-
+	// driven and YAML-driven config behave the same.
+	if len(superAdmins) == 1 && strings.Contains(superAdmins[0], ",") {
+		parts := strings.Split(superAdmins[0], ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+		superAdmins = out
+	}
+
 	if len(superAdmins) == 0 {
 		return nil
 	}

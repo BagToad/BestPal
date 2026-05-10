@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -36,13 +37,15 @@ func NewConfig() (*Config, error) {
 		l.Warnf("error reading config file: %v\nContinuing with envs...", err)
 	}
 
-	// Bind environment variables
-	err := bindEnvs(v)
-	if err != nil {
-		// If env binding also fails, we'll basically have no config
-		// and need to exit at this point.
-		return nil, fmt.Errorf("error binding environment variables: %w", err)
-	}
+	// Bind environment variables.
+	//
+	// AutomaticEnv with the GAMERPAL_ prefix means any config key read via
+	// v.Get*("foo_bar") also checks the GAMERPAL_FOO_BAR environment
+	// variable. New config keys "just work" without needing to be added to
+	// an explicit binding list.
+	v.SetEnvPrefix("GAMERPAL")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
 
 	// Always log to stderr; optionally also tee to a rotating log file.
 	writers := []io.Writer{os.Stderr}
@@ -179,28 +182,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database_path", "./gamerpal.db")
 	v.SetDefault("translate_language", "random")
 	v.SetDefault("disable_file_logging", false)
-}
-
-// bindEnvs binds environment variables to viper keys
-func bindEnvs(v *viper.Viper) error {
-	bindings := []struct {
-		key string
-		env string
-	}{
-		{"bot_token", "GAMERPAL_BOT_TOKEN"},
-		{"igdb_client_id", "GAMERPAL_IGDB_CLIENT_ID"},
-		{"igdb_client_secret", "GAMERPAL_IGDB_CLIENT_SECRET"},
-		{"igdb_client_token", "GAMERPAL_IGDB_CLIENT_TOKEN"},
-		{"log_dir", "GAMERPAL_LOG_DIR"},
-		{"disable_file_logging", "GAMERPAL_DISABLE_FILE_LOGGING"},
-	}
-
-	for _, binding := range bindings {
-		if err := v.BindEnv(binding.key, binding.env); err != nil {
-			return fmt.Errorf("error binding %s environment variable: %w", binding.key, err)
-		}
-	}
-	return nil
 }
 
 // validateConfig validates that all required configuration fields are present

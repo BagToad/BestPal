@@ -116,6 +116,13 @@ func (c *Config) GetLogDir() string {
 	return c.v.GetString("log_dir")
 }
 
+// GetDisableFileLogging returns true when the bot should only log to stderr
+// and skip writing/rotating timestamped log files. Useful in containerized
+// deployments where stdout/stderr is captured by the platform.
+func (c *Config) GetDisableFileLogging() bool {
+	return c.v.GetBool("disable_file_logging")
+}
+
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
 	if err := c.v.WriteConfig(); err != nil {

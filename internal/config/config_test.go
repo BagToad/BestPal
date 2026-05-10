@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -36,5 +38,25 @@ func TestLoad(t *testing.T) {
 
 		_, err := NewConfig()
 		require.NoError(t, err)
+	})
+
+	t.Run("disable file logging skips log file creation", func(t *testing.T) {
+		cleanDir := t.TempDir()
+		t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
+		t.Setenv("GAMERPAL_LOG_DIR", cleanDir)
+		t.Setenv("GAMERPAL_DISABLE_FILE_LOGGING", "true")
+
+		cfg, err := NewConfig()
+		require.NoError(t, err)
+		require.True(t, cfg.GetDisableFileLogging())
+
+		require.NoError(t, cfg.RotateAndPruneLogs())
+
+		entries, err := os.ReadDir(cleanDir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			require.False(t, strings.HasPrefix(e.Name(), "gamerpal_"),
+				"unexpected log file %q created when file logging was disabled", e.Name())
+		}
 	})
 }

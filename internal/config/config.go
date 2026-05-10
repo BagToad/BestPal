@@ -44,20 +44,23 @@ func NewConfig() (*Config, error) {
 		return nil, fmt.Errorf("error binding environment variables: %w", err)
 	}
 
-	newLogFile, err := newLogFile(v.GetString("log_dir"))
-	if err != nil {
-		// I've decided to make this fatal because I want
-		// to know if that's an issue.
-		return nil, fmt.Errorf("failed to create log file: %w", err)
-	}
+	// Always log to stderr; optionally also tee to a rotating log file.
+	writers := []io.Writer{os.Stderr}
+	if !v.GetBool("disable_file_logging") {
+		newLogFile, err := newLogFile(v.GetString("log_dir"))
+		if err != nil {
+			// I've decided to make this fatal because I want
+			// to know if that's an issue.
+			return nil, fmt.Errorf("failed to create log file: %w", err)
+		}
 
-	if err := pruneOldLogFiles(v.GetString("log_dir")); err != nil {
-		// This too. I've decided to make it fatal.
-		return nil, fmt.Errorf("failed to prune old log files: %w", err)
+		if err := pruneOldLogFiles(v.GetString("log_dir")); err != nil {
+			// This too. I've decided to make it fatal.
+			return nil, fmt.Errorf("failed to prune old log files: %w", err)
+		}
+		writers = append(writers, newLogFile)
 	}
-
-	// Log both to a file and to stderr
-	w := io.MultiWriter(os.Stderr, newLogFile)
+	w := io.MultiWriter(writers...)
 
 	newCfg := &Config{
 		v: v,
@@ -104,6 +107,12 @@ func newLogFile(dir string) (*os.File, error) {
 }
 
 func (c *Config) RotateAndPruneLogs() error {
+	if c.v.GetBool("disable_file_logging") {
+		// File logging is disabled (e.g. when running in a container that
+		// forwards stdout to a log aggregator), so there's nothing to rotate.
+		return nil
+	}
+
 	// First rotate the log file
 	newLogFile, err := newLogFile(c.v.GetString("log_dir"))
 	if err != nil {
@@ -169,6 +178,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log_dir", "./logs")
 	v.SetDefault("database_path", "./gamerpal.db")
 	v.SetDefault("translate_language", "random")
+	v.SetDefault("disable_file_logging", false)
 }
 
 // bindEnvs binds environment variables to viper keys
@@ -182,6 +192,7 @@ func bindEnvs(v *viper.Viper) error {
 		{"igdb_client_secret", "GAMERPAL_IGDB_CLIENT_SECRET"},
 		{"igdb_client_token", "GAMERPAL_IGDB_CLIENT_TOKEN"},
 		{"log_dir", "GAMERPAL_LOG_DIR"},
+		{"disable_file_logging", "GAMERPAL_DISABLE_FILE_LOGGING"},
 	}
 
 	for _, binding := range bindings {

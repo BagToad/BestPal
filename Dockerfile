@@ -1,32 +1,30 @@
-FROM golang:1.26 AS build
+# syntax=docker/dockerfile:1.6
+
+# ---------- build stage ----------
+FROM golang:1.26-bookworm AS build
 
 WORKDIR /build
 
-RUN git clone https://github.com/BagToad/BestPal.git && \
-    cd BestPal && \
-    make build-all
-    
-RUN mkdir -p /build/logs
+# Cache module downloads in a separate layer keyed only on go.mod/go.sum
+# so editing source files doesn't re-download everything.
+COPY go.mod go.sum ./
+RUN go mod download
 
+# Build the static linux/amd64 binary using the Makefile target.
+COPY . .
+RUN make build-linux-amd64
+
+# ---------- runtime stage ----------
 FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /home/nonroot
 
-COPY --from=build --chown=65532:65532 --chmod=755 /build/BestPal/bin/gamerpal-linux-amd64 /home/nonroot/gamerpal
-COPY --from=build --chown=65532:65532 --chmod=644 /build/logs /home/nonroot/logs
+COPY --from=build --chown=65532:65532 /build/bin/gamerpal-linux-amd64 /home/nonroot/gamerpal
 
-VOLUME /home/nonroot/logs
+# Defaults tuned for container deployments:
+# - Log to stdout (captured by the host platform), not to a rotating file.
+# - Persist the SQLite database under /data so it can live on a mounted volume.
+ENV GAMERPAL_DISABLE_FILE_LOGGING=true
+ENV GAMERPAL_DATABASE_PATH=/data/gamerpal.db
 
-ENV GAMERPAL_BOT_TOKEN=""
-ENV GAMERPAL_IGDB_CLIENT_SECRET=""
-ENV GAMERPAL_IGDB_CLIENT_TOKEN=""
-ENV GAMERPAL_LOG_DIR=""
-
-# Time zone if logs have the wrong time.
-ENV TZ=""
-
-ENTRYPOINT [ "/home/nonroot/gamerpal" ]
-
-# Optional health check needs testing though. (If the bot dies it's likely the Docker container will just exit anyways.)
-# HEALTHCHECK --interval=60s --timeout=30s --retries=5 \
-#  CMD pgrep gamerpal || exit 1
+ENTRYPOINT ["/home/nonroot/gamerpal"]

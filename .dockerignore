@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+.idea
+bin
+logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+config.yaml
+node_modules
+.DS_Store

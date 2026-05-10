@@ -1,8 +1,6 @@
 module gamerpal
 
-go 1.24.1
-
-toolchain go1.24.4
+go 1.26.3
 
 require (
 	github.com/Henry-Sarabia/igdb/v2 v2.0.0-alpha.4

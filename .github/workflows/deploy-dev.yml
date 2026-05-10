@@ -34,7 +34,7 @@ jobs:
       run: make test
       
     - name: Build for all platforms
-      run: make build-all
+      run: make build-linux-amd64
       
     - name: Setup SSH key
       run: |

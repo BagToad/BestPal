@@ -9,5 +9,7 @@ logs
 *.sqlite3
 *.log
 config.yaml
+.env
+.env.*
 node_modules
 .DS_Store

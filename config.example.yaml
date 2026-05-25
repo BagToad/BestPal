@@ -1,57 +1,167 @@
 # Example configuration file for GamerPal
-# Copy this to config.yaml and fill in your values
+#
+# Copy this to config.yaml and fill in your values, or set the equivalent
+# environment variables (see below).
+#
+# Environment variable convention
+# -------------------------------
+# Every key in this file can also be set via an environment variable. The
+# name is the YAML key uppercased with the "GAMERPAL_" prefix.
+#
+#   bot_token                              -> GAMERPAL_BOT_TOKEN
+#   gamerpals_server_id                    -> GAMERPAL_GAMERPALS_SERVER_ID
+#   intro_feed_rate_limit_hours            -> GAMERPAL_INTRO_FEED_RATE_LIMIT_HOURS
+#   disable_file_logging                   -> GAMERPAL_DISABLE_FILE_LOGGING
+#
+# Environment variables take precedence over values in config.yaml. This is
+# how the containerized deployment (Azure Container Apps) is wired: secrets
+# go into Container App secrets, non-secret config goes into env vars, and
+# no config.yaml is shipped in the image.
+#
+# Slice values (currently just super_admins) accept a comma-separated string
+# when set via env var:
+#
+#   GAMERPAL_SUPER_ADMINS="111111111111111111,222222222222222222"
+#
+# Duration values accept Go duration strings: "24h", "48h", "30m", "5s".
 
-# Discord Bot Configuration
+# ----------------------------------------------------------------------------
+# Secrets
+# ----------------------------------------------------------------------------
+# In production these should be stored as platform secrets (e.g. Azure
+# Container App secrets) and injected into the container as env vars, not
+# committed to config.yaml.
+
+# Discord bot token
 bot_token: "your-discord-bot-token-here"
 
-# IGDB API Configuration
+# IGDB API credentials (game metadata)
 igdb_client_id: "your-igdb-client-id-here"
 igdb_client_secret: "your-igdb-client-secret-here"
 igdb_client_token: "your-igdb-client-token-here"
 
-# For sort of random names in /say
+# Random salt used by the /say command for deterministic-ish name picking
 crypto_salt: "something-random"
 
-# Super admins. Replace with actual user IDs.
+# GitHub Models API token (used by AI-powered commands). Optional; leave
+# empty to disable those commands.
+github_models_token: ""
+
+# ----------------------------------------------------------------------------
+# Administration
+# ----------------------------------------------------------------------------
+
+# Discord user IDs that can run super-admin-only commands.
+# YAML: one ID per list entry. Env: comma-separated string.
 super_admins:
   - "user_id_1"
 
-# GamerPals server configuration
+# ----------------------------------------------------------------------------
+# Server (guild) configuration
+# ----------------------------------------------------------------------------
+
+# The Discord guild (server) ID this bot is operating in.
 gamerpals_server_id: "your-server-id-here"
+
+# Channel where moderator actions (bans, kicks, timeouts, etc.) are logged.
 gamerpals_mod_action_log_channel_id: "your-mod-log-channel-id-here"
+
+# General bot log channel (separate from mod action log).
+gamerpals_log_channel_id: ""
+
+# Category under which the bot creates pairing voice channels.
 gamerpals_pairing_category_id: "your-pairing-category-id-here"
+
+# Forum channel where new member introductions are posted.
 gamerpals_introductions_forum_channel_id: "your-introductions-forum-channel-id-here"
+
+# Channel for help desk / support requests. Leave empty to disable.
+gamerpals_help_desk_channel_id: ""
+
+# Forum channel for LFG (Looking For Group) posts.
 gamerpals_lfg_forum_channel_id: "your-lfg-forum-channel-id-here"
 
-# Event Feed Configuration
-# When a new scheduled event is created, it is forwarded to this channel
-event_feed_channel_id: "your-event-feed-channel-id-here"
-
-# Introduction Feed Configuration
-# When a new intro is posted, it can be forwarded to a dedicated channel
-intro_feed_channel_id: "your-intro-feed-channel-id-here"
-# Hours between allowed feed posts per user (prevents spam from delete+repost)
-intro_feed_rate_limit_hours: 48
-
-# Translate Command Configuration
-# Controls which language style the "Translate" context menu command uses.
-# Options: "caveman", "gen_alpha", "old_man", "80s", "high_society", "random"
-# "random" will pick a random language each time.
-translate_language: "random"
-
-# 1984 Module - message activity logging
-# Channel where every message create/edit/delete and reaction add/remove is logged.
-# Leave empty to disable the module.
-gamerpals_1984_log_channel_id: ""
-
-# Voice Channel Permission Sync
-# When @everyone Connect is denied on voice channels in this category,
-# also deny View Channel (and vice versa for allowing)
+# Voice category where allow/deny on @everyone Connect is mirrored to View Channel.
 gamerpals_voice_sync_category_id: "your-category-id-here"
 
-# Logging
-# When true, the bot only logs to stderr and skips writing rotating log files
-# under log_dir. Intended for containerized deployments where stdout is captured
-# by the host platform (e.g. Azure Container Apps -> Log Analytics).
-# Can also be set via GAMERPAL_DISABLE_FILE_LOGGING=true.
+# 1984 module: channel where every message create/edit/delete and reaction
+# add/remove is logged. Leave empty to disable the module.
+gamerpals_1984_log_channel_id: ""
+
+# Channel hosting the persistent "Looking NOW" panel (so it survives restarts).
+gamerpals_lfg_now_panel_channel_id: ""
+
+# ----------------------------------------------------------------------------
+# LFG Looking NOW
+# ----------------------------------------------------------------------------
+
+# Role granted to users who press "Looking NOW".
+lfg_now_role_id: ""
+
+# How long the role is kept before being auto-removed (Go duration).
+lfg_now_role_duration: "2h"
+
+# ----------------------------------------------------------------------------
+# Event Feed
+# ----------------------------------------------------------------------------
+
+# When a new scheduled event is created, it is forwarded to this channel.
+event_feed_channel_id: "your-event-feed-channel-id-here"
+
+# ----------------------------------------------------------------------------
+# Introduction Feed
+# ----------------------------------------------------------------------------
+
+# When a new intro is posted, forward it to this channel. Leave empty to
+# disable.
+intro_feed_channel_id: "your-intro-feed-channel-id-here"
+
+# Hours between allowed feed posts per user (prevents spam from delete+repost).
+intro_feed_rate_limit_hours: 48
+
+# ----------------------------------------------------------------------------
+# New Pals system
+# ----------------------------------------------------------------------------
+
+# Master switch for the new-pals onboarding system.
+new_pals_system_enabled: false
+
+# Role granted to brand-new members.
+new_pals_role_id: ""
+
+# Channel where the welcome message is posted.
+new_pals_channel_id: ""
+
+# How long to keep the new-pals role after joining (Go duration, e.g. "168h").
+new_pals_keep_role_duration: "168h"
+
+# Minimum time between welcome messages for the same user (Go duration).
+new_pals_time_between_welcome_messages: "24h"
+
+# ----------------------------------------------------------------------------
+# Translate command
+# ----------------------------------------------------------------------------
+
+# Controls which language style the "Translate" context menu command uses.
+# Options: "caveman", "gen_alpha", "old_man", "80s", "high_society", "random"
+# "random" picks a random language each time.
+translate_language: "random"
+
+# ----------------------------------------------------------------------------
+# Storage and logging
+# ----------------------------------------------------------------------------
+
+# SQLite database path. Default: "./gamerpal.db".
+# In the container image this is overridden to "/data/gamerpal.db" so it
+# lives on the mounted persistent volume.
+database_path: "./gamerpal.db"
+
+# Directory for rotating log files. Default: "./logs". Ignored when
+# disable_file_logging is true.
+log_dir: "./logs"
+
+# When true, the bot only logs to stderr and skips writing rotating log
+# files under log_dir. Intended for containerized deployments where stdout
+# is captured by the host platform (e.g. Azure Container Apps -> Log
+# Analytics). The container image sets this to true by default.
 disable_file_logging: false

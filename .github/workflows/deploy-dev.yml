@@ -1,90 +1,101 @@
 name: Deploy to Development
 
+# Triggered when the `deploy-dev` label is applied to a pull request, or
+# manually via the Actions UI / `gh workflow run` for testing.
+#
+# Builds the container image from the PR head (or dispatched ref),
+# pushes it to ghcr.io/<owner>/bestpal:dev, and rolls out the dev
+# Container App.
+
 on:
   pull_request_target:
     types: [labeled]
+  workflow_dispatch: {}
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: deploy-dev
   cancel-in-progress: false
 
 jobs:
-  deploy-dev:
-    if: contains(github.event.label.name, 'deploy-dev')
+  deploy:
+    name: Build, push, and deploy
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request_target' && github.event.label.name == 'deploy-dev')
     runs-on: ubuntu-latest
     environment: dev
-    
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.pull_request.head.sha }}
-      
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: 'go.mod'
-      
-    - name: Run tests
-      run: make test
-      
-    - name: Build for all platforms
-      run: make build-all
-      
-    - name: Setup SSH key
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H ${{ secrets.BOT_HOST }} >> ~/.ssh/known_hosts
-        
-    - name: Deploy to development
-      run: |
-        # Stop the dev service before deploying
-        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl stop bestpal-dev.service"
-        
-        # Copy binary to development server
-        scp -i ~/.ssh/id_rsa bin/gamerpal-linux-amd64 ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }}:/opt/bestpal/dev/bestpal
-        
-        # Restart the dev service
-        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl restart bestpal-dev.service"
-        
-    - name: Verify deployment
-      run: |
-        # Check if dev service is running
-        ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl status bestpal-dev.service --no-pager"
-        
-    - name: Remove deploy-dev label
-      if: ${{ !cancelled() }}
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        gh pr edit ${{ github.event.pull_request.number }} --remove-label "deploy-dev" || echo "Failed to remove label!"
-        
-    - name: Add deployment status comment
-      if: ${{ !cancelled() }}
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        if [ "${{ job.status }}" = "success" ]; then
-          EMOJI="✅"
-          MESSAGE="succeeded"
-        else
-          EMOJI="❌"
-          MESSAGE="failed"
-        fi
-        
-        COMMENT="${EMOJI} Development deployment ${MESSAGE}!
+      # SECURITY-CRITICAL: trust boundary.
+      #
+      # This checkout MUST NOT pass `ref:`. On pull_request_target the
+      # default is the base SHA, which is trusted code. The next step
+      # (uses: ./.github/actions/deploy-aca) loads action.yml from the
+      # tree this checkout produces; if a PR-head checkout happened here
+      # first, the malicious PR's action.yml would run with this job's
+      # full privileges (id-token: write, packages: write).
+      #
+      # The composite action itself re-checks out at the PR head SHA
+      # internally, only for the build step.
+      - name: Checkout (action loader)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
-        [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-        
-        On successful deployments, you'll need to wait a moment for the bot to fully boot up AND refresh/reload your Discord client if you see a message about invalid integration ID.
+      - name: Deploy to Azure Container Apps
+        uses: ./.github/actions/deploy-aca
+        with:
+          image-tag: dev
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          aca-resource-group: ${{ vars.ACA_RESOURCE_GROUP }}
+          aca-app-name: ${{ vars.ACA_APP_NAME }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-        Thanks!"
-        
-        gh pr comment ${{ github.event.pull_request.number }} --body "$COMMENT"
+  post-deploy:
+    needs: deploy
+    if: >-
+      always() &&
+      github.event_name == 'pull_request_target' &&
+      github.event.label.name == 'deploy-dev'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Remove deploy-dev label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "deploy-dev" || echo "Failed to remove label!"
+
+      - name: Comment on PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            EMOJI="✅"
+            MESSAGE="succeeded"
+          else
+            EMOJI="❌"
+            MESSAGE="failed"
+          fi
+
+          COMMENT="${EMOJI} Development deployment to Azure Container Apps ${MESSAGE}.
+
+          [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          Give the container a moment to pull the new image and start, then refresh your Discord client if you see an invalid integration ID message."
+
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "$COMMENT" || echo "Failed to post PR comment"

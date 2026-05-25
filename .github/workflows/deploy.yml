@@ -1,54 +1,55 @@
 name: Deploy to Production
 
-permissions:
-  contents: read
+# Triggered on pushes to main that touch code, container, or workflow files.
+# Builds the container image, pushes it to ghcr.io/<owner>/bestpal:prod,
+# and rolls out the production Container App.
 
 on:
   push:
     branches:
       - main
     paths:
-      - "**/*.go"
+      # Include any source-tree path that affects the built binary or container,
+      # not just *.go, so embedded assets (//go:embed *.gif etc.) also trigger.
+      - "cmd/**"
+      - "internal/**"
       - "go.mod"
       - "go.sum"
       - "Makefile"
       - "Dockerfile"
-  workflow_dispatch:
+      - ".dockerignore"
+      - ".github/workflows/deploy*.yml"
+      - ".github/actions/deploy-aca/**"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    name: Build, push, and deploy
     runs-on: ubuntu-latest
     environment: production
-
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Checkout (action loader)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          go-version-file: "go.mod"
+          persist-credentials: false
 
-      - name: Run tests
-        run: make test
-
-      - name: Build for all platforms
-        run: make build-all
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.BOT_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Deploy to production
-        run: |
-          # stop the service before deploying
-          ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl stop bestpal.service"
-
-          # Copy binary to production server
-          scp -i ~/.ssh/id_rsa bin/gamerpal-linux-amd64 ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }}:/opt/bestpal/production/bestpal
-
-          # Restart the service
-          ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl restart bestpal.service"
+      - name: Deploy to Azure Container Apps
+        uses: ./.github/actions/deploy-aca
+        with:
+          image-tag: prod
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          aca-resource-group: ${{ vars.ACA_RESOURCE_GROUP }}
+          aca-app-name: ${{ vars.ACA_APP_NAME }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"os"
+	"strings"
+	"time"
+)
 
 func (c *Config) GetBotToken() string {
 	return c.v.GetString("bot_token")
@@ -101,10 +105,29 @@ func (c *Config) GetNewPalsTimeBetweenWelcomeMessages() time.Duration {
 
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
-	if len(superAdmins) == 0 {
+
+	// When the value comes from an env var (GAMERPAL_SUPER_ADMINS=id1,id2,id3),
+	// viper returns a single-element slice containing the raw CSV string and
+	// we have to split it ourselves. We gate this on the env var actually
+	// being set so a single YAML element that happens to contain a literal
+	// comma is not silently turned into multiple entries.
+	if _, fromEnv := os.LookupEnv("GAMERPAL_SUPER_ADMINS"); fromEnv && len(superAdmins) == 1 {
+		superAdmins = strings.Split(superAdmins[0], ",")
+	}
+
+	// Trim every element regardless of source. This normalizes " id " from
+	// YAML and "id1, id2" from env to the same shape, and drops empty
+	// entries left over from trailing/duplicate commas.
+	out := make([]string, 0, len(superAdmins))
+	for _, s := range superAdmins {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	return superAdmins
+	return out
 }
 
 func (c *Config) GetDatabasePath() string {
@@ -114,6 +137,13 @@ func (c *Config) GetDatabasePath() string {
 
 func (c *Config) GetLogDir() string {
 	return c.v.GetString("log_dir")
+}
+
+// GetDisableFileLogging returns true when the bot should only log to stderr
+// and skip writing/rotating timestamped log files. Useful in containerized
+// deployments where stdout/stderr is captured by the platform.
+func (c *Config) GetDisableFileLogging() bool {
+	return c.v.GetBool("disable_file_logging")
 }
 
 func (c *Config) Set(key string, value interface{}) {

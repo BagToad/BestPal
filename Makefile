@@ -15,7 +15,7 @@ BINARY_PATH=./bin/$(BINARY_NAME)
 # Main package path
 MAIN_PATH=./cmd/gamerpal
 
-.PHONY: all build clean test run help
+.PHONY: all build clean test run help build-linux-amd64
 
 # Default target
 all: clean build
@@ -42,14 +42,13 @@ run:
 	@echo "Starting $(BINARY_NAME)..."
 	$(GOCMD) run $(MAIN_PATH)
 
-# Build for multiple platforms
-build-all:
-	@echo "Building for multiple platforms..."
+# Build a fully-static linux/amd64 binary suitable for distroless/static
+# and used by the deploy workflows. CGO is required by the mattn/go-sqlite3
+# driver, so we link statically against the host C library.
+build-linux-amd64:
+	@echo "Building $(BINARY_NAME) for linux/amd64..."
 	@mkdir -p bin
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GOBUILD) -a -ldflags '-linkmode external -extldflags "-static"' -o bin/$(BINARY_NAME)-linux-amd64 $(MAIN_PATH)
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) -o bin/$(BINARY_NAME)-darwin-amd64 $(MAIN_PATH)
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOBUILD) -o bin/$(BINARY_NAME)-darwin-arm64 $(MAIN_PATH)
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GOBUILD) -o bin/$(BINARY_NAME)-windows-amd64.exe $(MAIN_PATH)
 
 # Show help
 help:
@@ -58,5 +57,5 @@ help:
 	@echo "  clean       - Clean build artifacts"
 	@echo "  test        - Run tests"
 	@echo "  run         - Build and run the application"
-	@echo "  build-all   - Build for multiple platforms"
+	@echo "  build-linux-amd64 - Build a static linux/amd64 binary (used by Dockerfile and deploy workflows)"
 	@echo "  help        - Show this help message"

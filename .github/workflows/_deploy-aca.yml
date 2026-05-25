@@ -44,15 +44,6 @@ jobs:
           # from exfiltrating the token via the docker build context.
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run tests
-        run: go test ./... -count=1
-
       - name: Compute image name
         id: img
         env:

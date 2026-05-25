@@ -23,6 +23,10 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_target' && github.event.label.name == 'deploy-dev')
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     uses: ./.github/workflows/_deploy-aca.yml
     with:
       environment: dev

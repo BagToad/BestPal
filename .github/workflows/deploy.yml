@@ -30,6 +30,10 @@ concurrency:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     uses: ./.github/workflows/_deploy-aca.yml
     with:
       environment: production

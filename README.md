@@ -52,7 +52,6 @@ Single‑guild by design (`config.yaml` holds IDs).
 |---------|-------------|
 | `/config` | View / modify bot configuration |
 | `/refresh-igdb` | Refresh IGDB API token |
-| `/log` | Retrieve / manage bot logs |
 
 ### Service / Background Modules (No direct slash commands)
 | Module | Purpose |

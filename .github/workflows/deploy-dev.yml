@@ -12,12 +12,7 @@ on:
     types: [labeled]
   workflow_dispatch: {}
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-  pull-requests: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: deploy-dev
@@ -74,4 +69,4 @@ jobs:
 
           gh pr comment ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \
-            --body "$COMMENT"
+            --body "$COMMENT" || echo "Failed to post PR comment"

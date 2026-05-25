@@ -9,7 +9,10 @@ on:
     branches:
       - main
     paths:
-      - "**/*.go"
+      # Include any source-tree path that affects the built binary or container,
+      # not just *.go, so embedded assets (//go:embed *.gif etc.) also trigger.
+      - "cmd/**"
+      - "internal/**"
       - "go.mod"
       - "go.sum"
       - "Makefile"
@@ -19,10 +22,7 @@ on:
       - ".github/workflows/_deploy-aca.yml"
   workflow_dispatch: {}
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: deploy-prod

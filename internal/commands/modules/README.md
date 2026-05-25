@@ -21,7 +21,6 @@ Each module encapsulates:
 | **refreshigdb** | `/refresh-igdb` | Simple | IGDB token refresh |
 | **game** | `/game` | Medium | IGDB game search |
 | **userstats** | `/userstats` | Medium | Server statistics |
-| **log** | `/log` | Medium | Log file management |
 | **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
 | **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |
 | **roulette** | `/roulette`, `/roulette-admin` | Advanced | Pairing service integration |

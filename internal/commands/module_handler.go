@@ -10,7 +10,6 @@ import (
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
-	"gamerpal/internal/commands/modules/log"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/ping"
 	"gamerpal/internal/commands/modules/poll"
@@ -95,7 +94,6 @@ func (h *ModuleHandler) registerModules() {
 		{"refreshigdb", refreshigdb.New(h.deps)},
 		{"game", game.New(h.deps)},
 		{"userstats", userstats.New(h.deps)},
-		{"log", log.New(h.deps)},
 		{"prune", prune.New(h.deps)},
 		{"lfg", lfg.New(h.deps)},
 		{"roulette", roulette.New(h.deps)},

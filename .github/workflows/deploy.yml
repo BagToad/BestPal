@@ -1,7 +1,8 @@
 name: Deploy to Production
 
-permissions:
-  contents: read
+# Triggered on pushes to main that touch code, container, or workflow files.
+# Builds the container image, pushes it to ghcr.io/<owner>/bestpal:prod,
+# and rolls out the production Container App.
 
 on:
   push:
@@ -13,42 +14,24 @@ on:
       - "go.sum"
       - "Makefile"
       - "Dockerfile"
-  workflow_dispatch:
+      - ".dockerignore"
+      - ".github/workflows/deploy*.yml"
+      - ".github/workflows/_deploy-aca.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    environment: production
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: "go.mod"
-
-      - name: Run tests
-        run: make test
-
-      - name: Build for all platforms
-        run: make build-linux-amd64
-
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.BOT_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Deploy to production
-        run: |
-          # stop the service before deploying
-          ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl stop bestpal.service"
-
-          # Copy binary to production server
-          scp -i ~/.ssh/id_rsa bin/gamerpal-linux-amd64 ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }}:/opt/bestpal/production/bestpal
-
-          # Restart the service
-          ssh -i ~/.ssh/id_rsa ${{ vars.SSH_USER }}@${{ secrets.BOT_HOST }} "sudo systemctl restart bestpal.service"
+    uses: ./.github/workflows/_deploy-aca.yml
+    with:
+      environment: production
+      image_tag: prod
+    secrets: inherit

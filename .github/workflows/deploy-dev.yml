@@ -53,8 +53,8 @@ jobs:
           image-tag: dev
           ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || '' }}
           azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           aca-resource-group: ${{ vars.ACA_RESOURCE_GROUP }}
           aca-app-name: ${{ vars.ACA_APP_NAME }}
           github-token: ${{ secrets.GITHUB_TOKEN }}

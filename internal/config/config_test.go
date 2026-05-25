@@ -81,3 +81,38 @@ func TestLoad(t *testing.T) {
 		require.Equal(t, []string{"admin1", "admin2", "admin3"}, cfg.GetSuperAdmins())
 	})
 }
+
+func TestGetSuperAdmins(t *testing.T) {
+	// Note: the env-var CSV split path is already exercised end-to-end by
+	// TestLoad/AutomaticEnv_exposes_arbitrary_keys_via_GAMERPAL__prefix.
+	// These tests cover behaviors that path doesn't reach: YAML-style
+	// slice values (single element with a literal comma, whitespace
+	// trimming, empty slice).
+
+	t.Run("YAML slice with single element containing a comma is not split", func(t *testing.T) {
+		_, present := os.LookupEnv("GAMERPAL_SUPER_ADMINS")
+		require.False(t, present, "test pollution: GAMERPAL_SUPER_ADMINS must be unset")
+
+		cfg := NewMockConfig(map[string]interface{}{
+			"super_admins": []string{"weird,id,with,commas"},
+		})
+		require.Equal(t, []string{"weird,id,with,commas"}, cfg.GetSuperAdmins())
+	})
+
+	t.Run("YAML slice entries are trimmed and empties dropped", func(t *testing.T) {
+		_, present := os.LookupEnv("GAMERPAL_SUPER_ADMINS")
+		require.False(t, present, "test pollution: GAMERPAL_SUPER_ADMINS must be unset")
+
+		cfg := NewMockConfig(map[string]interface{}{
+			"super_admins": []string{"  admin1  ", "", "admin2", "   "},
+		})
+		require.Equal(t, []string{"admin1", "admin2"}, cfg.GetSuperAdmins())
+	})
+
+	t.Run("empty slice returns nil", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{
+			"super_admins": []string{},
+		})
+		require.Nil(t, cfg.GetSuperAdmins())
+	})
+}

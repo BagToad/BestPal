@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"time"
 )
@@ -105,25 +106,28 @@ func (c *Config) GetNewPalsTimeBetweenWelcomeMessages() time.Duration {
 func (c *Config) GetSuperAdmins() []string {
 	superAdmins := c.v.GetStringSlice("super_admins")
 
-	// When viper reads a string slice from an env var (e.g.
-	// GAMERPAL_SUPER_ADMINS=id1,id2,id3), it returns a single-element slice
-	// containing the raw comma-separated string. Split it ourselves so env-
-	// driven and YAML-driven config behave the same.
-	if len(superAdmins) == 1 && strings.Contains(superAdmins[0], ",") {
-		parts := strings.Split(superAdmins[0], ",")
-		out := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				out = append(out, trimmed)
-			}
-		}
-		superAdmins = out
+	// When the value comes from an env var (GAMERPAL_SUPER_ADMINS=id1,id2,id3),
+	// viper returns a single-element slice containing the raw CSV string and
+	// we have to split it ourselves. We gate this on the env var actually
+	// being set so a single YAML element that happens to contain a literal
+	// comma is not silently turned into multiple entries.
+	if _, fromEnv := os.LookupEnv("GAMERPAL_SUPER_ADMINS"); fromEnv && len(superAdmins) == 1 {
+		superAdmins = strings.Split(superAdmins[0], ",")
 	}
 
-	if len(superAdmins) == 0 {
+	// Trim every element regardless of source. This normalizes " id " from
+	// YAML and "id1, id2" from env to the same shape, and drops empty
+	// entries left over from trailing/duplicate commas.
+	out := make([]string, 0, len(superAdmins))
+	for _, s := range superAdmins {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	return superAdmins
+	return out
 }
 
 func (c *Config) GetDatabasePath() string {

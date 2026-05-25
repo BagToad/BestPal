@@ -19,7 +19,7 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - ".github/workflows/deploy*.yml"
-      - ".github/workflows/_deploy-aca.yml"
+      - ".github/actions/deploy-aca/**"
   workflow_dispatch: {}
 
 permissions: {}
@@ -30,12 +30,26 @@ concurrency:
 
 jobs:
   deploy:
+    name: Build, push, and deploy
+    runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       packages: write
       id-token: write
-    uses: ./.github/workflows/_deploy-aca.yml
-    with:
-      environment: production
-      image_tag: prod
-    secrets: inherit
+    steps:
+      - name: Checkout (action loader)
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Deploy to Azure Container Apps
+        uses: ./.github/actions/deploy-aca
+        with:
+          image-tag: prod
+          azure-client-id: ${{ vars.AZURE_CLIENT_ID }}
+          azure-tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          aca-resource-group: ${{ vars.ACA_RESOURCE_GROUP }}
+          aca-app-name: ${{ vars.ACA_APP_NAME }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}

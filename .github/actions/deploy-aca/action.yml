@@ -1,0 +1,116 @@
+name: Deploy to Azure Container Apps
+description: |
+  Builds the bot container image, pushes it to ghcr.io, and rolls out the
+  target Azure Container App with the new image. Caller must check out the
+  repo first (at the base / trusted ref) so this action's file is on disk.
+  The action then re-checks out at the `ref` input to build that revision.
+
+inputs:
+  image-tag:
+    description: ghcr.io tag to push and deploy (e.g. dev, prod).
+    required: true
+  ref:
+    description: |
+      Git ref / SHA to check out and build. Defaults to github.sha.
+      Callers triggered by pull_request_target should pass the PR head SHA.
+    required: false
+    default: ""
+  azure-client-id:
+    description: Azure AD client ID for OIDC federation.
+    required: true
+  azure-tenant-id:
+    description: Azure AD tenant ID.
+    required: true
+  azure-subscription-id:
+    description: Azure subscription ID.
+    required: true
+  aca-resource-group:
+    description: Resource group containing the Container App.
+    required: true
+  aca-app-name:
+    description: Name of the Container App.
+    required: true
+  github-token:
+    description: Token for ghcr.io login (typically secrets.GITHUB_TOKEN).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout build ref
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+        # Do not leave the GITHUB_TOKEN in .git/config. For pull_request_target
+        # callers building untrusted PR head code, this prevents a malicious PR
+        # from exfiltrating the token via the docker build context.
+        persist-credentials: false
+
+    - name: Compute image name
+      id: img
+      shell: bash
+      env:
+        OWNER: ${{ github.repository_owner }}
+      run: |
+        # ghcr / docker registry names must be lowercase.
+        echo "name=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/bestpal" >> "$GITHUB_OUTPUT"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to ghcr.io
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ inputs.github-token }}
+
+    - name: Build and push image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: linux/amd64
+        push: true
+        tags: ${{ steps.img.outputs.name }}:${{ inputs.image-tag }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Log in to Azure (OIDC)
+      uses: azure/login@v2
+      with:
+        client-id: ${{ inputs.azure-client-id }}
+        tenant-id: ${{ inputs.azure-tenant-id }}
+        subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Update Container App image
+      shell: bash
+      env:
+        BUILD_SHA: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+        IMAGE: ${{ steps.img.outputs.name }}:${{ inputs.image-tag }}
+        APP: ${{ inputs.aca-app-name }}
+        RG: ${{ inputs.aca-resource-group }}
+      run: |
+        # --revision-suffix forces a new revision even when the image tag
+        # string is unchanged (mutable :dev / :prod tags pointing at a new
+        # digest would otherwise be a no-op).
+        SUFFIX="sha-${BUILD_SHA:0:7}-$(date -u +%y%m%d%H%M%S)"
+        az containerapp update \
+          --name "$APP" \
+          --resource-group "$RG" \
+          --image "$IMAGE" \
+          --revision-suffix "$SUFFIX" \
+          --output none
+        echo "Updated $APP in $RG to $IMAGE (revision suffix: $SUFFIX)"
+
+    - name: Show latest revision
+      shell: bash
+      env:
+        APP: ${{ inputs.aca-app-name }}
+        RG: ${{ inputs.aca-resource-group }}
+      run: |
+        az containerapp revision list \
+          --name "$APP" \
+          --resource-group "$RG" \
+          --query "[?properties.active].{name:name, created:properties.createdTime, replicas:properties.replicas, image:properties.template.containers[0].image}" \
+          -o table

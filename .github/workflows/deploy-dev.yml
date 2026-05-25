@@ -31,6 +31,17 @@ jobs:
       packages: write
       id-token: write
     steps:
+      # SECURITY-CRITICAL: trust boundary.
+      #
+      # This checkout MUST NOT pass `ref:`. On pull_request_target the
+      # default is the base SHA, which is trusted code. The next step
+      # (uses: ./.github/actions/deploy-aca) loads action.yml from the
+      # tree this checkout produces; if a PR-head checkout happened here
+      # first, the malicious PR's action.yml would run with this job's
+      # full privileges (id-token: write, packages: write).
+      #
+      # The composite action itself re-checks out at the PR head SHA
+      # internally, only for the build step.
       - name: Checkout (action loader)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

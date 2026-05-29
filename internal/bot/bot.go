@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
+	"gamerpal/internal/agent"
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
@@ -25,6 +27,7 @@ type Bot struct {
 	config               *config.Config
 	commandModuleHandler *commands.ModuleHandler
 	scheduler            *scheduler.Scheduler
+	agent                *agent.Agent
 	ready                atomic.Bool // guards interaction handling until startup completes
 }
 
@@ -43,6 +46,18 @@ func New(cfg *config.Config) (*Bot, error) {
 		session:              session,
 		config:               cfg,
 		commandModuleHandler: handler,
+	}
+
+	// LLM tool-calling agent. Feature modules contribute tools via the
+	// optional AgentTools() []copilot.Tool method on CommandModule. If the
+	// Copilot CLI fails to start later in Start(), the agent disables
+	// itself and the bot keeps running without it.
+	ag, err := agent.New(cfg, session)
+	if err != nil {
+		cfg.Logger.Warnf("agent: construction failed, continuing without it: %v", err)
+	} else {
+		bot.agent = ag
+		bot.agent.AddTools(handler.CollectAgentTools()...)
 	}
 
 	// mark not ready yet (zero value false, explicit for clarity)
@@ -65,9 +80,9 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(bot.onInteractionCreate)
 
 	// Other events
-	// Wrapped with anonymous function to pass config
+	// Wrapped with anonymous function to pass config and (optional) agent.
 	session.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
-		events.OnMessageCreate(s, m, cfg)
+		events.OnMessageCreate(s, m, cfg, bot.agent)
 	})
 
 	// 1984 module - surveillance/audit logging across all channels.
@@ -128,6 +143,17 @@ func New(cfg *config.Config) (*Bot, error) {
 
 // Start starts the bot
 func (b *Bot) Start() error {
+	// Start the LLM agent's Copilot CLI subprocess (best-effort). If this
+	// fails, the agent is left disabled and the bot continues without it.
+	if b.agent != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := b.agent.Start(ctx); err != nil {
+			b.config.Logger.Warnf("agent: start failed, continuing without it: %v", err)
+		}
+		cancel()
+		defer b.agent.Stop()
+	}
+
 	// Open connection
 	err := b.session.Open()
 	if err != nil {

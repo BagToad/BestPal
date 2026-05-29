@@ -3,6 +3,7 @@ package lfg
 import (
 	"bytes"
 	"fmt"
+	"gamerpal/internal/games"
 	"gamerpal/internal/utils"
 	"io"
 	"net/http"
@@ -322,7 +323,7 @@ func (m *LfgModule) handleLFGSetup(s *discordgo.Session, i *discordgo.Interactio
 }
 
 // createLFGThreadFromExactMatch builds metadata + creates the forum thread for an exact IGDB match.
-func (m *LfgModule) createLFGThreadFromExactMatch(s *discordgo.Session, forumID string, exact *igdb.Game) (*discordgo.Channel, error) {
+func (m *LfgModule) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game) (*discordgo.Channel, error) {
 	if exact == nil {
 		return nil, fmt.Errorf("nil exact game")
 	}
@@ -441,7 +442,7 @@ func (m *LfgModule) createLFGThreadFromExactMatch(s *discordgo.Session, forumID 
 	if coverURL != "" {
 		imgBytes, fileName, dlErr := downloadCoverImage(coverURL)
 		if dlErr == nil && len(imgBytes) > 0 {
-			thread, err = s.ForumThreadStartComplex(
+			thread, err = m.session.ForumThreadStartComplex(
 				forumID,
 				&discordgo.ThreadStart{ // basic thread metadata
 					Name:                displayName,
@@ -462,7 +463,7 @@ func (m *LfgModule) createLFGThreadFromExactMatch(s *discordgo.Session, forumID 
 	}
 
 	if thread == nil { // fallback simple creation
-		thread, err = s.ForumThreadStart(forumID, displayName, 4320, initialContent)
+		thread, err = m.session.ForumThreadStart(forumID, displayName, 4320, initialContent)
 		if err != nil {
 			m.config.Logger.Errorf("LFG: failed creating forum thread '%s' in forum %s: %v", displayName, forumID, err)
 			return nil, err
@@ -487,7 +488,7 @@ func threadLink(ch *discordgo.Channel) string {
 
 func fmtPtr(s string) *string { return &s }
 
-func (m *LfgModule) findCachedExactThread(s *discordgo.Session, forumID, normalized string) (*discordgo.Channel, bool) {
+func (m *LfgModule) findCachedExactThread(forumID, normalized string) (*discordgo.Channel, bool) {
 	if forumID == "" || normalized == "" {
 		return nil, false
 	}
@@ -496,14 +497,68 @@ func (m *LfgModule) findCachedExactThread(s *discordgo.Session, forumID, normali
 	if !ok || meta == nil {
 		return nil, false
 	}
-	ch, err := s.Channel(meta.ID)
+	ch, err := m.session.Channel(meta.ID)
 	if err != nil || ch == nil || ch.ParentID != forumID {
 		return nil, false // stale or not found
 	}
 	return ch, true
 }
 
-func (m *LfgModule) gatherPartialThreadSuggestionsDetailed(s *discordgo.Session, forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
+// lookupOrCreateGameThread is the shared find-or-create primitive used by
+// the LLM agent tool. Returns the resolved channel (existing or newly
+// created), whether it was created, and any IGDB suggestions when the name
+// is ambiguous. All zero values means no IGDB match.
+func (m *LfgModule) lookupOrCreateGameThread(forumID, name string) (ch *discordgo.Channel, created bool, suggestions []*igdb.Game, err error) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	if existing, ok := m.findCachedExactThread(forumID, normalized); ok && existing != nil {
+		return existing, false, nil, nil
+	}
+	res, err := games.ExactMatchWithSuggestions(m.igdbClient, name)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	if res == nil {
+		return nil, false, nil, nil
+	}
+	if res.ExactMatch != nil {
+		canonical := strings.ToLower(res.ExactMatch.Name)
+		if canonical != normalized {
+			if existing, ok := m.findCachedExactThread(forumID, canonical); ok && existing != nil {
+				return existing, false, nil, nil
+			}
+		}
+		newCh, err := m.createLFGThreadFromExactMatch(forumID, res.ExactMatch)
+		if err != nil {
+			return nil, false, nil, err
+		}
+		return newCh, true, nil, nil
+	}
+	return nil, false, res.Suggestions, nil
+}
+
+// searchForumThreads resolves cached search hits to live channel handles,
+// dropping anything stale or moved out of the forum.
+func (m *LfgModule) searchForumThreads(forumID, query string, limit int) []*discordgo.Channel {
+	if forumID == "" || strings.TrimSpace(query) == "" || limit <= 0 {
+		return nil
+	}
+	m.forumCache.RegisterForum(forumID)
+	hits, ok := m.forumCache.SearchThreads(forumID, query, limit)
+	if !ok {
+		return nil
+	}
+	out := make([]*discordgo.Channel, 0, len(hits))
+	for _, meta := range hits {
+		ch, err := m.session.Channel(meta.ID)
+		if err != nil || ch == nil || ch.ParentID != forumID {
+			continue
+		}
+		out = append(out, ch)
+	}
+	return out
+}
+
+func (m *LfgModule) gatherPartialThreadSuggestionsDetailed(forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
 	searchTerm = strings.TrimSpace(strings.ToLower(searchTerm))
 	if forumID == "" || searchTerm == "" || limit <= 0 {
 		return nil
@@ -518,7 +573,7 @@ func (m *LfgModule) gatherPartialThreadSuggestionsDetailed(s *discordgo.Session,
 		if meta.ID == excludeThreadID { // skip exact already shown
 			continue
 		}
-		ch, err := s.Channel(meta.ID)
+		ch, err := m.session.Channel(meta.ID)
 		if err != nil || ch == nil || ch.ParentID != forumID {
 			continue
 		}

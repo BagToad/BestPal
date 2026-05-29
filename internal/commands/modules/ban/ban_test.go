@@ -76,6 +76,10 @@ func newModule(t *testing.T, cap *banCapture) *BanModule {
 }
 
 func buildSlashInteraction(invokerID, targetID string, days *int, reason *string) *discordgo.InteractionCreate {
+	return buildSlashInteractionWithMessage(invokerID, targetID, days, reason, nil)
+}
+
+func buildSlashInteractionWithMessage(invokerID, targetID string, days *int, reason, messageToUser *string) *discordgo.InteractionCreate {
 	opts := []*discordgo.ApplicationCommandInteractionDataOption{
 		{
 			Name:  "user",
@@ -95,6 +99,13 @@ func buildSlashInteraction(invokerID, targetID string, days *int, reason *string
 			Name:  "reason",
 			Type:  discordgo.ApplicationCommandOptionString,
 			Value: *reason,
+		})
+	}
+	if messageToUser != nil {
+		opts = append(opts, &discordgo.ApplicationCommandInteractionDataOption{
+			Name:  "message_to_user",
+			Type:  discordgo.ApplicationCommandOptionString,
+			Value: *messageToUser,
 		})
 	}
 
@@ -353,4 +364,60 @@ func TestContextBanRejectsNilMember(t *testing.T) {
 	assert.Empty(t, cap.banCalls, "no ban should be issued")
 	require.Len(t, cap.edits, 1)
 	assert.Contains(t, cap.edits[0], "only be used in a server")
+}
+
+func TestSlashBanMessageToUserIncludedInDM(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	msg := "You broke rule 3 by spamming in #general."
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	mod.handleBanSlash(s, buildSlashInteractionWithMessage("mod1", "target1", nil, nil, &msg))
+
+	require.Len(t, cap.dmCalls, 1)
+	assert.Contains(t, cap.dmCalls[0].message, "Reason: "+msg, "moderator message should be prefixed with 'Reason: ' in DM")
+	assert.Contains(t, cap.dmCalls[0].message, "gamerpals.xyz", "standard appeal info should still be in DM")
+}
+
+func TestSlashBanWithoutMessageToUserUsesStandardDM(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	mod.handleBanSlash(s, buildSlashInteraction("mod1", "target1", nil, nil))
+
+	require.Len(t, cap.dmCalls, 1)
+	assert.Equal(t, banDMMessage, cap.dmCalls[0].message)
+}
+
+func TestSlashBanMessageToUserLoggedInModAction(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	msg := "Please reflect on your behavior."
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	mod.handleBanSlash(s, buildSlashInteractionWithMessage("mod1", "target1", nil, nil, &msg))
+
+	require.Len(t, cap.modLogs, 1)
+	embed := cap.modLogs[0]
+	require.Len(t, embed.Fields, 6, "mod log should include Message to User field when provided")
+	assert.Equal(t, "Message to User", embed.Fields[5].Name)
+	assert.Equal(t, msg, embed.Fields[5].Value)
+}
+
+func TestContextBanDoesNotIncludeMessageToUser(t *testing.T) {
+	cap := &banCapture{}
+	mod := newModule(t, cap)
+	s := mockSession()
+	s.State.User = &discordgo.User{ID: "bot123"}
+
+	mod.handleBanContext(s, buildContextInteraction("mod1", "target1", "Ban User"))
+
+	require.Len(t, cap.dmCalls, 1)
+	assert.Equal(t, banDMMessage, cap.dmCalls[0].message, "context menu ban should send only the standard DM")
+	require.Len(t, cap.modLogs, 1)
+	assert.Len(t, cap.modLogs[0].Fields, 5, "context menu ban mod log should not include Message to User field")
 }

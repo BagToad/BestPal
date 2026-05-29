@@ -129,6 +129,12 @@ func (m *BanModule) Register(cmds map[string]*types.Command, deps *types.Depende
 					Description: "Reason for the ban (shown in audit log)",
 					Required:    false,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "message_to_user",
+					Description: "Optional message included in the DM sent to the user before they are banned",
+					Required:    false,
+				},
 			},
 		},
 		HandlerFunc: m.handleBanSlash,
@@ -167,7 +173,7 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	// Parse options by name, not position
-	var targetID, reason string
+	var targetID, reason, messageToUser string
 	days := 0
 	for _, opt := range data.Options {
 		switch opt.Name {
@@ -177,6 +183,8 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 			days = int(opt.IntValue())
 		case "reason":
 			reason = opt.StringValue()
+		case "message_to_user":
+			messageToUser = opt.StringValue()
 		}
 	}
 
@@ -201,7 +209,7 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 		return
 	}
 
-	m.executeBan(s, i, targetUser, reason, days, "slash command")
+	m.executeBan(s, i, targetUser, reason, messageToUser, days, "slash command")
 }
 
 func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -232,7 +240,7 @@ func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.Interact
 		days = 7
 	}
 
-	m.executeBan(s, i, targetUser, contextMenuReason, days, "context menu")
+	m.executeBan(s, i, targetUser, contextMenuReason, "", days, "context menu")
 }
 
 func (m *BanModule) validateTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetID string) error {
@@ -245,12 +253,17 @@ func (m *BanModule) validateTarget(s *discordgo.Session, i *discordgo.Interactio
 	return nil
 }
 
-func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason string, days int, source string) {
+func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
 	guildID := i.GuildID
 
+	dmMessage := banDMMessage
+	if messageToUser != "" {
+		dmMessage = "Reason: " + messageToUser + "\n\n" + banDMMessage
+	}
+
 	// DM the user before banning (can't DM after they leave the guild)
-	if err := m.opts.SendDM(s, targetUser.ID, banDMMessage); err != nil {
-		_ = m.opts.LogToBestPal(m.config, s, fmt.Sprintf("⚠️ Could not DM <@%s> (%s) before banning — they may have DMs disabled.", targetUser.ID, targetUser.Username))
+	if err := m.opts.SendDM(s, targetUser.ID, dmMessage); err != nil {
+		_ = m.opts.LogToBestPal(m.config, s, fmt.Sprintf("⚠️ Could not DM <@%s> (%s) before banning, they may have DMs disabled.", targetUser.ID, targetUser.Username))
 	}
 
 	// Execute the ban
@@ -260,7 +273,7 @@ func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 
 	// Log to mod action log channel
-	m.logModAction(s, i, targetUser, reason, days, source)
+	m.logModAction(s, i, targetUser, reason, messageToUser, days, source)
 
 	displayReason := reason
 	if displayReason == "" {
@@ -269,7 +282,7 @@ func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCre
 	m.editEphemeral(s, i, fmt.Sprintf("✅ Banned **%s** (%s). Reason: %s. Messages purged: %d day(s).", targetUser.Username, targetUser.ID, displayReason, days))
 }
 
-func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason string, days int, source string) {
+func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
 	channelID := m.config.GetGamerPalsModActionLogChannelID()
 	if channelID == "" {
 		return
@@ -280,16 +293,25 @@ func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionC
 		displayReason = "No reason provided"
 	}
 
+	fields := []*discordgo.MessageEmbedField{
+		{Name: "Banned User", Value: fmt.Sprintf("<@%s> (%s)", targetUser.ID, targetUser.ID), Inline: true},
+		{Name: "Banned By", Value: fmt.Sprintf("<@%s> (%s)", i.Member.User.ID, i.Member.User.ID), Inline: true},
+		{Name: "Reason", Value: displayReason, Inline: false},
+		{Name: "Messages Purged", Value: fmt.Sprintf("%d day(s)", days), Inline: true},
+		{Name: "Source", Value: source, Inline: true},
+	}
+	if messageToUser != "" {
+		fields = append(fields, &discordgo.MessageEmbedField{
+			Name:   "Message to User",
+			Value:  messageToUser,
+			Inline: false,
+		})
+	}
+
 	embed := &discordgo.MessageEmbed{
-		Title: "🔨 User Banned",
-		Color: 0xd33f49,
-		Fields: []*discordgo.MessageEmbedField{
-			{Name: "Banned User", Value: fmt.Sprintf("<@%s> (%s)", targetUser.ID, targetUser.ID), Inline: true},
-			{Name: "Banned By", Value: fmt.Sprintf("<@%s> (%s)", i.Member.User.ID, i.Member.User.ID), Inline: true},
-			{Name: "Reason", Value: displayReason, Inline: false},
-			{Name: "Messages Purged", Value: fmt.Sprintf("%d day(s)", days), Inline: true},
-			{Name: "Source", Value: source, Inline: true},
-		},
+		Title:     "🔨 User Banned",
+		Color:     0xd33f49,
+		Fields:    fields,
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 

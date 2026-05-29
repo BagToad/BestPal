@@ -30,6 +30,64 @@ func (c *Config) GetGitHubModelsToken() string {
 	return c.v.GetString("github_models_token")
 }
 
+// GetCopilotAgentRoleID returns the role ID that gates inclusion access to
+// the LLM tool-calling agent. When set, only members of this role can use the
+// agent and GetCopilotAgentExcludeRoleID is ignored.
+func (c *Config) GetCopilotAgentRoleID() string {
+	return c.v.GetString("copilot_agent_role_id")
+}
+
+// GetCopilotAgentExcludeRoleID returns the role ID that gates exclusion access
+// to the LLM tool-calling agent. Only honored when GetCopilotAgentRoleID is
+// empty: when set, every guild member can use the agent except those with this
+// role. When both are unset, the agent is disabled for everyone.
+func (c *Config) GetCopilotAgentExcludeRoleID() string {
+	return c.v.GetString("copilot_agent_exclude_role_id")
+}
+
+// GetCopilotAgentReplyChannelAllowlist returns the list of channel IDs in
+// which the LLM tool-calling agent is allowed to reply. When empty, no
+// channel restriction is applied (the role gate alone decides). When set,
+// only @mentions posted in one of these channels trigger a reply, except
+// for super admins and members of the inclusion role (GetCopilotAgentRoleID)
+// who bypass the channel check.
+func (c *Config) GetCopilotAgentReplyChannelAllowlist() []string {
+	raw := c.v.GetStringSlice("copilot_agent_reply_channel_allowlist")
+
+	// Mirror GetSuperAdmins: viper returns a single-element slice with the
+	// raw CSV when the value comes from the env var.
+	if _, fromEnv := os.LookupEnv("GAMERPAL_COPILOT_AGENT_REPLY_CHANNEL_ALLOWLIST"); fromEnv && len(raw) == 1 {
+		raw = strings.Split(raw[0], ",")
+	}
+
+	out := make([]string, 0, len(raw))
+	for _, s := range raw {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// GetCopilotAgentModel returns the model identifier used for the LLM tool-calling
+// agent. Defaults to "gpt-5.5" when unset.
+func (c *Config) GetCopilotAgentModel() string {
+	v := c.v.GetString("copilot_agent_model")
+	if v == "" {
+		return "gpt-5.5"
+	}
+	return v
+}
+
+// GetCopilotAgentCLIPath returns the path to the Copilot CLI binary used by the
+// LLM tool-calling agent. When empty, the SDK default ("copilot" on PATH) is used.
+func (c *Config) GetCopilotAgentCLIPath() string {
+	return c.v.GetString("copilot_agent_cli_path")
+}
+
 func (c *Config) GetGamerPalsServerID() string {
 	return c.v.GetString("gamerpals_server_id")
 }

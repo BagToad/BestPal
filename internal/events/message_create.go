@@ -2,6 +2,7 @@ package events
 
 import (
 	"fmt"
+	"gamerpal/internal/agent"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"strings"
@@ -10,8 +11,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// OnMessageCreate handles message events
-func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *config.Config) {
+// OnMessageCreate handles message events. When ag is non-nil and the message
+// author has the configured agent role, the message is routed to the LLM
+// tool-calling agent instead of the legacy emoji-reaction flow.
+func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *config.Config, ag *agent.Agent) {
 	// Ignore messages from bots (including ourselves)
 	if m.Author.Bot {
 		return
@@ -28,6 +31,16 @@ func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *conf
 	// Check if the bot is mentioned in the message & react
 	for _, mention := range m.Mentions {
 		if mention.ID == s.State.User.ID {
+			// Role-gated LLM agent: if the author has the agent role, hand
+			// the message off to the agent and skip the emoji flow.
+			if ag != nil && ag.UserHasAgentRole(m) {
+				if ag.Handle(s, m) {
+					return
+				}
+				// Agent declined (disabled, empty prompt, etc.) - fall
+				// through to the emoji reaction path.
+			}
+
 			emojiResponse, err := getModelsEmojiResponse(s, m, cfg)
 			if err != nil {
 				cfg.Logger.Errorf("Error getting emoji response: %v", err)

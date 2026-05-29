@@ -112,7 +112,7 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 	}
 
 	// 1. Attempt to find existing thread from cache (validated)
-	exactThreadChannel, _ := m.findCachedExactThread(s, forumID, normalized)
+	exactThreadChannel, _ := m.findCachedExactThread(forumID, normalized)
 
 	// 2. Perform search (exact + suggestions)
 	searchRes, err := games.ExactMatchWithSuggestions(m.igdbClient, gameName)
@@ -129,7 +129,7 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 	}
 
 	// 3. Gather partial thread suggestions (cache partial matches) up to 3 (only existing threads shown initially)
-	partialThreadSuggestions := m.gatherPartialThreadSuggestionsDetailed(s, forumID, normalized, idOrEmpty(exactThreadChannel), 3)
+	partialThreadSuggestions := m.gatherPartialThreadSuggestionsDetailed(forumID, normalized, idOrEmpty(exactThreadChannel), 3)
 
 	// Print exact match threads first
 	var fields []*discordgo.MessageEmbedField
@@ -332,30 +332,30 @@ func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discor
 	}
 
 	norm := strings.ToLower(game.Name)
-	if ch, exists := m.findCachedExactThread(s, forumID, norm); exists {
-		m.logThreadCreationOutcome(s, i, game.Name, ch, false)
-		finalizeSuggestionThreadResponse(s, i, ch, false)
+	if ch, exists := m.findCachedExactThread(forumID, norm); exists {
+		m.logThreadCreationOutcome(i, game.Name, ch, false)
+		m.finalizeSuggestionThreadResponse(i, ch, false)
 		return
 	}
 
-	ch, err := m.createLFGThreadFromExactMatch(s, forumID, game)
+	ch, err := m.createLFGThreadFromExactMatch(forumID, game)
 	if err != nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Failed creating thread."}})
 		return
 	}
-	m.logThreadCreationOutcome(s, i, game.Name, ch, true)
-	finalizeSuggestionThreadResponse(s, i, ch, true)
+	m.logThreadCreationOutcome(i, game.Name, ch, true)
+	m.finalizeSuggestionThreadResponse(i, ch, true)
 }
 
 // finalizeSuggestionThreadResponse sends the final response after thread creation
-func finalizeSuggestionThreadResponse(s *discordgo.Session, i *discordgo.InteractionCreate, ch *discordgo.Channel, created bool) {
+func (m *LfgModule) finalizeSuggestionThreadResponse(i *discordgo.InteractionCreate, ch *discordgo.Channel, created bool) {
 	embed := threadCreatedEmbed(ch, created)
 	embedSlice := []*discordgo.MessageEmbed{embed}
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice}})
+	_ = m.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice}})
 }
 
 // logThreadCreationOutcome logs when a user selects a game and the outcome
-func (m *LfgModule) logThreadCreationOutcome(s *discordgo.Session, i *discordgo.InteractionCreate, gameName string, ch *discordgo.Channel, created bool) {
+func (m *LfgModule) logThreadCreationOutcome(i *discordgo.InteractionCreate, gameName string, ch *discordgo.Channel, created bool) {
 	userMention := "Member"
 	if i.Member != nil {
 		userMention = i.Member.Mention()
@@ -369,7 +369,7 @@ func (m *LfgModule) logThreadCreationOutcome(s *discordgo.Session, i *discordgo.
 	logDescription := fmt.Sprintf("%s selected **\"%s\"**\n\n**Outcome:** %s\n**Thread:** %s",
 		userMention, gameName, outcome, ch.Mention())
 
-	if err := utils.LogToChannel(m.config, s, logDescription); err != nil {
+	if err := utils.LogToChannel(m.config, m.session, logDescription); err != nil {
 		m.config.Logger.Errorf("LFG: failed to log thread creation outcome: %v", err)
 	}
 }

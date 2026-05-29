@@ -29,6 +29,10 @@ type LfgModule struct {
 	forumCache *forumcache.Service
 	pendingNow sync.Map
 	service    *LfgService
+	// session is captured so agent tools (see agent_tools.go) can dispatch
+	// to session-taking helpers from inside tool handler closures. May be
+	// nil in tests; AgentTools returns nil in that case.
+	session *discordgo.Session
 }
 
 // New creates a new LFG module
@@ -38,6 +42,7 @@ func New(deps *types.Dependencies) *LfgModule {
 		igdbClient: deps.IGDBClient,
 		forumCache: deps.ForumCache,
 		service:    NewLfgService(deps.Config),
+		session:    deps.Session,
 	}
 }
 

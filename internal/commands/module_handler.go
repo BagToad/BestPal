@@ -110,6 +110,7 @@ func (h *ModuleHandler) registerModules() {
 		if m.name == "refreshigdb" {
 			if rm, ok := m.module.(*refreshigdb.RefreshigdbModule); ok {
 				rm.SetIGDBClientRef(&h.igdbClient)
+				rm.StartTokenWatcher()
 			}
 		}
 

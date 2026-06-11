@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -46,12 +47,36 @@ type SnowballScore struct {
 	Score   int    `json:"score"`
 }
 
+// buildDSN augments a SQLite file path with connection parameters that let the
+// database work on network-backed volumes (Azure Files / SMB), where the POSIX
+// byte-range locking SQLite uses by default is unavailable and every write
+// otherwise fails with "database is locked". unix-dotfile locking uses a
+// companion lock file instead, and a busy timeout absorbs brief contention.
+// In-memory databases are returned unchanged.
+func buildDSN(dbPath string) string {
+	if dbPath == "" || dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:") {
+		return dbPath
+	}
+	sep := "?"
+	if strings.ContainsRune(dbPath, '?') {
+		sep = "&"
+	}
+	return dbPath + sep + "vfs=unix-dotfile&_busy_timeout=5000"
+}
+
 // NewDB creates a new database connection and initializes tables
 func NewDB(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", dbPath)
+	conn, err := sql.Open("sqlite3", buildDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// SQLite allows only one writer. Serializing access through a single
+	// connection avoids intra-process "database is locked" contention, which
+	// matters most on network-backed volumes where the dot-file locking from
+	// buildDSN is coarse. It also keeps in-memory test databases consistent,
+	// since each sqlite3 connection to ":memory:" is otherwise distinct.
+	conn.SetMaxOpenConns(1)
 
 	db := &DB{conn: conn}
 

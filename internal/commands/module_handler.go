@@ -49,7 +49,10 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 
 	db, err := database.NewDB(cfg.GetDatabasePath())
 	if err != nil {
-		cfg.Logger.Warn("Warning: Failed to initialize database: %v", err)
+		// A nil database silently breaks every persistence-backed module
+		// (roulette, scamguard, intros, snowball, welcome) and panics the
+		// scheduled pairing job. Fail loudly instead of degrading silently.
+		cfg.Logger.Fatalf("Failed to initialize database at %q: %v", cfg.GetDatabasePath(), err)
 	}
 
 	fc := forumcache.NewForumCacheService(cfg)

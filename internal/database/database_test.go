@@ -15,6 +15,20 @@ func newTestDB(t *testing.T) *DB {
 	return db
 }
 
+func TestBuildDSN(t *testing.T) {
+	// File paths get dot-file locking + busy timeout appended.
+	require.Equal(t, "/data/gamerpal.db?vfs=unix-dotfile&_busy_timeout=5000", buildDSN("/data/gamerpal.db"))
+	require.Equal(t, "./gamerpal.db?vfs=unix-dotfile&_busy_timeout=5000", buildDSN("./gamerpal.db"))
+
+	// An existing query string is extended, not clobbered.
+	require.Equal(t, "/data/gamerpal.db?cache=shared&vfs=unix-dotfile&_busy_timeout=5000", buildDSN("/data/gamerpal.db?cache=shared"))
+
+	// In-memory databases are left untouched.
+	require.Equal(t, ":memory:", buildDSN(":memory:"))
+	require.Equal(t, "file::memory:?cache=shared", buildDSN("file::memory:?cache=shared"))
+	require.Equal(t, "", buildDSN(""))
+}
+
 func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	db := newTestDB(t)
 

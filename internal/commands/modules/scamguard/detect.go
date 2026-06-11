@@ -41,7 +41,7 @@ func (m *Module) OnMessageCreate(s *discordgo.Session, e *discordgo.MessageCreat
 			continue
 		}
 		if matched, ok := m.matchHash(h, threshold); ok {
-			m.enforce(s, e, a, matched)
+			m.enforce(s, e, matched)
 			return
 		}
 	}

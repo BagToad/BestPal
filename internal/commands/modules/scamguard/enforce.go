@@ -14,7 +14,7 @@ const maxTimeout = 28 * 24 * time.Hour
 // enforce applies the configured action for a detected scam image and logs it.
 // Actions are cumulative: "log" only logs; "delete" also deletes the message;
 // "timeout" also times the author out.
-func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, a *discordgo.MessageAttachment, matched string) {
+func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, matched string) {
 	action := m.config.GetScamGuardAction()
 
 	deleted := false
@@ -42,13 +42,13 @@ func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, a *di
 		}
 	}
 
-	m.logAction(s, e, a, matched, deleted, timedOut, appliedTimeout)
+	m.logAction(s, e, matched, deleted, timedOut, appliedTimeout)
 }
 
 // logAction posts a mod-channel embed describing the detection and what was
 // done. timeoutDur is the effective (clamped) timeout applied, used only for
 // display.
-func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, a *discordgo.MessageAttachment, matched string, deleted, timedOut bool, timeoutDur time.Duration) {
+func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, matched string, deleted, timedOut bool, timeoutDur time.Duration) {
 	channelID := m.config.GetScamGuardLogChannelID()
 	if channelID == "" {
 		return
@@ -67,15 +67,9 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, a *
 	fields := []*discordgo.MessageEmbedField{
 		{Name: "User", Value: fmt.Sprintf("<@%s> (%s)", e.Author.ID, e.Author.ID), Inline: true},
 		{Name: "Channel", Value: fmt.Sprintf("<#%s>", e.ChannelID), Inline: true},
+		{Name: "Message ID", Value: fmt.Sprintf("`%s`", e.ID), Inline: true},
 		{Name: "Action", Value: outcome, Inline: false},
 		{Name: "Matched Hash", Value: fmt.Sprintf("`%s`", matched), Inline: false},
-	}
-	if a != nil && a.Filename != "" {
-		fields = append(fields, &discordgo.MessageEmbedField{
-			Name:   "Attachment",
-			Value:  a.Filename,
-			Inline: false,
-		})
 	}
 
 	embed := &discordgo.MessageEmbed{

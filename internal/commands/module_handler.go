@@ -17,6 +17,7 @@ import (
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/roulette"
 	"gamerpal/internal/commands/modules/say"
+	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/snowball"
 	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/time"
@@ -103,6 +104,7 @@ func (h *ModuleHandler) registerModules() {
 		{"status", status.New(h.deps)},
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
+		{"scamguard", scamguard.New(h.deps)},
 	}
 
 	for _, m := range modules {

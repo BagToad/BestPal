@@ -150,6 +150,17 @@ func (db *DB) initTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_introduction_threads_user_id ON introduction_threads(user_id);
 	CREATE INDEX IF NOT EXISTS idx_introduction_threads_fetched_at ON introduction_threads(fetched_at);
+
+	CREATE TABLE IF NOT EXISTS scam_image_hashes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		hash TEXT NOT NULL UNIQUE,
+		label TEXT,
+		added_by TEXT,
+		source TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_scam_image_hashes_hash ON scam_image_hashes(hash);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -652,3 +663,74 @@ func (db *DB) SaveIntroductionThread(thread *IntroductionThread) error {
 	return nil
 }
 
+// Scam image hash methods (scamguard module)
+
+// ScamImageHash is a known-bad perceptual image hash used by the scamguard
+// module to detect repeated scam images.
+type ScamImageHash struct {
+	ID        int       `json:"id"`
+	Hash      string    `json:"hash"`
+	Label     string    `json:"label"`
+	AddedBy   string    `json:"added_by"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AddScamImageHash inserts a known-bad image hash. Returns true if the hash was
+// newly inserted, false if it already existed. hash is the goimagehash string
+// form (e.g. "p:ff00..."); source is typically "seed" or "command".
+func (db *DB) AddScamImageHash(hash, label, addedBy, source string) (bool, error) {
+	res, err := db.conn.Exec(`
+	INSERT INTO scam_image_hashes (hash, label, added_by, source)
+	VALUES (?, ?, ?, ?)
+	ON CONFLICT(hash) DO NOTHING
+	`, hash, label, addedBy, source)
+	if err != nil {
+		return false, fmt.Errorf("failed to add scam image hash: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// GetScamImageHashes returns all known-bad image hashes, oldest first.
+func (db *DB) GetScamImageHashes() ([]ScamImageHash, error) {
+	rows, err := db.conn.Query(`
+	SELECT id, hash, COALESCE(label, ''), COALESCE(added_by, ''), COALESCE(source, ''), created_at
+	FROM scam_image_hashes
+	ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scam image hashes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var hashes []ScamImageHash
+	for rows.Next() {
+		var h ScamImageHash
+		if err := rows.Scan(&h.ID, &h.Hash, &h.Label, &h.AddedBy, &h.Source, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan scam image hash: %w", err)
+		}
+		hashes = append(hashes, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate scam image hashes: %w", err)
+	}
+	return hashes, nil
+}
+
+// RemoveScamImageHash deletes a known-bad image hash by its string form. It
+// returns true when a row was actually deleted, false when the hash was absent.
+func (db *DB) RemoveScamImageHash(hash string) (bool, error) {
+	res, err := db.conn.Exec(`DELETE FROM scam_image_hashes WHERE hash = ?`, hash)
+	if err != nil {
+		return false, fmt.Errorf("failed to remove scam image hash: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return affected > 0, nil
+}

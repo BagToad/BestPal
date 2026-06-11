@@ -253,3 +253,69 @@ func (c *Config) GetTranslateLanguage() string {
 	}
 	return lang
 }
+
+// ScamGuard (anti-scam image detection)
+// -----
+
+// GetScamGuardEnabled returns the master switch for the scamguard module. When
+// false (default), no image hashing or enforcement happens.
+func (c *Config) GetScamGuardEnabled() bool {
+	return c.v.GetBool("scamguard_enabled")
+}
+
+// GetScamGuardHashThreshold returns the maximum Hamming distance between a
+// 64-bit perceptual hash and a known-bad hash for the two to be considered a
+// match. 0 means an exact match; higher is looser. Defaults to 8 and is capped
+// at 16: with a 64-bit hash, larger thresholds match nearly anything and would
+// mass-action innocent users, so values above 16 are treated as 16.
+func (c *Config) GetScamGuardHashThreshold() int {
+	if !c.v.IsSet("scamguard_hash_threshold") {
+		return 8
+	}
+	t := c.v.GetInt("scamguard_hash_threshold")
+	if t < 0 {
+		return 8
+	}
+	if t > 16 {
+		return 16
+	}
+	return t
+}
+
+// GetScamGuardAction returns the action taken on a hash match: "log" (log
+// only), "delete" (delete the message and log), or "timeout" (delete, time the
+// author out, and log). Defaults to "timeout".
+func (c *Config) GetScamGuardAction() string {
+	switch a := strings.ToLower(strings.TrimSpace(c.v.GetString("scamguard_action"))); a {
+	case "log", "delete", "timeout":
+		return a
+	default:
+		return "timeout"
+	}
+}
+
+// GetScamGuardTimeoutDuration returns how long a matched author is timed out
+// when the action is "timeout". Defaults to 168h (7 days). Discord caps
+// timeouts at 28 days; callers should clamp if needed.
+func (c *Config) GetScamGuardTimeoutDuration() time.Duration {
+	d := c.v.GetDuration("scamguard_timeout_duration")
+	if d <= 0 {
+		return 168 * time.Hour
+	}
+	return d
+}
+
+// GetScamGuardLogChannelID returns the channel where scamguard actions are
+// logged. Falls back to the mod action log channel when unset.
+func (c *Config) GetScamGuardLogChannelID() string {
+	if id := c.v.GetString("scamguard_log_channel_id"); id != "" {
+		return id
+	}
+	return c.GetGamerPalsModActionLogChannelID()
+}
+
+// GetScamGuardSeedHashesPath returns an optional path to an external seed file
+// of known-bad hashes loaded at startup in addition to the embedded seed.
+func (c *Config) GetScamGuardSeedHashesPath() string {
+	return c.v.GetString("scamguard_seed_hashes_path")
+}

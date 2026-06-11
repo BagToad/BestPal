@@ -116,3 +116,65 @@ func TestGetSuperAdmins(t *testing.T) {
 		require.Nil(t, cfg.GetSuperAdmins())
 	})
 }
+
+func TestScamGuardDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GAMERPAL_LOG_DIR", tmpDir)
+	t.Setenv("GAMERPAL_DATABASE_PATH", tmpDir+"/test.db")
+	t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
+
+	cfg, err := NewConfig()
+	require.NoError(t, err)
+
+	require.False(t, cfg.GetScamGuardEnabled())
+	require.Equal(t, 8, cfg.GetScamGuardHashThreshold())
+	require.Equal(t, "timeout", cfg.GetScamGuardAction())
+	require.Equal(t, 168*time.Hour, cfg.GetScamGuardTimeoutDuration())
+}
+
+func TestScamGuardAccessors(t *testing.T) {
+	t.Run("explicit zero threshold is honored", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 0})
+		require.Equal(t, 0, cfg.GetScamGuardHashThreshold())
+	})
+
+	t.Run("negative threshold falls back to default", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": -3})
+		require.Equal(t, 8, cfg.GetScamGuardHashThreshold())
+	})
+
+	t.Run("oversized threshold is capped at 16", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 64})
+		require.Equal(t, 16, cfg.GetScamGuardHashThreshold())
+	})
+
+	t.Run("threshold within range is honored", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 12})
+		require.Equal(t, 12, cfg.GetScamGuardHashThreshold())
+	})
+
+	t.Run("invalid action falls back to timeout", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_action": "explode"})
+		require.Equal(t, "timeout", cfg.GetScamGuardAction())
+	})
+
+	t.Run("valid action is honored", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{"scamguard_action": "delete"})
+		require.Equal(t, "delete", cfg.GetScamGuardAction())
+	})
+
+	t.Run("log channel falls back to mod action log channel", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{
+			"gamerpals_mod_action_log_channel_id": "MODLOG",
+		})
+		require.Equal(t, "MODLOG", cfg.GetScamGuardLogChannelID())
+	})
+
+	t.Run("explicit log channel wins", func(t *testing.T) {
+		cfg := NewMockConfig(map[string]interface{}{
+			"scamguard_log_channel_id":            "SCAMLOG",
+			"gamerpals_mod_action_log_channel_id": "MODLOG",
+		})
+		require.Equal(t, "SCAMLOG", cfg.GetScamGuardLogChannelID())
+	})
+}

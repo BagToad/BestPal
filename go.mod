@@ -7,6 +7,7 @@ require (
 	github.com/MakeNowJust/heredoc v1.0.0
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/charmbracelet/log v0.4.2
+	github.com/corona10/goimagehash v1.1.0
 	github.com/github/copilot-sdk/go v1.0.0-beta.8
 	github.com/markusmobius/go-dateparser v1.2.4
 	github.com/mattn/go-sqlite3 v1.14.28
@@ -14,6 +15,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/viper v1.20.1
 	github.com/stretchr/testify v1.10.0
+	golang.org/x/image v0.42.0
 )
 
 require (
@@ -42,6 +44,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
@@ -64,7 +67,7 @@ require (
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 

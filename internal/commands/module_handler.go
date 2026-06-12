@@ -55,6 +55,10 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 		cfg.Logger.Fatalf("Failed to initialize database at %q: %v", cfg.GetDatabasePath(), err)
 	}
 
+	// Back per-guild config overrides with the database. Wired here, as soon
+	// as the DB exists, so every per-guild read resolves overrides.
+	cfg.SetGuildStore(db)
+
 	fc := forumcache.NewForumCacheService(cfg)
 	if session != nil {
 		fc.HydrateSession(session)
@@ -192,6 +196,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Connect 4 interaction received but fun module not available")
 		}
+	case strings.HasPrefix(cid, "config:"):
+		if cfgMod, ok := h.GetModule("config").(*config.ConfigModule); ok {
+			cfgMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Config interaction received but config module not available")
+		}
 	default:
 		// LFG module handles all other component interactions
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
@@ -204,7 +214,15 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 
 // HandleModalSubmit routes modal submissions to appropriate module handlers
 func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Currently only LFG module uses modal submissions
+	if strings.HasPrefix(i.ModalSubmitData().CustomID, "config:") {
+		if cfgMod, ok := h.GetModule("config").(*config.ConfigModule); ok {
+			cfgMod.HandleModalSubmit(s, i)
+		} else {
+			h.config.Logger.Warn("Config modal submit received but config module not available")
+		}
+		return
+	}
+	// Otherwise the LFG module handles modal submissions
 	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
 		lfgMod.HandleModalSubmit(s, i)
 	} else {

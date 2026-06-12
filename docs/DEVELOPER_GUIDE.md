@@ -241,6 +241,40 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 }
 ```
 
+### Adding a Config Setting
+
+Settings are owned by the module that uses them and show up in the `/config`
+panel automatically. Declare them by implementing the optional
+`config.ConfigProvider` interface; no panel or persistence wiring is needed.
+
+1. Add the key constant in `internal/config/settings.go`.
+2. Add a typed getter on `GuildConfig` in `internal/config/guild_config.go`
+   (resolves override then env/default), and a one-line delegator on `Config`
+   in `internal/config/config_accessors.go` so existing call sites keep working.
+3. Declare the setting on the owning module:
+
+```go
+// internal/commands/modules/mymod/config_settings.go
+func (m *MyModule) ConfigSettings() []config.Setting {
+    return []config.Setting{
+        {
+            Key:         config.KeyMyChannelID,
+            Category:    config.CategoryMisc,
+            Label:       "My Channel",
+            Description: "Where my feature posts.",
+            Kind:        config.KindChannel,
+        },
+    }
+}
+```
+
+`CollectConfigSettings()` picks it up automatically (modules are visited
+alphabetically). `Kind` drives the panel component: `KindChannel`,
+`KindCategory`, `KindRole`, and `KindChannelList` render as native selects;
+`KindBool` is a toggle; `KindEnum` is a select with `EnumOptions`; `KindInt`,
+`KindDuration`, and `KindString` are modal text inputs. Read the value at
+runtime with `m.config.ForGuild(i.GuildID).GetMyChannelID()`.
+
 ### Handling Modal Interactions
 
 For commands that use modals:

@@ -61,6 +61,13 @@ func New(cfg *config.Config) (*Bot, error) {
 		bot.agent.AddTools(handler.CollectAgentTools()...)
 	}
 
+	// Collect module-declared config settings (plus the core provider and the
+	// agent's own settings) into a registry, then make it available for
+	// per-guild reads and the config panel. Done after modules and the agent
+	// exist; all per-guild reads happen later during event/interaction
+	// handling, so the registry is always populated before first use.
+	cfg.ApplyRegistry(handler.CollectConfigSettings(agent.ConfigProvider()))
+
 	// mark not ready yet (zero value false, explicit for clarity)
 	bot.ready.Store(false)
 

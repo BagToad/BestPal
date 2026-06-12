@@ -19,6 +19,23 @@
 # go into Container App secrets, non-secret config goes into env vars, and
 # no config.yaml is shipped in the image.
 #
+# Live per-guild config (the /config panel)
+# -----------------------------------------
+# The operational settings below (channels, roles, feature toggles, durations
+# under "Server configuration" and the feature sections) are editable at
+# runtime via the in-guild /config command, which requires the Ban Members
+# permission. Saved values are stored per-guild in the SQLite database and take
+# precedence over both env vars and config.yaml. In other words, the values
+# here act as the defaults a fresh guild starts from; once an admin saves an
+# override in /config, that override wins until it is cleared.
+#
+# Each setting is owned and declared by the module that uses it, so a new
+# module setting shows up in the /config panel automatically. The keys that
+# stay environment-only and never appear in the panel are the secrets and the
+# bootstrap/infra values (bot_token, igdb_*, crypto_salt, github_models_token,
+# super_admins, gamerpals_server_id, database_path, log_dir,
+# disable_file_logging, copilot_agent_cli_path, scamguard_seed_hashes_path).
+#
 # Slice values (currently just super_admins) accept a comma-separated string
 # when set via env var:
 #

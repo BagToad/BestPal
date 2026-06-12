@@ -185,6 +185,15 @@ func (db *DB) initTables() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_scam_image_hashes_hash ON scam_image_hashes(hash);
+
+	CREATE TABLE IF NOT EXISTS guild_config (
+		guild_id   TEXT NOT NULL,
+		key        TEXT NOT NULL,
+		value      TEXT NOT NULL,
+		updated_by TEXT,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (guild_id, key)
+	);
 	`
 
 	_, err := db.conn.Exec(query)

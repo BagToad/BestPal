@@ -1,0 +1,13 @@
+# Known-bad perceptual image hashes for the scamguard module.
+#
+# Format: one goimagehash perceptual-hash string per line, e.g.
+#   p:ff00ff00ff00ff00
+# Lines starting with '#' and blank lines are ignored.
+#
+# These hashes are loaded at startup and inserted into the scam_image_hashes
+# table if not already present. Add new hashes here for ones that should ship
+# with the binary, or use the "Mark as Scam Image" message command in Discord
+# to add them at runtime (those are stored in the database, not here).
+#
+# No entries yet: seed via the "Mark as Scam Image" command, or append hashes
+# below.

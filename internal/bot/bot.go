@@ -16,6 +16,7 @@ import (
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
+	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -97,6 +98,11 @@ func New(cfg *config.Config) (*Bot, error) {
 		// Raw event handler catches gateway events that discordgo doesn't
 		// model as typed events (e.g. VOICE_CHANNEL_STATUS_UPDATE).
 		session.AddHandler(mod.OnRawEvent)
+	}
+
+	// scamguard module - perceptual-hash scam image detection.
+	if mod, ok := handler.GetModule("scamguard").(*scamguard.Module); ok {
+		session.AddHandler(mod.OnMessageCreate)
 	}
 	session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		events.OnChannelUpdate(s, c, cfg)

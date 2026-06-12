@@ -182,6 +182,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("database_path", "./gamerpal.db")
 	v.SetDefault("translate_language", "random")
 	v.SetDefault("disable_file_logging", false)
+
+	// scamguard (anti-scam image detection) defaults
+	v.SetDefault("scamguard_enabled", false)
+	v.SetDefault("scamguard_hash_threshold", 8)
+	v.SetDefault("scamguard_action", "timeout")
+	v.SetDefault("scamguard_timeout_duration", "168h")
 }
 
 // validateConfig validates that all required configuration fields are present

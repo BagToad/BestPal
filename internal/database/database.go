@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -46,12 +47,36 @@ type SnowballScore struct {
 	Score   int    `json:"score"`
 }
 
+// buildDSN augments a SQLite file path with connection parameters that let the
+// database work on network-backed volumes (Azure Files / SMB), where the POSIX
+// byte-range locking SQLite uses by default is unavailable and every write
+// otherwise fails with "database is locked". unix-dotfile locking uses a
+// companion lock file instead, and a busy timeout absorbs brief contention.
+// In-memory databases are returned unchanged.
+func buildDSN(dbPath string) string {
+	if dbPath == "" || dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:") {
+		return dbPath
+	}
+	sep := "?"
+	if strings.ContainsRune(dbPath, '?') {
+		sep = "&"
+	}
+	return dbPath + sep + "vfs=unix-dotfile&_busy_timeout=5000"
+}
+
 // NewDB creates a new database connection and initializes tables
 func NewDB(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite3", dbPath)
+	conn, err := sql.Open("sqlite3", buildDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	// SQLite allows only one writer. Serializing access through a single
+	// connection avoids intra-process "database is locked" contention, which
+	// matters most on network-backed volumes where the dot-file locking from
+	// buildDSN is coarse. It also keeps in-memory test databases consistent,
+	// since each sqlite3 connection to ":memory:" is otherwise distinct.
+	conn.SetMaxOpenConns(1)
 
 	db := &DB{conn: conn}
 
@@ -150,6 +175,16 @@ func (db *DB) initTables() error {
 
 	CREATE INDEX IF NOT EXISTS idx_introduction_threads_user_id ON introduction_threads(user_id);
 	CREATE INDEX IF NOT EXISTS idx_introduction_threads_fetched_at ON introduction_threads(fetched_at);
+
+	CREATE TABLE IF NOT EXISTS scam_image_hashes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		hash TEXT NOT NULL UNIQUE,
+		added_by TEXT,
+		source TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_scam_image_hashes_hash ON scam_image_hashes(hash);
 	`
 
 	_, err := db.conn.Exec(query)
@@ -652,3 +687,73 @@ func (db *DB) SaveIntroductionThread(thread *IntroductionThread) error {
 	return nil
 }
 
+// Scam image hash methods (scamguard module)
+
+// ScamImageHash is a known-bad perceptual image hash used by the scamguard
+// module to detect repeated scam images.
+type ScamImageHash struct {
+	ID        int       `json:"id"`
+	Hash      string    `json:"hash"`
+	AddedBy   string    `json:"added_by"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// AddScamImageHash inserts a known-bad image hash. Returns true if the hash was
+// newly inserted, false if it already existed. hash is the goimagehash string
+// form (e.g. "p:ff00..."); source is typically "seed" or "command".
+func (db *DB) AddScamImageHash(hash, addedBy, source string) (bool, error) {
+	res, err := db.conn.Exec(`
+	INSERT INTO scam_image_hashes (hash, added_by, source)
+	VALUES (?, ?, ?)
+	ON CONFLICT(hash) DO NOTHING
+	`, hash, addedBy, source)
+	if err != nil {
+		return false, fmt.Errorf("failed to add scam image hash: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return affected > 0, nil
+}
+
+// GetScamImageHashes returns all known-bad image hashes, oldest first.
+func (db *DB) GetScamImageHashes() ([]ScamImageHash, error) {
+	rows, err := db.conn.Query(`
+	SELECT id, hash, COALESCE(added_by, ''), COALESCE(source, ''), created_at
+	FROM scam_image_hashes
+	ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scam image hashes: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var hashes []ScamImageHash
+	for rows.Next() {
+		var h ScamImageHash
+		if err := rows.Scan(&h.ID, &h.Hash, &h.AddedBy, &h.Source, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan scam image hash: %w", err)
+		}
+		hashes = append(hashes, h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate scam image hashes: %w", err)
+	}
+	return hashes, nil
+}
+
+// RemoveScamImageHash deletes a known-bad image hash by its string form. It
+// returns true when a row was actually deleted, false when the hash was absent.
+func (db *DB) RemoveScamImageHash(hash string) (bool, error) {
+	res, err := db.conn.Exec(`DELETE FROM scam_image_hashes WHERE hash = ?`, hash)
+	if err != nil {
+		return false, fmt.Errorf("failed to remove scam image hash: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to read rows affected: %w", err)
+	}
+	return affected > 0, nil
+}

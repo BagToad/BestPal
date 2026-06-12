@@ -148,6 +148,40 @@ new_pals_time_between_welcome_messages: "24h"
 translate_language: "random"
 
 # ----------------------------------------------------------------------------
+# ScamGuard (anti-scam image detection)
+# ----------------------------------------------------------------------------
+# Detects repeated scam images (e.g. the recurring crypto-scam image) by
+# perceptual-hashing every image attachment and comparing it to a known-bad
+# list. Zero AI: hashing is local, free, and deterministic. Moderators (anyone
+# with the Ban Members permission) are never actioned. Mods grow the blocklist
+# with the "Mark as Scam Image" message command and undo mistakes with the
+# "Unmark Scam Image" command.
+
+# Master switch. When false, no image hashing or enforcement happens.
+scamguard_enabled: false
+
+# Maximum Hamming distance between a 64-bit perceptual hash and a known-bad
+# hash for the two to count as a match. 0 = exact match; higher = looser.
+# Capped at 16 for safety (larger values would match nearly anything).
+scamguard_hash_threshold: 8
+
+# Action on a match: "log" (log only), "delete" (delete + log), or "timeout"
+# (delete + time the author out + log).
+scamguard_action: "timeout"
+
+# How long a matched author is timed out when action is "timeout" (Go
+# duration). Discord caps timeouts at 28 days.
+scamguard_timeout_duration: "168h"
+
+# Channel where scamguard actions are logged. Leave empty to fall back to
+# gamerpals_mod_action_log_channel_id.
+scamguard_log_channel_id: ""
+
+# Optional path to an external seed file of known-bad hashes (one per line,
+# "#" comments allowed), loaded at startup in addition to the embedded seed.
+scamguard_seed_hashes_path: ""
+
+# ----------------------------------------------------------------------------
 # Storage and logging
 # ----------------------------------------------------------------------------
 

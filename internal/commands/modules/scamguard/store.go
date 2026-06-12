@@ -69,7 +69,7 @@ func (m *Module) loadHashes() {
 			m.config.Logger.Warnf("scamguard: skipping invalid seed hash %q: %v", s, err)
 			continue
 		}
-		if _, err := m.db.AddScamImageHash(s, "", "seed", "seed"); err != nil {
+		if _, err := m.db.AddScamImageHash(s, "seed", "seed"); err != nil {
 			m.config.Logger.Warnf("scamguard: failed to seed hash %q: %v", s, err)
 		}
 	}
@@ -99,7 +99,7 @@ func (m *Module) reloadCacheFromDB() {
 
 // addKnownHash adds a hash to the DB (if available) and the in-memory cache.
 // Returns true when the hash was newly added, false when it was already known.
-func (m *Module) addKnownHash(str, label, addedBy, source string) (bool, error) {
+func (m *Module) addKnownHash(str, addedBy, source string) (bool, error) {
 	h, err := parseHash(str)
 	if err != nil {
 		return false, err
@@ -107,7 +107,7 @@ func (m *Module) addKnownHash(str, label, addedBy, source string) (bool, error) 
 	str = h.ToString()
 
 	if m.db != nil {
-		inserted, err := m.db.AddScamImageHash(str, label, addedBy, source)
+		inserted, err := m.db.AddScamImageHash(str, addedBy, source)
 		if err != nil {
 			return false, err
 		}

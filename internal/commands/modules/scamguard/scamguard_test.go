@@ -201,7 +201,7 @@ func TestMatchHash(t *testing.T) {
 	m, _, _ := newTestModule(t, nil)
 	seed, err := computeHash(encodePNG(t, makeGradient(256, 256)))
 	require.NoError(t, err)
-	added, err := m.addKnownHash(hashString(seed), "", "test", "seed")
+	added, err := m.addKnownHash(hashString(seed), "test", "seed")
 	require.NoError(t, err)
 	require.True(t, added)
 	require.Equal(t, 1, m.hashCount())
@@ -225,11 +225,11 @@ func TestAddKnownHash_Dedupes(t *testing.T) {
 	require.NoError(t, err)
 	s := hashString(h)
 
-	added, err := m.addKnownHash(s, "", "test", "seed")
+	added, err := m.addKnownHash(s, "test", "seed")
 	require.NoError(t, err)
 	require.True(t, added)
 
-	added, err = m.addKnownHash(s, "", "test", "seed")
+	added, err = m.addKnownHash(s, "test", "seed")
 	require.NoError(t, err)
 	require.False(t, added)
 	require.Equal(t, 1, m.hashCount())
@@ -256,7 +256,7 @@ func seedGradient(t *testing.T, m *Module) {
 	t.Helper()
 	h, err := computeHash(encodePNG(t, makeGradient(256, 256)))
 	require.NoError(t, err)
-	_, err = m.addKnownHash(hashString(h), "", "test", "seed")
+	_, err = m.addKnownHash(hashString(h), "test", "seed")
 	require.NoError(t, err)
 }
 
@@ -614,13 +614,13 @@ func TestModule_DBPersistsAndReloads(t *testing.T) {
 
 	h, err := computeHash(encodePNG(t, makeGradient(128, 128)))
 	require.NoError(t, err)
-	added, err := m.addKnownHash(hashString(h), "mrbeast", "mod1", "command")
+	added, err := m.addKnownHash(hashString(h), "mod1", "command")
 	require.NoError(t, err)
 	require.True(t, added)
 	require.Equal(t, 1, m.hashCount())
 
 	// Adding the same hash again is a no-op (DB UNIQUE + dedupe).
-	added, err = m.addKnownHash(hashString(h), "mrbeast", "mod1", "command")
+	added, err = m.addKnownHash(hashString(h), "mod1", "command")
 	require.NoError(t, err)
 	require.False(t, added)
 	require.Equal(t, 1, m.hashCount())

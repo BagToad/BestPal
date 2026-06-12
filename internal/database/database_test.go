@@ -32,16 +32,16 @@ func TestBuildDSN(t *testing.T) {
 func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	db := newTestDB(t)
 
-	inserted, err := db.AddScamImageHash("p:ff00ff00ff00ff00", "mrbeast", "seed", "seed")
+	inserted, err := db.AddScamImageHash("p:ff00ff00ff00ff00", "seed", "seed")
 	require.NoError(t, err)
 	require.True(t, inserted)
 
 	// Duplicate hash is ignored.
-	inserted, err = db.AddScamImageHash("p:ff00ff00ff00ff00", "dupe", "mod1", "command")
+	inserted, err = db.AddScamImageHash("p:ff00ff00ff00ff00", "mod1", "command")
 	require.NoError(t, err)
 	require.False(t, inserted)
 
-	inserted, err = db.AddScamImageHash("p:0123456789abcdef", "", "mod1", "command")
+	inserted, err = db.AddScamImageHash("p:0123456789abcdef", "mod1", "command")
 	require.NoError(t, err)
 	require.True(t, inserted)
 
@@ -49,7 +49,6 @@ func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, hashes, 2)
 	require.Equal(t, "p:ff00ff00ff00ff00", hashes[0].Hash)
-	require.Equal(t, "mrbeast", hashes[0].Label)
 	require.Equal(t, "seed", hashes[0].Source)
 
 	removed, err := db.RemoveScamImageHash("p:ff00ff00ff00ff00")

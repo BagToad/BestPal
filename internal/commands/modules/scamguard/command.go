@@ -39,7 +39,7 @@ func (m *Module) markMessageScam(msg *discordgo.Message, addedBy string) markRes
 			res.failed++
 			continue
 		}
-		added, err := m.addKnownHash(hashString(h), a.Filename, addedBy, "command")
+		added, err := m.addKnownHash(hashString(h), addedBy, "command")
 		if err != nil {
 			m.config.Logger.Warnf("scamguard: mark failed to store hash: %v", err)
 			res.failed++

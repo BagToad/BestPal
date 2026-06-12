@@ -179,7 +179,6 @@ func (db *DB) initTables() error {
 	CREATE TABLE IF NOT EXISTS scam_image_hashes (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		hash TEXT NOT NULL UNIQUE,
-		label TEXT,
 		added_by TEXT,
 		source TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -695,7 +694,6 @@ func (db *DB) SaveIntroductionThread(thread *IntroductionThread) error {
 type ScamImageHash struct {
 	ID        int       `json:"id"`
 	Hash      string    `json:"hash"`
-	Label     string    `json:"label"`
 	AddedBy   string    `json:"added_by"`
 	Source    string    `json:"source"`
 	CreatedAt time.Time `json:"created_at"`
@@ -704,12 +702,12 @@ type ScamImageHash struct {
 // AddScamImageHash inserts a known-bad image hash. Returns true if the hash was
 // newly inserted, false if it already existed. hash is the goimagehash string
 // form (e.g. "p:ff00..."); source is typically "seed" or "command".
-func (db *DB) AddScamImageHash(hash, label, addedBy, source string) (bool, error) {
+func (db *DB) AddScamImageHash(hash, addedBy, source string) (bool, error) {
 	res, err := db.conn.Exec(`
-	INSERT INTO scam_image_hashes (hash, label, added_by, source)
-	VALUES (?, ?, ?, ?)
+	INSERT INTO scam_image_hashes (hash, added_by, source)
+	VALUES (?, ?, ?)
 	ON CONFLICT(hash) DO NOTHING
-	`, hash, label, addedBy, source)
+	`, hash, addedBy, source)
 	if err != nil {
 		return false, fmt.Errorf("failed to add scam image hash: %w", err)
 	}
@@ -723,7 +721,7 @@ func (db *DB) AddScamImageHash(hash, label, addedBy, source string) (bool, error
 // GetScamImageHashes returns all known-bad image hashes, oldest first.
 func (db *DB) GetScamImageHashes() ([]ScamImageHash, error) {
 	rows, err := db.conn.Query(`
-	SELECT id, hash, COALESCE(label, ''), COALESCE(added_by, ''), COALESCE(source, ''), created_at
+	SELECT id, hash, COALESCE(added_by, ''), COALESCE(source, ''), created_at
 	FROM scam_image_hashes
 	ORDER BY id
 	`)
@@ -735,7 +733,7 @@ func (db *DB) GetScamImageHashes() ([]ScamImageHash, error) {
 	var hashes []ScamImageHash
 	for rows.Next() {
 		var h ScamImageHash
-		if err := rows.Scan(&h.ID, &h.Hash, &h.Label, &h.AddedBy, &h.Source, &h.CreatedAt); err != nil {
+		if err := rows.Scan(&h.ID, &h.Hash, &h.AddedBy, &h.Source, &h.CreatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan scam image hash: %w", err)
 		}
 		hashes = append(hashes, h)

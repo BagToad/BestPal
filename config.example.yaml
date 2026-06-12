@@ -11,6 +11,7 @@
 #   bot_token                              -> GAMERPAL_BOT_TOKEN
 #   gamerpals_server_id                    -> GAMERPAL_GAMERPALS_SERVER_ID
 #   intro_feed_rate_limit_hours            -> GAMERPAL_INTRO_FEED_RATE_LIMIT_HOURS
+#   intro_feed_booster_rate_limit_hours    -> GAMERPAL_INTRO_FEED_BOOSTER_RATE_LIMIT_HOURS
 #   disable_file_logging                   -> GAMERPAL_DISABLE_FILE_LOGGING
 #
 # Environment variables take precedence over values in config.yaml. This is
@@ -118,6 +119,11 @@ intro_feed_channel_id: "your-intro-feed-channel-id-here"
 
 # Hours between allowed feed posts per user (prevents spam from delete+repost).
 intro_feed_rate_limit_hours: 48
+
+# Separate rate limit (hours) for server (Nitro) boosters. Leave at 0 / unset to
+# have boosters use the standard intro_feed_rate_limit_hours above. Booster status
+# is read from the Discord API (premium_since).
+intro_feed_booster_rate_limit_hours: 0
 
 # ----------------------------------------------------------------------------
 # New Pals system

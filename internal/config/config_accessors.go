@@ -241,6 +241,13 @@ func (c *Config) GetIntroFeedRateLimitHours() int {
 	return hours
 }
 
+// GetIntroFeedBoosterRateLimitHours returns the number of hours between allowed feed posts for
+// server (Nitro) boosters. A value <= 0 means it is not configured, in which case boosters use
+// the standard rate limit (GetIntroFeedRateLimitHours).
+func (c *Config) GetIntroFeedBoosterRateLimitHours() int {
+	return c.v.GetInt("intro_feed_booster_rate_limit_hours")
+}
+
 // Translate language configuration
 // -----
 

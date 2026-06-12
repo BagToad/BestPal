@@ -34,8 +34,9 @@ type EligibilityResult struct {
 }
 
 // CheckFeedEligibility checks if a user is eligible to have their intro posted to the feed.
-// This checks the database for the last time they had an intro posted.
-func (s *IntroFeedService) CheckFeedEligibility(userID string) (*EligibilityResult, error) {
+// This checks the database for the last time they had an intro posted. Server (Nitro) boosters
+// use a separate rate limit when one is configured (see feedCooldownHours).
+func (s *IntroFeedService) CheckFeedEligibility(guildID, userID string) (*EligibilityResult, error) {
 	if s.deps.DB == nil {
 		return &EligibilityResult{
 			Eligible: false,
@@ -43,7 +44,7 @@ func (s *IntroFeedService) CheckFeedEligibility(userID string) (*EligibilityResu
 		}, nil
 	}
 
-	cooldownHours := s.deps.Config.GetIntroFeedRateLimitHours()
+	cooldownHours := s.feedCooldownHours(guildID, userID)
 	eligible, remaining, err := s.deps.DB.IsUserEligibleForIntroFeed(userID, cooldownHours)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check feed eligibility: %w", err)
@@ -60,6 +61,40 @@ func (s *IntroFeedService) CheckFeedEligibility(userID string) (*EligibilityResu
 	return &EligibilityResult{
 		Eligible: true,
 	}, nil
+}
+
+// feedCooldownHours returns the rate-limit window (in hours) that applies to a user. When a
+// booster rate limit is configured and the user is a server booster, the booster window is used;
+// otherwise the standard window applies. The member is only fetched when a booster limit is set.
+func (s *IntroFeedService) feedCooldownHours(guildID, userID string) int {
+	boosterHours := s.deps.Config.GetIntroFeedBoosterRateLimitHours()
+	if boosterHours <= 0 || s.deps.Session == nil {
+		return s.deps.Config.GetIntroFeedRateLimitHours()
+	}
+
+	member, err := s.deps.Session.GuildMember(guildID, userID)
+	if err != nil {
+		s.deps.Config.Logger.Warnf("Failed to fetch member %s for booster rate limit check: %v", userID, err)
+		return s.deps.Config.GetIntroFeedRateLimitHours()
+	}
+
+	return s.cooldownHoursForMember(member)
+}
+
+// cooldownHoursForMember returns the applicable feed cooldown for an already-resolved member,
+// preferring the booster rate limit when configured and the member is a server booster.
+func (s *IntroFeedService) cooldownHoursForMember(member *discordgo.Member) int {
+	boosterHours := s.deps.Config.GetIntroFeedBoosterRateLimitHours()
+	if boosterHours > 0 && s.memberIsBooster(member) {
+		return boosterHours
+	}
+	return s.deps.Config.GetIntroFeedRateLimitHours()
+}
+
+// memberIsBooster reports whether a guild member is a server (Nitro) booster, as reported by the
+// Discord API's premium_since field.
+func (s *IntroFeedService) memberIsBooster(member *discordgo.Member) bool {
+	return member != nil && member.PremiumSince != nil
 }
 
 // ForwardThreadToFeed posts a notification about a new/bumped intro thread to the feed channel.
@@ -185,7 +220,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	// Check eligibility (silently skip if on cooldown)
-	eligibility, err := s.CheckFeedEligibility(thread.OwnerID)
+	eligibility, err := s.CheckFeedEligibility(thread.GuildID, thread.OwnerID)
 	if err != nil {
 		s.deps.Config.Logger.Warnf("Failed to check intro feed eligibility for user %s: %v", thread.OwnerID, err)
 		return
@@ -227,7 +262,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, skipEligibilityCheck bool) error {
 	// Check eligibility unless bypassed
 	if !skipEligibilityCheck {
-		eligibility, err := s.CheckFeedEligibility(userID)
+		eligibility, err := s.CheckFeedEligibility(guildID, userID)
 		if err != nil {
 			return fmt.Errorf("failed to check eligibility: %w", err)
 		}

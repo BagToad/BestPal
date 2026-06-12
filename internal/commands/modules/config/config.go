@@ -165,6 +165,7 @@ func (m *ConfigModule) handleConfigListKeys(s *discordgo.Session, i *discordgo.I
 		{"gamerpals_1984_log_channel_id", true},            // Harmless ID
 		{"intro_feed_channel_id", true},                    // Harmless ID
 		{"intro_feed_rate_limit_hours", true},              // Duration setting
+		{"intro_feed_booster_rate_limit_hours", true},      // Duration setting
 		{"event_feed_channel_id", true},                    // Harmless ID
 		{"new_pals_system_enabled", true},                  // Boolean setting
 		{"new_pals_role_id", true},                         // Harmless ID

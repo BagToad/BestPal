@@ -54,10 +54,10 @@ func (m *Module) OnMessageCreate(s *discordgo.Session, e *discordgo.MessageCreat
 //
 // It resolves from cached guild roles plus the member object Discord includes
 // on guild MESSAGE_CREATE events, so the common path makes no API call. If that
-// is unavailable it falls back to a permission lookup (which may hit the REST
-// API). When moderator status genuinely cannot be determined it fails closed
-// (treats the author as a moderator) so a real moderator is never actioned
-// because of a transient lookup failure.
+// is unavailable it resolves the guild and member over REST and computes against
+// their guild-level role permissions. When moderator status genuinely cannot be
+// determined it fails closed (treats the author as a moderator) so a real
+// moderator is never actioned because of a transient lookup failure.
 func defaultAuthorIsModerator(s *discordgo.Session, e *discordgo.MessageCreate) bool {
 	if s == nil || e == nil || e.Author == nil {
 		return false
@@ -78,13 +78,23 @@ func defaultAuthorIsModerator(s *discordgo.Session, e *discordgo.MessageCreate) 
 		}
 	}
 
-	// Fallback: guild not cached and no member on the event. May hit the REST
-	// API. Fail closed when we still can't tell.
-	perms, err := s.UserChannelPermissions(e.Author.ID, e.ChannelID)
+	// Fallback: guild or member not in cache. Resolve both over REST and compute
+	// against guild-level role permissions. We deliberately avoid channel-scoped
+	// permission lookups here, because a channel overwrite can mask a moderator's
+	// guild permission and get a real moderator actioned. Fail closed (treat as a
+	// moderator) whenever status cannot be determined.
+	g, err := s.Guild(e.GuildID)
 	if err != nil {
 		return true
 	}
-	return perms&modBits != 0
+	if g.OwnerID == e.Author.ID {
+		return true
+	}
+	mem, err := s.GuildMember(e.GuildID, e.Author.ID)
+	if err != nil {
+		return true
+	}
+	return rolesGrantModerator(g, mem.Roles, modBits)
 }
 
 // rolesGrantModerator reports whether the @everyone role or any of memberRoles

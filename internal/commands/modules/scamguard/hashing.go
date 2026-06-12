@@ -22,8 +22,20 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-// computeHash decodes raw image bytes and returns their perceptual hash.
+// computeHash decodes raw image bytes and returns their perceptual hash. It
+// first checks the declared dimensions cheaply and rejects oversized images so a
+// decompression bomb cannot allocate a huge bitmap during the full decode.
 func computeHash(data []byte) (*goimagehash.ImageHash, error) {
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode image config: %w", err)
+	}
+	if cfg.Width <= 0 || cfg.Height <= 0 ||
+		cfg.Width > maxImageDimension || cfg.Height > maxImageDimension ||
+		int64(cfg.Width)*int64(cfg.Height) > maxImagePixels {
+		return nil, fmt.Errorf("image too large to hash: %dx%d", cfg.Width, cfg.Height)
+	}
+
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("decode image: %w", err)

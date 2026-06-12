@@ -32,6 +32,15 @@ const (
 
 	// maxImageBytes caps how large an attachment we will download and hash.
 	maxImageBytes = 8 * 1024 * 1024
+
+	// maxImageDimension and maxImagePixels bound the *decoded* size of an image.
+	// maxImageBytes only limits the compressed download; a small file can decode
+	// into an enormous bitmap (a decompression bomb), so we reject images whose
+	// declared dimensions exceed these bounds before decoding fully. Scam
+	// screenshots are small, and legitimate images well under these limits still
+	// hash normally.
+	maxImageDimension = 10000
+	maxImagePixels    = 24_000_000
 )
 
 // Module implements types.CommandModule. It registers one message context-menu

@@ -2,6 +2,8 @@ package scamguard
 
 import (
 	"bytes"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -191,6 +193,56 @@ func TestComputeHash_DifferentImagesAreFar(t *testing.T) {
 func TestComputeHash_DecodeError(t *testing.T) {
 	_, err := computeHash([]byte("not an image"))
 	require.Error(t, err)
+}
+
+// craftPNGHeader builds a valid PNG signature + IHDR chunk declaring the given
+// dimensions, with no pixel data. image.DecodeConfig reads it (and the CRC must
+// be correct), but a full image.Decode never happens, so it stays tiny on disk
+// while declaring an arbitrarily huge bitmap.
+func craftPNGHeader(t *testing.T, width, height uint32) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}) // PNG signature
+
+	data := make([]byte, 13)
+	binary.BigEndian.PutUint32(data[0:4], width)
+	binary.BigEndian.PutUint32(data[4:8], height)
+	data[8] = 8 // bit depth
+	data[9] = 2 // color type: truecolor (RGB)
+	// data[10..12] (compression, filter, interlace) stay 0.
+
+	var lenb [4]byte
+	binary.BigEndian.PutUint32(lenb[:], uint32(len(data)))
+	buf.Write(lenb[:])
+
+	typ := []byte("IHDR")
+	buf.Write(typ)
+	buf.Write(data)
+
+	crc := crc32.NewIEEE()
+	_, _ = crc.Write(typ)
+	_, _ = crc.Write(data)
+	var crcb [4]byte
+	binary.BigEndian.PutUint32(crcb[:], crc.Sum32())
+	buf.Write(crcb[:])
+
+	return buf.Bytes()
+}
+
+func TestComputeHash_RejectsOversizedImage(t *testing.T) {
+	// A header-only PNG declaring enormous dimensions: a few dozen bytes on disk,
+	// but a full decode would allocate a multi-gigabyte bitmap. computeHash must
+	// reject it via the dimension guard before attempting the full decode.
+	header := craftPNGHeader(t, 100000, 100000)
+
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(header))
+	require.NoError(t, err) // sanity: the crafted header itself is valid
+	require.Equal(t, 100000, cfg.Width)
+	require.Equal(t, 100000, cfg.Height)
+
+	_, err = computeHash(header)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "too large")
 }
 
 // ---------------------------------------------------------------------------

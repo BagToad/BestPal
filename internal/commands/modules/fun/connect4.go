@@ -81,6 +81,11 @@ type connect4Manager struct {
 	once            sync.Once
 }
 
+type c4ExpiredGame struct {
+	game     *Connect4Game
+	accepted bool
+}
+
 var c4mgr = &connect4Manager{
 	games:           make(map[string]*Connect4Game),
 	msgToGame:       make(map[string]string),
@@ -140,23 +145,24 @@ func (mgr *connect4Manager) cleanupLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		expired := mgr.collectExpired()
-		for _, game := range expired {
-			mgr.updateGameMessage(game)
-			if game.Accepted {
-				c4ClearReactions(mgr.session, game)
+		expired, session := mgr.collectExpired()
+		for _, e := range expired {
+			mgr.updateGameMessage(e.game)
+			if e.accepted {
+				c4ClearReactions(session, e.game)
 			}
 		}
 		mgr.removeStale()
 	}
 }
 
-func (mgr *connect4Manager) collectExpired() []*Connect4Game {
+func (mgr *connect4Manager) collectExpired() ([]c4ExpiredGame, *discordgo.Session) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	var expired []*Connect4Game
+	var expired []c4ExpiredGame
 	now := time.Now()
+	session := mgr.session
 
 	for _, game := range mgr.games {
 		if game.Status == c4Finished || now.Sub(game.LastActivity) <= c4Timeout {
@@ -177,9 +183,12 @@ func (mgr *connect4Manager) collectExpired() []*Connect4Game {
 				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
 			}
 		}
-		expired = append(expired, game)
+		expired = append(expired, c4ExpiredGame{
+			game:     game,
+			accepted: game.Accepted,
+		})
 	}
-	return expired
+	return expired, session
 }
 
 func (mgr *connect4Manager) removeStale() {
@@ -626,10 +635,6 @@ func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 	// and not replayed as a phantom move (see HandleReactionRemove).
 	defer c4mgr.cleanupUserReaction(s, r.ChannelID, r.MessageID, r.UserID, r.Emoji.APIName())
 
-	if game.Status != c4Active {
-		return
-	}
-
 	c4RouteReactionIntent(s, game, r.UserID, r.Emoji.Name)
 }
 
@@ -650,10 +655,6 @@ func HandleReactionRemove(s *discordgo.Session, r *discordgo.MessageReactionRemo
 
 	// Swallow the removal the bot itself issued while cleaning up after a move.
 	if c4mgr.consumeSelfRemoval(r.MessageID, r.UserID, r.Emoji.APIName()) {
-		return
-	}
-
-	if game.Status != c4Active {
 		return
 	}
 

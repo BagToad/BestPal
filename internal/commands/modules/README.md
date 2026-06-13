@@ -56,7 +56,7 @@ func (m *Module) handleMyCommand(s *discordgo.Session, i *discordgo.InteractionC
 ## Creating a Module
 
 1. Create directory: `mkdir -p modules/mycommand`
-2. Create `mycommand.go` implementing `CommandModule`
+2. Create `module.go` implementing `CommandModule`
 3. Optional: Create `service.go` for complex logic
 4. Register in `modular_handler.go`
 

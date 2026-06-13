@@ -1,6 +1,7 @@
 package config
 
 import (
+	"maps"
 	"testing"
 	"time"
 
@@ -22,9 +23,7 @@ func (f *fakeStore) AllGuildConfig(guildID string) (map[string]string, error) {
 		return nil, f.err
 	}
 	out := map[string]string{}
-	for k, v := range f.values[guildID] {
-		out[k] = v
-	}
+	maps.Copy(out, f.values[guildID])
 	return out, nil
 }
 
@@ -51,7 +50,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	const guild = "G1"
 
 	t.Run("override wins over env/default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id":      guild,
 			"scamguard_enabled":        false,
 			"new_pals_system_enabled":  false,
@@ -75,7 +74,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("delete reverts to env/default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id": guild,
 			"translate_language":  "caveman",
 		})
@@ -90,7 +89,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("override clamping matches getter semantics", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"gamerpals_server_id": guild})
+		cfg := NewMockConfig(map[string]any{"gamerpals_server_id": guild})
 		store := newFakeStore()
 		cfg.SetGuildStore(store)
 
@@ -105,7 +104,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("unparseable override falls back to env/default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id":   guild,
 			"lfg_now_role_duration": "2h",
 			"scamguard_enabled":     true,
@@ -121,7 +120,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("ForGuild isolates overrides per guild", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id": guild,
 			"scamguard_action":    "timeout",
 		})
@@ -136,7 +135,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("nil store falls back to env/default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id": guild,
 			"scamguard_enabled":   true,
 		})
@@ -146,7 +145,7 @@ func TestGuildConfigResolution(t *testing.T) {
 	})
 
 	t.Run("store read error degrades to env/default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_server_id": guild,
 			"scamguard_enabled":   true,
 		})

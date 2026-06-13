@@ -141,11 +141,3 @@ func (s *Service) ScheduledFuncs() map[string]func() error {
 		"@every 1m": s.CheckDue,
 	}
 }
-
-// helper for inline min without pulling math
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

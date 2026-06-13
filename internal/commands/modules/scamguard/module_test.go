@@ -27,8 +27,8 @@ import (
 
 func makeGradient(w, h int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			v := uint8((x * 255) / w)
 			img.Set(x, y, color.RGBA{R: v, G: v, B: v, A: 255})
 		}
@@ -38,8 +38,8 @@ func makeGradient(w, h int) image.Image {
 
 func makeChecker(w, h, block int) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			on := ((x/block)+(y/block))%2 == 0
 			c := color.RGBA{A: 255}
 			if on {
@@ -85,7 +85,7 @@ type enforceRec struct {
 
 // newTestModule builds a module with recording seams and an injectable image
 // store. db is nil so the hash cache lives purely in memory.
-func newTestModule(t *testing.T, kv map[string]interface{}) (*Module, *enforceRec, map[string][]byte) {
+func newTestModule(t *testing.T, kv map[string]any) (*Module, *enforceRec, map[string][]byte) {
 	t.Helper()
 	cfg := config.NewMockConfig(kv)
 	m := New(&types.Dependencies{Config: cfg})
@@ -140,8 +140,8 @@ func imageMessage(url, filename, contentType string, size int) *discordgo.Messag
 
 const enabledLog = "LOGCH"
 
-func enabledKV(action string) map[string]interface{} {
-	return map[string]interface{}{
+func enabledKV(action string) map[string]any {
+	return map[string]any{
 		"scamguard_enabled":        true,
 		"scamguard_action":         action,
 		"scamguard_log_channel_id": enabledLog,
@@ -381,7 +381,7 @@ func TestOnMessageCreate_Skips(t *testing.T) {
 	grad := encodePNG(t, makeGradient(256, 256))
 
 	t.Run("disabled", func(t *testing.T) {
-		m, rec, images := newTestModule(t, map[string]interface{}{"scamguard_log_channel_id": enabledLog})
+		m, rec, images := newTestModule(t, map[string]any{"scamguard_log_channel_id": enabledLog})
 		seedGradient(t, m)
 		images["grad"] = grad
 		m.OnMessageCreate(nil, imageMessage("grad", "scam.png", "image/png", len(grad)))

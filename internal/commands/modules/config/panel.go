@@ -31,8 +31,6 @@ const maxButtonsPerRow = 5
 // replacing the embed color the panel used before moving to Components V2.
 const panelColor = 0x5865F2
 
-func intPtr(i int) *int { return &i }
-
 // pickID/categoryID/etc. build the namespaced customIDs.
 func pickID(key string) string    { return customIDPrefix + actPick + ":" + key }
 func toggleID(key string) string  { return customIDPrefix + actToggle + ":" + key }
@@ -81,7 +79,7 @@ func (m *Module) renderHome(guildID string) *discordgo.InteractionResponseData {
 	return &discordgo.InteractionResponseData{
 		Flags: discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 		Components: []discordgo.MessageComponent{
-			discordgo.Container{AccentColor: intPtr(panelColor), Components: inner},
+			discordgo.Container{AccentColor: new(panelColor), Components: inner},
 		},
 	}
 }
@@ -198,7 +196,7 @@ func (m *Module) renderCategory(guildID string, cat config.Category, note string
 	return &discordgo.InteractionResponseData{
 		Flags: discordgo.MessageFlagsEphemeral | discordgo.MessageFlagsIsComponentsV2,
 		Components: []discordgo.MessageComponent{
-			discordgo.Container{AccentColor: intPtr(panelColor), Components: inner},
+			discordgo.Container{AccentColor: new(panelColor), Components: inner},
 		},
 	}
 }
@@ -443,7 +441,7 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 			MenuType:    discordgo.RoleSelectMenu,
 			CustomID:    pickID(st.Key),
 			Placeholder: "Select a role (deselect to clear)",
-			MinValues:   intPtr(0),
+			MinValues:   new(0),
 			MaxValues:   1,
 		}
 		if raw != "" {
@@ -456,7 +454,7 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 			MenuType:     discordgo.ChannelSelectMenu,
 			CustomID:     pickID(st.Key),
 			Placeholder:  "Select channels (deselect all to clear)",
-			MinValues:    intPtr(0),
+			MinValues:    new(0),
 			MaxValues:    25,
 			ChannelTypes: []discordgo.ChannelType{discordgo.ChannelTypeGuildText, discordgo.ChannelTypeGuildNews},
 		}
@@ -473,7 +471,7 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 			MenuType:    discordgo.StringSelectMenu,
 			CustomID:    pickID(st.Key),
 			Placeholder: "Select an option (deselect to reset)",
-			MinValues:   intPtr(0),
+			MinValues:   new(0),
 			MaxValues:   1,
 			Options:     opts,
 		}
@@ -482,7 +480,7 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 			MenuType:     discordgo.ChannelSelectMenu,
 			CustomID:     pickID(st.Key),
 			Placeholder:  "Select (deselect to clear)",
-			MinValues:    intPtr(0),
+			MinValues:    new(0),
 			MaxValues:    1,
 			ChannelTypes: channelTypesFor(st.Kind),
 		}
@@ -548,7 +546,7 @@ func onOff(b bool) string {
 
 func splitCSV(s string) []string {
 	var out []string
-	for _, p := range strings.Split(s, ",") {
+	for p := range strings.SplitSeq(s, ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			out = append(out, p)
 		}

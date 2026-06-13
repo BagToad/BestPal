@@ -50,7 +50,7 @@ func (r *recorder) record(_ *discordgo.Session, channelID string, p payload) err
 // captures every dispatched payload.
 func newTestModule(t *testing.T) (*Module, *recorder) {
 	t.Helper()
-	cfg := config.NewMockConfig(map[string]interface{}{
+	cfg := config.NewMockConfig(map[string]any{
 		"gamerpals_1984_log_channel_id": testLogChannelID,
 	})
 	m := New(&types.Dependencies{Config: cfg})
@@ -228,7 +228,7 @@ func TestShouldLogChannel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := config.NewMockConfig(map[string]interface{}{
+			cfg := config.NewMockConfig(map[string]any{
 				"gamerpals_1984_log_channel_id": tt.logChan,
 			})
 			m := New(&types.Dependencies{Config: cfg})
@@ -304,7 +304,7 @@ func TestBuildPayload(t *testing.T) {
 	overflowAttachments := func() []fileAttachment {
 		long := strings.Repeat("q", inlineContentCap+10)
 		out := make([]fileAttachment, 0, maxAttachmentsPerMessage+5)
-		for i := 0; i < maxAttachmentsPerMessage+5; i++ {
+		for range maxAttachmentsPerMessage + 5 {
 			out = append(out, fileAttachment{name: "a.txt", content: long})
 		}
 		return out
@@ -427,7 +427,7 @@ func TestBuildPayloadStress(t *testing.T) {
 			for _, n := range attCounts {
 				content := strings.Repeat("c", cSize)
 				atts := make([]fileAttachment, 0, n)
-				for i := 0; i < n; i++ {
+				for range n {
 					atts = append(atts, fileAttachment{
 						name:    "f.txt",
 						content: strings.Repeat("a", aSize),
@@ -856,7 +856,7 @@ func TestOnMessageReactionAdd_Remove(t *testing.T) {
 }
 
 func TestSend_NoLogChannelConfiguredIsNoOp(t *testing.T) {
-	cfg := config.NewMockConfig(map[string]interface{}{}) // no log channel
+	cfg := config.NewMockConfig(map[string]any{}) // no log channel
 	m := New(&types.Dependencies{Config: cfg})
 	r := &recorder{}
 	m.dispatchLog = r.record
@@ -1307,7 +1307,7 @@ func TestOnMessageUpdate_LongDiffStaysWithinLimits(t *testing.T) {
 	// Each line is ~80 chars; 200 lines ~= 16KB before, with every line
 	// changed in after, producing ~32KB of diff hunk lines.
 	var beforeBuf, afterBuf strings.Builder
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		beforeBuf.WriteString(strings.Repeat("a", 80))
 		beforeBuf.WriteByte('\n')
 		afterBuf.WriteString(strings.Repeat("b", 80))

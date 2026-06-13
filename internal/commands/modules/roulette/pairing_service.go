@@ -82,11 +82,8 @@ func (s *PairingService) BuildUserPairingData(guildID string) ([]User, error) {
 
 		var userRegions []string
 		for region, roleID := range regions {
-			for _, role := range member.Roles {
-				if role == roleID {
-					userRegions = append(userRegions, region)
-					break
-				}
+			if slices.Contains(member.Roles, roleID) {
+				userRegions = append(userRegions, region)
 			}
 		}
 
@@ -572,7 +569,7 @@ func (s *PairingService) generateFakeUsers(count int) []User {
 		"Valorant", "Counter-Strike 2", "Overwatch 2", "League of Legends", "Rocket League",
 	}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		// Generate fake user ID
 		userID := fmt.Sprintf("fake_user_%d", i+1)
 

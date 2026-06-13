@@ -2,6 +2,7 @@ package prune
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -267,13 +268,7 @@ func TestRunIntroPrune(t *testing.T) {
 
 				// Verify all flagged threads have expected reasons
 				for _, ft := range result.FlaggedThreads {
-					found := false
-					for _, wantReason := range tt.wantReasons {
-						if ft.Reason == wantReason {
-							found = true
-							break
-						}
-					}
+					found := slices.Contains(tt.wantReasons, ft.Reason)
 					if !found {
 						t.Errorf("unexpected reason %q, want one of %v", ft.Reason, tt.wantReasons)
 					}

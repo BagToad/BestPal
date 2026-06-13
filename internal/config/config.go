@@ -203,7 +203,7 @@ func pruneOldLogFiles(dir string) error {
 }
 
 // NewMockConfig creates a mock configuration for testing
-func NewMockConfig(kv map[string]interface{}) *Config {
+func NewMockConfig(kv map[string]any) *Config {
 	v := viper.New()
 	for k, val := range kv {
 		v.Set(k, val)

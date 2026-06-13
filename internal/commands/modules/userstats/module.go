@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/utils"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -67,7 +69,7 @@ func (m *Module) handleUserStats(s *discordgo.Session, i *discordgo.InteractionC
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
+			Content: new("❌ Error fetching server members: " + err.Error()),
 		})
 		return
 	}
@@ -160,11 +162,8 @@ func (m *Module) handleOverviewStats(s *discordgo.Session, i *discordgo.Interact
 		}
 
 		for region, roleID := range regions {
-			for _, role := range member.Roles {
-				if role == roleID {
-					regionCounts[region]++
-					break // Found the region, no need to check others
-				}
+			if slices.Contains(member.Roles, roleID) {
+				regionCounts[region]++ // Found the region, no need to check others
 			}
 		}
 	}
@@ -243,7 +242,7 @@ func (m *Module) handleDailyStats(s *discordgo.Session, i *discordgo.Interaction
 	now := time.Now()
 
 	// Initialize the last 7 days with 0 counts
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		day := now.AddDate(0, 0, -i)
 		dayKey := day.Format("2006-01-02")
 		dailyCounts[dayKey] = 0
@@ -323,11 +322,11 @@ func formatRegionCounts(regionCounts map[string]int) string {
 		return "No members found in any region."
 	}
 
-	result := ""
+	var result strings.Builder
 	for region, count := range regionCounts {
-		result += fmt.Sprintf("%s: %d\n", region, count)
+		result.WriteString(fmt.Sprintf("%s: %d\n", region, count))
 	}
-	return result
+	return result.String()
 }
 
 // Service returns nil as this module has no services requiring initialization

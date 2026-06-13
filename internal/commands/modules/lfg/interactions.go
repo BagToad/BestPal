@@ -106,7 +106,7 @@ func (m *Module) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Interac
 
 	if m.igdbClient == nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: fmtPtr("❌ IGDB client is not initialized. Admin intervention required"),
+			Content: new("❌ IGDB client is not initialized. Admin intervention required"),
 		})
 		return
 	}
@@ -119,12 +119,12 @@ func (m *Module) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Interac
 	if err != nil {
 		m.config.Logger.Errorf("LFG: failed to search IGDB for '%s': %v", gameName, err)
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: fmtPtr(fmt.Sprintf("❌ error looking up game _\"%s\"_", gameName)),
+			Content: new(fmt.Sprintf("❌ error looking up game _\"%s\"_", gameName)),
 		})
 		return
 	}
 	if searchRes == nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: fmtPtr("❌ unexpected empty search result")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ unexpected empty search result")})
 		return
 	}
 

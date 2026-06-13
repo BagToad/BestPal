@@ -3,6 +3,7 @@ package intro
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -377,10 +378,8 @@ func (s *IntroFeedService) getUserRegion(guildID, userID string) string {
 	}
 
 	for region, roleID := range regionRoles {
-		for _, role := range member.Roles {
-			if role == roleID {
-				return region
-			}
+		if slices.Contains(member.Roles, roleID) {
+			return region
 		}
 	}
 

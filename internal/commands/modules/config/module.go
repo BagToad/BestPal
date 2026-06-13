@@ -93,8 +93,8 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 	}
 	cid := i.ModalSubmitData().CustomID
 	rest := strings.TrimPrefix(cid, customIDPrefix)
-	if strings.HasPrefix(rest, actModal+":") {
-		m.handleEditModalSubmit(s, i, strings.TrimPrefix(rest, actModal+":"))
+	if after, ok := strings.CutPrefix(rest, actModal+":"); ok {
+		m.handleEditModalSubmit(s, i, after)
 		return
 	}
 	m.config.Logger.Warnf("config panel: unhandled modal customID %q", cid)

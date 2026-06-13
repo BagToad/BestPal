@@ -155,7 +155,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 					Name:        "minutes",
 					Description: "How many minutes to show as typing (1-10)",
 					Required:    true,
-					MinValue:    utils.Float64Ptr(1),
+					MinValue:    new(1.0),
 					MaxValue:    10,
 				},
 			},
@@ -221,7 +221,7 @@ func (m *Module) handleTranslate(s *discordgo.Session, i *discordgo.InteractionC
 
 	if translation == "" {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: strPtr("❌ Failed to translate. The AI didn't return anything."),
+			Content: new("❌ Failed to translate. The AI didn't return anything."),
 		})
 		return
 	}
@@ -240,13 +240,13 @@ func (m *Module) handleTranslate(s *discordgo.Session, i *discordgo.InteractionC
 	})
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: strPtr(fmt.Sprintf("❌ Translation succeeded but failed to send reply: %v", err)),
+			Content: new(fmt.Sprintf("❌ Translation succeeded but failed to send reply: %v", err)),
 		})
 		return
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: strPtr(fmt.Sprintf("✅ %s translation sent!", lang.Name)),
+		Content: new(fmt.Sprintf("✅ %s translation sent!", lang.Name)),
 	})
 }
 
@@ -323,8 +323,4 @@ func (m *Module) handleTyping(s *discordgo.Session, i *discordgo.InteractionCrea
 			}
 		}
 	}()
-}
-
-func strPtr(s string) *string {
-	return &s
 }

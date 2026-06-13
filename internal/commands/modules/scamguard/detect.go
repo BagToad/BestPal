@@ -1,6 +1,8 @@
 package scamguard
 
 import (
+	"slices"
+
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -108,11 +110,8 @@ func rolesGrantModerator(g *discordgo.Guild, memberRoles []string, modBits int64
 		}
 	}
 	for _, r := range g.Roles {
-		for _, mr := range memberRoles {
-			if r.ID == mr {
-				perms |= r.Permissions
-				break
-			}
+		if slices.Contains(memberRoles, r.ID) {
+			perms |= r.Permissions
 		}
 	}
 	return perms&modBits != 0

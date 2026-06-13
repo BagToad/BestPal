@@ -68,7 +68,7 @@ func testOpts(cap *banCapture) banOpts {
 
 func newModule(t *testing.T, cap *banCapture) *Module {
 	t.Helper()
-	cfg := config.NewMockConfig(map[string]interface{}{
+	cfg := config.NewMockConfig(map[string]any{
 		"gamerpals_mod_action_log_channel_id": "mod-log-chan",
 		"gamerpals_log_channel_id":            "bestpal-log-chan",
 	})

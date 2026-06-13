@@ -54,7 +54,7 @@ func productionLikeRegistry() *config.Registry {
 }
 
 func newTestModule() *Module {
-	cfg := config.NewMockConfig(map[string]interface{}{
+	cfg := config.NewMockConfig(map[string]any{
 		"gamerpals_server_id": "guild1",
 		"super_admins":        []string{"super1"},
 	})
@@ -195,7 +195,7 @@ func TestRenderCategoryComponentKinds(t *testing.T) {
 
 func TestAgentLockoutWarning(t *testing.T) {
 	// allowlist set, no role/exclude -> warning.
-	cfg := config.NewMockConfig(map[string]interface{}{
+	cfg := config.NewMockConfig(map[string]any{
 		"gamerpals_server_id":                   "guild1",
 		"copilot_agent_reply_channel_allowlist": "123",
 	})
@@ -206,7 +206,7 @@ func TestAgentLockoutWarning(t *testing.T) {
 	}
 
 	// add an inclusion role -> no warning.
-	cfg2 := config.NewMockConfig(map[string]interface{}{
+	cfg2 := config.NewMockConfig(map[string]any{
 		"gamerpals_server_id":                   "guild1",
 		"copilot_agent_reply_channel_allowlist": "123",
 		"copilot_agent_role_id":                 "role1",

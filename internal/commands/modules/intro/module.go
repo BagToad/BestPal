@@ -208,7 +208,7 @@ func (m *Module) introLookup(s *discordgo.Session, i *discordgo.InteractionCreat
 				m.config.Config.Logger.Warnf("failed to log intro success: %v", err)
 			}
 			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-				Content: utils.StringPtr(postURL),
+				Content: new(postURL),
 			})
 			return
 		}
@@ -297,7 +297,7 @@ func (m *Module) introLookup(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
+		Content: new(fmt.Sprintf("❌ No introduction post found for %s.", targetUser.Mention())),
 	})
 }
 
@@ -398,7 +398,7 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 	// Look up user's latest intro
 	if m.feedService == nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Service not available."),
+			Content: new("❌ Service not available."),
 		})
 		return
 	}
@@ -406,7 +406,7 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 	meta, found := m.feedService.GetUserLatestIntroThread(user.ID)
 	if !found || meta == nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ You don't have an introduction post. Create one first!"),
+			Content: new("❌ You don't have an introduction post. Create one first!"),
 		})
 		return
 	}
@@ -427,13 +427,13 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isModerator)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ %s", err.Error())),
+			Content: new(fmt.Sprintf("❌ %s", err.Error())),
 		})
 		return
 	}
 
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr("✅ Your introduction has been posted to the feed!"),
+		Content: new("✅ Your introduction has been posted to the feed!"),
 	})
 }
 

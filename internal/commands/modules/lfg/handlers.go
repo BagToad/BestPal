@@ -486,8 +486,6 @@ func threadLink(ch *discordgo.Channel) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s", ch.GuildID, ch.ID)
 }
 
-func fmtPtr(s string) *string { return &s }
-
 func (m *Module) findCachedExactThread(forumID, normalized string) (*discordgo.Channel, bool) {
 	if forumID == "" || normalized == "" {
 		return nil, false

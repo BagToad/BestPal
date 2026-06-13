@@ -2,6 +2,7 @@ package utils
 
 import (
 	"gamerpal/internal/config"
+	"slices"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -24,10 +25,5 @@ func IsSuperAdmin(ID string, config *config.Config) bool {
 	}
 
 	superAdmins := config.GetSuperAdmins()
-	for _, adminID := range superAdmins {
-		if adminID == ID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(superAdmins, ID)
 }

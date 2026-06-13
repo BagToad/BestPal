@@ -237,7 +237,7 @@ func c4CheckWin(game *Connect4Game, row, col, player int) bool {
 }
 
 func c4CheckDraw(game *Connect4Game) bool {
-	for col := 0; col < c4Cols; col++ {
+	for col := range c4Cols {
 		if game.Board[0][col] == c4Empty {
 			return false
 		}
@@ -249,8 +249,8 @@ func c4CheckDraw(game *Connect4Game) bool {
 
 func c4RenderBoard(game *Connect4Game) string {
 	var sb strings.Builder
-	for row := 0; row < c4Rows; row++ {
-		for col := 0; col < c4Cols; col++ {
+	for row := range c4Rows {
+		for col := range c4Cols {
 			switch game.Board[row][col] {
 			case c4Player1:
 				sb.WriteString(c4EmojiPlayer1)

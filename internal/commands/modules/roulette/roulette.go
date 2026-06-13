@@ -2,7 +2,6 @@ package roulette
 
 import (
 	"fmt"
-	"gamerpal/internal/utils"
 	"strings"
 
 	"github.com/Henry-Sarabia/igdb/v2"
@@ -340,7 +339,7 @@ func (m *RouletteModule) handleRouletteGamesAdd(s *discordgo.Session, i *discord
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response.String()),
+		Content: new(response.String()),
 	})
 }
 
@@ -400,7 +399,7 @@ func (m *RouletteModule) handleRouletteGamesRemove(s *discordgo.Session, i *disc
 	currentGames, err := m.db.GetRouletteGames(userID, guildID)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Error getting current games list: " + err.Error()),
+			Content: new("❌ Error getting current games list: " + err.Error()),
 		})
 		return
 	}
@@ -485,6 +484,6 @@ func (m *RouletteModule) handleRouletteGamesRemove(s *discordgo.Session, i *disc
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response.String()),
+		Content: new(response.String()),
 	})
 }

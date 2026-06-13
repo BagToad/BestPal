@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -290,21 +291,11 @@ func channelAllowsAgent(cfg *config.Config, m *discordgo.MessageCreate, includeR
 	if includeRoleID != "" && memberHasRole(m.Member, includeRoleID) {
 		return true
 	}
-	for _, id := range allowlist {
-		if id == m.ChannelID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(allowlist, m.ChannelID)
 }
 
 func memberHasRole(member *discordgo.Member, roleID string) bool {
-	for _, r := range member.Roles {
-		if r == roleID {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(member.Roles, roleID)
 }
 
 // rejectAllPermissions is a defense-in-depth fallback for the agent session's

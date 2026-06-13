@@ -35,7 +35,7 @@ func TestUserHasAgentRole_TruthTable(t *testing.T) {
 		superAdmin    = "user-super"
 	)
 
-	type cfgKV map[string]interface{}
+	type cfgKV map[string]any
 
 	cases := []struct {
 		name    string
@@ -266,7 +266,7 @@ func TestUserHasAgentRole_NilSafe(t *testing.T) {
 	if userHasAgentRole(nil, nil) {
 		t.Fatal("nil cfg + nil message should be false")
 	}
-	cfg := config.NewMockConfig(map[string]interface{}{"copilot_agent_role_id": "r", "gamerpals_server_id": "g"})
+	cfg := config.NewMockConfig(map[string]any{"copilot_agent_role_id": "r", "gamerpals_server_id": "g"})
 	if userHasAgentRole(cfg, nil) {
 		t.Fatal("nil message should be false")
 	}

@@ -44,7 +44,7 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	forumID := m.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ LFG forum channel ID not configured.")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ LFG forum channel ID not configured.")})
 		return
 	}
 
@@ -66,14 +66,14 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ message required")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ message required")})
 		return
 	}
 	if len(message) > 140 {
 		message = message[:137] + "..."
 	}
 	if playerCount <= 0 || playerCount > 99 {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ invalid player_count")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ invalid player_count")})
 		return
 	}
 
@@ -83,7 +83,7 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 	if voiceChannelID != "" {
 		vc, err := s.Channel(voiceChannelID)
 		if err != nil || vc == nil || (vc.Type != discordgo.ChannelTypeGuildVoice && vc.Type != discordgo.ChannelTypeGuildStageVoice) {
-			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ The provided voice_channel must be a voice or stage channel.")})
+			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ The provided voice_channel must be a voice or stage channel.")})
 			return
 		}
 	}
@@ -106,7 +106,7 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 			}},
 		}
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content:    utils.StringPtr("Are you looking to play a **specific game** or **any game**?"),
+			Content:    new("Are you looking to play a **specific game** or **any game**?"),
 			Components: &components,
 		})
 		return
@@ -121,9 +121,9 @@ func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCrea
 	publicContent := fmt.Sprintf("@here: <@%s> is looking to play!\n%s\n_%s_", userID, voiceChannelMention, message)
 	if _, err := s.ChannelMessageSend(ch.ID, publicContent); err != nil {
 		fallback := fmt.Sprintf("✅ Posted, but couldn't send public thread message.\n\n%s", publicContent)
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fallback)})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new(fallback)})
 	} else {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Posted to Looking NOW feed.")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("✅ Posted to Looking NOW feed.")})
 	}
 
 	m.postToFeed(s, i.GuildID, userID, region, message, playerCount, voiceChannelID, ch)
@@ -246,8 +246,8 @@ func (m *Module) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.Int
 	}
 	if err := m.config.ForGuild(i.GuildID).SetOverride(config.KeyLFGNowPanelChannelID, i.ChannelID, userID); err != nil {
 		m.config.Logger.Warnf("lfg: failed to set now panel channel: %v", err)
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Failed to save the feed channel. Try again.")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ Failed to save the feed channel. Try again.")})
 		return
 	}
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Looking NOW feed channel set. New /lfg now posts will appear here.")})
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("✅ Looking NOW feed channel set. New /lfg now posts will appear here.")})
 }

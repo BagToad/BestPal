@@ -44,7 +44,7 @@ func (m *Module) handlePruneInactive(s *discordgo.Session, i *discordgo.Interact
 	members, err := utils.GetAllGuildMembers(s, i.GuildID)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Error fetching server members: " + err.Error()),
+			Content: new("❌ Error fetching server members: " + err.Error()),
 		})
 		return
 	}
@@ -99,10 +99,7 @@ func (m *Module) handlePruneInactive(s *discordgo.Session, i *discordgo.Interact
 		description += fmt.Sprintf("**Found %d users without roles:**\n", len(usersWithoutRoles))
 
 		// Show up to maxDisplayUsers users in the response
-		displayCount := len(usersWithoutRoles)
-		if displayCount > maxInactiveUsersDisplay {
-			displayCount = maxInactiveUsersDisplay
-		}
+		displayCount := min(len(usersWithoutRoles), maxInactiveUsersDisplay)
 
 		for i := 0; i < displayCount; i++ {
 			member := usersWithoutRoles[i]
@@ -219,7 +216,7 @@ func (m *Module) handlePruneForum(s *discordgo.Session, i *discordgo.Interaction
 	// Run the shared prune logic
 	result, err := RunIntroPrune(s, m.config, m.forumCache, forumID, i.GuildID, !execute)
 	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Error: %v", err))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new(fmt.Sprintf("❌ Error: %v", err))})
 		return
 	}
 

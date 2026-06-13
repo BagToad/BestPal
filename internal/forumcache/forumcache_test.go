@@ -335,7 +335,7 @@ func TestSearchLimit(t *testing.T) {
 	_, svc := NewTestForumCache(nil)
 	forumID := "f-limit"
 	svc.RegisterForum(forumID)
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		id := fmt.Sprintf("%d", 100+i)
 		name := fmt.Sprintf("Game %d", i)
 		svc.OnThreadCreate(nil, &discordgo.ThreadCreate{Channel: mockThreadSimple(id, forumID, "u", name)})

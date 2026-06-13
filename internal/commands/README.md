@@ -55,7 +55,6 @@ Each module is self-contained:
 | `ping/` | Simple | Basic command |
 | `say/` | Complex | Multiple commands with service |
 | `lfg/` | Advanced | Modal and component interactions |
-| `roulette/` | Advanced | External service integration |
 
 ## Adding a Command
 
@@ -124,12 +123,10 @@ Original 600+ line handler. Being phased out as commands migrate.
 - [ ] refresh-igdb
 
 #### Phase 3: Medium Complexity
-- [ ] game
 - [ ] userstats
 - [ ] log
 
 #### Phase 4: Complex with Services
-- [ ] roulette (with pairing service)
 - [ ] lfg
 - [ ] prune
 

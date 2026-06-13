@@ -16,7 +16,6 @@ func productionLikeRegistry() *config.Registry {
 	return config.NewRegistry([]config.Setting{
 		{Key: config.KeyModActionLogChannelID, Category: config.CategoryChannels, Label: "Mod Log", Kind: config.KindChannel},
 		{Key: config.KeyLogChannelID, Category: config.CategoryChannels, Label: "Log", Kind: config.KindChannel},
-		{Key: config.KeyPairingCategoryID, Category: config.CategoryChannels, Label: "Pairing", Kind: config.KindCategory},
 		{Key: config.KeyVoiceSyncCategoryID, Category: config.CategoryChannels, Label: "Voice Sync", Kind: config.KindCategory},
 
 		{Key: config.KeyIntroductionsForumChannelID, Category: config.CategoryIntro, Label: "Intro Forum", Kind: config.KindChannel},
@@ -162,8 +161,8 @@ func TestRenderCategoryComponentKinds(t *testing.T) {
 			}
 		}
 	}
-	if selects != 4 {
-		t.Errorf("Server Channels: got %d selects, want 4", selects)
+	if selects != 3 {
+		t.Errorf("Server Channels: got %d selects, want 3", selects)
 	}
 
 	// ScamGuard: has a bool (toggle) and modal fields (edit button).

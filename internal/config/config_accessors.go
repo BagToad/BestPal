@@ -84,10 +84,6 @@ func (c *Config) GetGamerpalsLogChannelID() string {
 	return c.PrimaryGuild().GetGamerpalsLogChannelID()
 }
 
-func (c *Config) GetGamerPalsPairingCategoryID() string {
-	return c.PrimaryGuild().GetGamerPalsPairingCategoryID()
-}
-
 func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
 	return c.PrimaryGuild().GetGamerPalsIntroductionsForumChannelID()
 }

@@ -71,7 +71,7 @@ func (coreConfigProvider) ConfigSettings() []config.Setting {
 			Key:         config.KeyModActionLogChannelID,
 			Category:    config.CategoryChannels,
 			Label:       "Mod action log",
-			Description: "Channel where moderation actions (bans, scamguard, roulette) are logged.",
+			Description: "Channel where moderation actions (bans, scamguard) are logged.",
 			Kind:        config.KindChannel,
 		},
 		{
@@ -80,13 +80,6 @@ func (coreConfigProvider) ConfigSettings() []config.Setting {
 			Label:       "General log",
 			Description: "Channel for general bot logging.",
 			Kind:        config.KindChannel,
-		},
-		{
-			Key:         config.KeyPairingCategoryID,
-			Category:    config.CategoryChannels,
-			Label:       "Pairing category",
-			Description: "Category under which roulette pairing voice channels are created.",
-			Kind:        config.KindCategory,
 		},
 		{
 			Key:         config.KeyVoiceSyncCategoryID,

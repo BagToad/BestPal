@@ -30,135 +30,120 @@ func (c *Config) GetGitHubModelsToken() string {
 	return c.v.GetString("github_models_token")
 }
 
-// GetCopilotAgentRoleID returns the role ID that gates inclusion access to
-// the LLM tool-calling agent. When set, only members of this role can use the
-// agent and GetCopilotAgentExcludeRoleID is ignored.
-func (c *Config) GetCopilotAgentRoleID() string {
-	return c.v.GetString("copilot_agent_role_id")
-}
-
-// GetCopilotAgentExcludeRoleID returns the role ID that gates exclusion access
-// to the LLM tool-calling agent. Only honored when GetCopilotAgentRoleID is
-// empty: when set, every guild member can use the agent except those with this
-// role. When both are unset, the agent is disabled for everyone.
-func (c *Config) GetCopilotAgentExcludeRoleID() string {
-	return c.v.GetString("copilot_agent_exclude_role_id")
-}
-
-// GetCopilotAgentReplyChannelAllowlist returns the list of channel IDs in
-// which the LLM tool-calling agent is allowed to reply. When empty, no
-// channel restriction is applied (the role gate alone decides). When set,
-// only @mentions posted in one of these channels trigger a reply, except
-// for super admins and members of the inclusion role (GetCopilotAgentRoleID)
-// who bypass the channel check.
-func (c *Config) GetCopilotAgentReplyChannelAllowlist() []string {
-	raw := c.v.GetStringSlice("copilot_agent_reply_channel_allowlist")
-
-	// Mirror GetSuperAdmins: viper returns a single-element slice with the
-	// raw CSV when the value comes from the env var.
-	if _, fromEnv := os.LookupEnv("GAMERPAL_COPILOT_AGENT_REPLY_CHANNEL_ALLOWLIST"); fromEnv && len(raw) == 1 {
-		raw = strings.Split(raw[0], ",")
-	}
-
-	out := make([]string, 0, len(raw))
-	for _, s := range raw {
-		if trimmed := strings.TrimSpace(s); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// GetCopilotAgentModel returns the model identifier used for the LLM tool-calling
-// agent. Defaults to "gpt-5.5" when unset.
-func (c *Config) GetCopilotAgentModel() string {
-	v := c.v.GetString("copilot_agent_model")
-	if v == "" {
-		return "gpt-5.5"
-	}
-	return v
-}
-
 // GetCopilotAgentCLIPath returns the path to the Copilot CLI binary used by the
-// LLM tool-calling agent. When empty, the SDK default ("copilot" on PATH) is used.
+// LLM tool-calling agent. When empty, the SDK default ("copilot" on PATH) is
+// used. Bootstrap/infra setting: env-only, never per-guild.
 func (c *Config) GetCopilotAgentCLIPath() string {
 	return c.v.GetString("copilot_agent_cli_path")
 }
 
+// GetGamerPalsServerID returns the operating guild ID. This is the per-guild
+// key itself, so it is global and env-only (never overridable per guild).
 func (c *Config) GetGamerPalsServerID() string {
 	return c.v.GetString("gamerpals_server_id")
 }
 
+// Per-guild settings (delegators)
+// -----
+//
+// The real logic for these lives on *GuildConfig (see guild_config.go), which
+// resolves a per-guild override before falling back to env/default. These
+// delegators preserve the existing *Config API: a plain cfg.GetX() reads the
+// primary (operating) guild, so existing call sites need no changes, while the
+// config panel reads/writes a specific guild via cfg.ForGuild(id).
+
+// GetCopilotAgentRoleID returns the inclusion role gating the LLM agent. When
+// set, only members of this role can use the agent and the exclude role is
+// ignored.
+func (c *Config) GetCopilotAgentRoleID() string {
+	return c.PrimaryGuild().GetCopilotAgentRoleID()
+}
+
+// GetCopilotAgentExcludeRoleID returns the exclusion role gating the LLM agent.
+// Only honored when the inclusion role is empty.
+func (c *Config) GetCopilotAgentExcludeRoleID() string {
+	return c.PrimaryGuild().GetCopilotAgentExcludeRoleID()
+}
+
+// GetCopilotAgentReplyChannelAllowlist returns the channel IDs in which the LLM
+// agent may reply. Empty means no channel restriction.
+func (c *Config) GetCopilotAgentReplyChannelAllowlist() []string {
+	return c.PrimaryGuild().GetCopilotAgentReplyChannelAllowlist()
+}
+
+// GetCopilotAgentModel returns the agent model identifier (default "gpt-5.5").
+func (c *Config) GetCopilotAgentModel() string {
+	return c.PrimaryGuild().GetCopilotAgentModel()
+}
+
 func (c *Config) GetGamerPalsModActionLogChannelID() string {
-	return c.v.GetString("gamerpals_mod_action_log_channel_id")
+	return c.PrimaryGuild().GetGamerPalsModActionLogChannelID()
 }
 
 func (c *Config) GetGamerpalsLogChannelID() string {
-	return c.v.GetString("gamerpals_log_channel_id")
+	return c.PrimaryGuild().GetGamerpalsLogChannelID()
 }
 
 func (c *Config) GetGamerPalsPairingCategoryID() string {
-	return c.v.GetString("gamerpals_pairing_category_id")
+	return c.PrimaryGuild().GetGamerPalsPairingCategoryID()
 }
 
 func (c *Config) GetGamerPalsIntroductionsForumChannelID() string {
-	return c.v.GetString("gamerpals_introductions_forum_channel_id")
+	return c.PrimaryGuild().GetGamerPalsIntroductionsForumChannelID()
 }
 
 func (c *Config) GetGamerPalsHelpDeskChannelID() string {
-	return c.v.GetString("gamerpals_help_desk_channel_id")
+	return c.PrimaryGuild().GetGamerPalsHelpDeskChannelID()
 }
 
 func (c *Config) GetGamerPalsLFGForumChannelID() string {
-	return c.v.GetString("gamerpals_lfg_forum_channel_id")
+	return c.PrimaryGuild().GetGamerPalsLFGForumChannelID()
 }
 
 func (c *Config) GetGamerPalsVoiceSyncCategoryID() string {
-	return c.v.GetString("gamerpals_voice_sync_category_id")
+	return c.PrimaryGuild().GetGamerPalsVoiceSyncCategoryID()
 }
 
 // GetGamerPals1984LogChannelID returns the channel ID where the 1984 module
 // posts message activity logs (creates, edits, deletes, reactions).
 func (c *Config) GetGamerPals1984LogChannelID() string {
-	return c.v.GetString("gamerpals_1984_log_channel_id")
+	return c.PrimaryGuild().GetGamerPals1984LogChannelID()
 }
 
 // LFG Looking NOW panel channel ID (persisted so panel survives restarts)
 func (c *Config) GetLFGNowPanelChannelID() string {
-	return c.v.GetString("gamerpals_lfg_now_panel_channel_id")
+	return c.PrimaryGuild().GetLFGNowPanelChannelID()
 }
 
 // LFG Looking NOW role
 func (c *Config) GetLFGNowRoleID() string {
-	return c.v.GetString("lfg_now_role_id")
+	return c.PrimaryGuild().GetLFGNowRoleID()
 }
 
 func (c *Config) GetLFGNowRoleDuration() time.Duration {
-	return c.v.GetDuration("lfg_now_role_duration")
+	return c.PrimaryGuild().GetLFGNowRoleDuration()
 }
 
 // New Pals systems
 // -----
 func (c *Config) GetNewPalsSystemEnabled() bool {
-	return c.v.GetBool("new_pals_system_enabled")
+	return c.PrimaryGuild().GetNewPalsSystemEnabled()
 }
 
 func (c *Config) GetNewPalsRoleID() string {
-	return c.v.GetString("new_pals_role_id")
+	return c.PrimaryGuild().GetNewPalsRoleID()
 }
 
 func (c *Config) GetNewPalsChannelID() string {
-	return c.v.GetString("new_pals_channel_id")
+	return c.PrimaryGuild().GetNewPalsChannelID()
 }
+
 func (c *Config) GetNewPalsKeepRoleDuration() time.Duration {
-	return c.v.GetDuration("new_pals_keep_role_duration")
+	return c.PrimaryGuild().GetNewPalsKeepRoleDuration()
 }
 
 func (c *Config) GetNewPalsTimeBetweenWelcomeMessages() time.Duration {
-	return c.v.GetDuration("new_pals_time_between_welcome_messages")
+	return c.PrimaryGuild().GetNewPalsTimeBetweenWelcomeMessages()
 }
 
 func (c *Config) GetSuperAdmins() []string {
@@ -204,11 +189,12 @@ func (c *Config) GetDisableFileLogging() bool {
 	return c.v.GetBool("disable_file_logging")
 }
 
+// Set updates a config value in memory for the current process only. It is used
+// for runtime-refreshed secrets (e.g. the IGDB token) that are not persisted to
+// the database. Per-guild operational settings are persisted via GuildConfig
+// overrides, not this method.
 func (c *Config) Set(key string, value interface{}) {
 	c.v.Set(key, value)
-	if err := c.v.WriteConfig(); err != nil {
-		c.Logger.Warnf("failed to write config for key %s: %v", key, err)
-	}
 }
 
 // GetString returns the string value for a given config key
@@ -221,7 +207,7 @@ func (c *Config) GetString(key string) string {
 
 // GetEventFeedChannelID returns the channel ID where new scheduled events are forwarded
 func (c *Config) GetEventFeedChannelID() string {
-	return c.v.GetString("event_feed_channel_id")
+	return c.PrimaryGuild().GetEventFeedChannelID()
 }
 
 // Introduction Feed configuration
@@ -229,23 +215,19 @@ func (c *Config) GetEventFeedChannelID() string {
 
 // GetIntroFeedChannelID returns the channel ID where intro posts are forwarded
 func (c *Config) GetIntroFeedChannelID() string {
-	return c.v.GetString("intro_feed_channel_id")
+	return c.PrimaryGuild().GetIntroFeedChannelID()
 }
 
 // GetIntroFeedRateLimitHours returns the number of hours between allowed feed posts per user (default 48)
 func (c *Config) GetIntroFeedRateLimitHours() int {
-	hours := c.v.GetInt("intro_feed_rate_limit_hours")
-	if hours <= 0 {
-		return 48 // default to 48 hours
-	}
-	return hours
+	return c.PrimaryGuild().GetIntroFeedRateLimitHours()
 }
 
 // GetIntroFeedBoosterRateLimitHours returns the number of hours between allowed feed posts for
 // server (Nitro) boosters. A value <= 0 means it is not configured, in which case boosters use
 // the standard rate limit (GetIntroFeedRateLimitHours).
 func (c *Config) GetIntroFeedBoosterRateLimitHours() int {
-	return c.v.GetInt("intro_feed_booster_rate_limit_hours")
+	return c.PrimaryGuild().GetIntroFeedBoosterRateLimitHours()
 }
 
 // Translate language configuration
@@ -254,11 +236,7 @@ func (c *Config) GetIntroFeedBoosterRateLimitHours() int {
 // GetTranslateLanguage returns the configured translate language style.
 // Valid values: "caveman", "gen_alpha", "old_man", "80s", "high_society", "random"
 func (c *Config) GetTranslateLanguage() string {
-	lang := c.v.GetString("translate_language")
-	if lang == "" {
-		return "random"
-	}
-	return lang
+	return c.PrimaryGuild().GetTranslateLanguage()
 }
 
 // ScamGuard (anti-scam image detection)
@@ -267,7 +245,7 @@ func (c *Config) GetTranslateLanguage() string {
 // GetScamGuardEnabled returns the master switch for the scamguard module. When
 // false (default), no image hashing or enforcement happens.
 func (c *Config) GetScamGuardEnabled() bool {
-	return c.v.GetBool("scamguard_enabled")
+	return c.PrimaryGuild().GetScamGuardEnabled()
 }
 
 // GetScamGuardHashThreshold returns the maximum Hamming distance between a
@@ -276,49 +254,27 @@ func (c *Config) GetScamGuardEnabled() bool {
 // at 16: with a 64-bit hash, larger thresholds match nearly anything and would
 // mass-action innocent users, so values above 16 are treated as 16.
 func (c *Config) GetScamGuardHashThreshold() int {
-	if !c.v.IsSet("scamguard_hash_threshold") {
-		return 8
-	}
-	t := c.v.GetInt("scamguard_hash_threshold")
-	if t < 0 {
-		return 8
-	}
-	if t > 16 {
-		return 16
-	}
-	return t
+	return c.PrimaryGuild().GetScamGuardHashThreshold()
 }
 
 // GetScamGuardAction returns the action taken on a hash match: "log" (log
 // only), "delete" (delete the message and log), or "timeout" (delete, time the
 // author out, and log). Defaults to "timeout".
 func (c *Config) GetScamGuardAction() string {
-	switch a := strings.ToLower(strings.TrimSpace(c.v.GetString("scamguard_action"))); a {
-	case "log", "delete", "timeout":
-		return a
-	default:
-		return "timeout"
-	}
+	return c.PrimaryGuild().GetScamGuardAction()
 }
 
 // GetScamGuardTimeoutDuration returns how long a matched author is timed out
 // when the action is "timeout". Defaults to 168h (7 days). Discord caps
 // timeouts at 28 days; callers should clamp if needed.
 func (c *Config) GetScamGuardTimeoutDuration() time.Duration {
-	d := c.v.GetDuration("scamguard_timeout_duration")
-	if d <= 0 {
-		return 168 * time.Hour
-	}
-	return d
+	return c.PrimaryGuild().GetScamGuardTimeoutDuration()
 }
 
 // GetScamGuardLogChannelID returns the channel where scamguard actions are
 // logged. Falls back to the mod action log channel when unset.
 func (c *Config) GetScamGuardLogChannelID() string {
-	if id := c.v.GetString("scamguard_log_channel_id"); id != "" {
-		return id
-	}
-	return c.GetGamerPalsModActionLogChannelID()
+	return c.PrimaryGuild().GetScamGuardLogChannelID()
 }
 
 // GetScamGuardSeedHashesPath returns an optional path to an external seed file

@@ -137,6 +137,47 @@ func NewModuleHandler(cfg *config.Config) *ModuleHandler {
 }
 ```
 
+## Configuration System
+
+Configuration is resolved per guild with three layers, highest precedence first:
+
+1. **Database override** stored in the `guild_config` table, keyed by
+   `(guild_id, key)`. Written by the `/config` panel.
+2. **Environment variable / `config.yaml`** value (viper).
+3. **Built-in default** from the setting descriptor.
+
+Handlers read config through a guild-bound view:
+
+- `cfg.ForGuild(guildID)` returns a `*GuildConfig` for interaction/event code.
+- `cfg.PrimaryGuild()` binds to `GetGamerPalsServerID()` for bootstrap and
+  scheduler contexts that have no interaction guild.
+
+Until a guild saves an override, every read falls through to env/default, so the
+move to DB-backed config is a no-op until an admin changes something.
+
+### Self-registering settings
+
+Settings are declared by the module that owns them, mirroring the
+`AgentTools()` / `CollectAgentTools()` pattern. A module implements the optional
+`config.ConfigProvider` interface:
+
+```go
+func (m *Module) ConfigSettings() []config.Setting { ... }
+```
+
+`CollectConfigSettings()` (in `internal/commands`) visits modules alphabetically,
+plus a core provider for shared server channels and the agent's own provider,
+de-duplicates keys, and builds a `config.Registry`. The registry is the single
+source of truth for the `/config` panel: it renders one row per registered
+setting, so a module cannot add a setting without it appearing in the panel,
+being persisted per-guild, and being validated. The descriptor is UI-agnostic (a
+`Kind` enum, not discordgo types), keeping `internal/config` free of a discordgo
+dependency.
+
+The `config.GuildStore` interface lets `internal/config` persist overrides
+without importing `internal/database` (the `*database.DB` satisfies it
+structurally), avoiding an import cycle.
+
 ## Command Execution Flow
 
 1. User triggers `/command` in Discord

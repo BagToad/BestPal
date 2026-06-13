@@ -80,7 +80,8 @@ func (m *RefreshigdbModule) handleRefreshIGDB(s *discordgo.Session, i *discordgo
 		return
 	}
 
-	// Persist new token
+	// Update the in-memory token for this process; the IGDB client below is
+	// recreated to use it. Persistence comes from the env var on next start.
 	m.config.Set("igdb_client_token", token)
 
 	// Recreate IGDB client with new token if we have a reference
@@ -88,7 +89,7 @@ func (m *RefreshigdbModule) handleRefreshIGDB(s *discordgo.Session, i *discordgo
 		*m.igdbClient = igdb.NewClient(clientID, token, nil)
 	}
 
-	msg := fmt.Sprintf("✅ IGDB token refreshed. Stored value updated.\nExpires In: %.2f hours", (time.Duration(expiresIn) * time.Second).Hours())
+	msg := fmt.Sprintf("✅ IGDB token refreshed for this session.\nExpires In: %.2f hours", (time.Duration(expiresIn) * time.Second).Hours())
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(msg)})
 }
 

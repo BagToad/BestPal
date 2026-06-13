@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -16,6 +17,44 @@ import (
 type Config struct {
 	v      *viper.Viper
 	Logger *log.Logger
+
+	// store backs per-guild config overrides. When nil (e.g. mock configs in
+	// tests, or before wiring), all per-guild reads fall back to env/default.
+	store GuildStore
+	// registry is the collected set of module-declared settings that drives
+	// the config panel. Populated at startup via ApplyRegistry.
+	registry *Registry
+
+	// overrideCache memoizes each guild's full override set so per-guild reads
+	// (some on the every-message hot path) avoid a SQLite round-trip per call.
+	// A guild is loaded once via the store's AllGuildConfig and then mutated in
+	// place by SetOverride/ClearOverride, which are the only writers. nil map
+	// entry means "not loaded yet".
+	overrideCacheMu sync.RWMutex
+	overrideCache   map[string]map[string]string
+}
+
+// SetGuildStore wires the per-guild override store. Called once at startup
+// after the database is opened, before any per-guild read. It also clears the
+// override cache so a re-wire does not serve stale values.
+func (c *Config) SetGuildStore(store GuildStore) {
+	c.overrideCacheMu.Lock()
+	c.store = store
+	c.overrideCache = nil
+	c.overrideCacheMu.Unlock()
+}
+
+// ApplyRegistry records the collected settings registry. The registry is the
+// single source of truth the config panel renders from; getter-level defaults
+// remain authoritative for reads.
+func (c *Config) ApplyRegistry(r *Registry) {
+	c.registry = r
+}
+
+// Registry returns the collected settings registry, or nil before startup
+// wiring. The config panel reads this lazily at interaction time.
+func (c *Config) Registry() *Registry {
+	return c.registry
 }
 
 // NewConfig loads the configuration from various sources using viper

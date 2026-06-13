@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"strings"
 	"time"
@@ -239,6 +240,14 @@ func (m *LfgModule) handleLFGNowSpecificGame(s *discordgo.Session, i *discordgo.
 // handleLFGSetupLookingNow sets the feed channel
 func (m *LfgModule) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource})
-	m.config.Set("gamerpals_lfg_now_panel_channel_id", i.ChannelID)
+	userID := ""
+	if i.Member != nil && i.Member.User != nil {
+		userID = i.Member.User.ID
+	}
+	if err := m.config.ForGuild(i.GuildID).SetOverride(config.KeyLFGNowPanelChannelID, i.ChannelID, userID); err != nil {
+		m.config.Logger.Warnf("lfg: failed to set now panel channel: %v", err)
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Failed to save the feed channel. Try again.")})
+		return
+	}
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("✅ Looking NOW feed channel set. New /lfg now posts will appear here.")})
 }

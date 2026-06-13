@@ -4,7 +4,9 @@ Discord bot for the [r/GamerPals](https://www.reddit.com/r/GamerPals) community.
 Join: [discord.gg/gamerpals](https://discord.gg/gamerpals)
 
 Modular architecture: each feature lives in `internal/commands/modules/<name>`.
-Single‑guild by design (`config.yaml` holds IDs).
+Single-guild by design. Operational settings are edited live with `/config` and
+stored per-guild in the database; secrets and bootstrap values come from the
+environment (see `config.example.yaml`).
 
 ## Slash Commands
 
@@ -47,10 +49,14 @@ Single‑guild by design (`config.yaml` holds IDs).
 | `/roulette-admin reset` | Delete all existing pairing channels |
 | `/roulette-admin delete-schedule` | Remove the scheduled pairing time |
 
+### Moderator (requires Ban Members)
+| Command | Description |
+|---------|-------------|
+| `/config` | Open the server configuration panel (edit channels, roles, features) |
+
 ### Super-Admin (DM Only; IDs listed in `config.yaml`)
 | Command | Description |
 |---------|-------------|
-| `/config` | View / modify bot configuration |
 | `/refresh-igdb` | Refresh IGDB API token |
 
 ### Service / Background Modules (No direct slash commands)

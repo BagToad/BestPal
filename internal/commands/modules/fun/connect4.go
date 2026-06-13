@@ -28,6 +28,7 @@ const (
 	c4EmojiEmpty   = "⚫"
 	c4EmojiPlayer1 = "🔴"
 	c4EmojiPlayer2 = "🟡"
+	c4EmojiForfeit = "🏳️"
 
 	c4ColorRed    = 0xE74C3C
 	c4ColorYellow = 0xF1C40F
@@ -36,7 +37,7 @@ const (
 	c4ColorBlue   = 0x3498DB
 )
 
-// Column reaction emoji — users react with these to pick a column.
+// Column reaction emoji - users react with these to pick a column.
 var c4ColumnEmoji = []string{"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"}
 
 type c4Status int
@@ -60,6 +61,8 @@ type Connect4Game struct {
 	Status       c4Status
 	Winner       int // 0 = draw, c4Player1 or c4Player2
 	WinReason    string
+	Moves        int  // pieces dropped so far; used to decide whether to render the board
+	Accepted     bool // true once the challenge is accepted and play reactions are added
 	LastActivity time.Time
 }
 
@@ -68,15 +71,25 @@ type Connect4Game struct {
 type connect4Manager struct {
 	games     map[string]*Connect4Game
 	msgToGame map[string]string // messageID → gameID for fast reaction lookup
-	mu        sync.Mutex
-	session   *discordgo.Session
-	cfg       *config.Config
-	once      sync.Once
+	// pendingRemovals counts reaction removals the bot initiated itself (while
+	// cleaning up after a move). Keyed by messageID|userID|emoji so the matching
+	// gateway remove event can be swallowed instead of replayed as a move.
+	pendingRemovals map[string]int
+	mu              sync.Mutex
+	session         *discordgo.Session
+	cfg             *config.Config
+	once            sync.Once
+}
+
+type c4ExpiredGame struct {
+	game     *Connect4Game
+	accepted bool
 }
 
 var c4mgr = &connect4Manager{
-	games:     make(map[string]*Connect4Game),
-	msgToGame: make(map[string]string),
+	games:           make(map[string]*Connect4Game),
+	msgToGame:       make(map[string]string),
+	pendingRemovals: make(map[string]int),
 }
 
 func (mgr *connect4Manager) init(s *discordgo.Session, cfg *config.Config) {
@@ -132,20 +145,24 @@ func (mgr *connect4Manager) cleanupLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		expired := mgr.collectExpired()
-		for _, game := range expired {
-			mgr.updateGameMessage(game)
+		expired, session := mgr.collectExpired()
+		for _, e := range expired {
+			mgr.updateGameMessage(e.game)
+			if e.accepted {
+				c4ClearReactions(session, e.game)
+			}
 		}
 		mgr.removeStale()
 	}
 }
 
-func (mgr *connect4Manager) collectExpired() []*Connect4Game {
+func (mgr *connect4Manager) collectExpired() ([]c4ExpiredGame, *discordgo.Session) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
-	var expired []*Connect4Game
+	var expired []c4ExpiredGame
 	now := time.Now()
+	session := mgr.session
 
 	for _, game := range mgr.games {
 		if game.Status == c4Finished || now.Sub(game.LastActivity) <= c4Timeout {
@@ -160,15 +177,18 @@ func (mgr *connect4Manager) collectExpired() []*Connect4Game {
 		} else {
 			if game.Turn == c4Player1 {
 				game.Winner = c4Player2
-				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long — %s <@%s> wins!", game.Player1, c4EmojiPlayer2, game.Player2)
+				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player1, c4EmojiPlayer2, game.Player2)
 			} else {
 				game.Winner = c4Player1
-				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long — %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
+				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
 			}
 		}
-		expired = append(expired, game)
+		expired = append(expired, c4ExpiredGame{
+			game:     game,
+			accepted: game.Accepted,
+		})
 	}
-	return expired
+	return expired, session
 }
 
 func (mgr *connect4Manager) removeStale() {
@@ -178,22 +198,102 @@ func (mgr *connect4Manager) removeStale() {
 	now := time.Now()
 	for id, game := range mgr.games {
 		if game.Status == c4Finished && now.Sub(game.LastActivity) > 5*time.Minute {
+			mgr.purgePendingRemovalsLocked(game.MessageID)
 			delete(mgr.msgToGame, game.MessageID)
 			delete(mgr.games, id)
 		}
 	}
 }
 
+// --- Self-removal bookkeeping ---
+//
+// The bot removes a player's reaction after each move to keep the row tidy.
+// That removal fires a gateway remove event indistinguishable from a player
+// toggling their own reaction off. We record each bot-initiated removal so the
+// remove handler can swallow exactly that event and still treat genuine player
+// toggles as moves.
+
+func c4RemovalKey(messageID, userID, emojiAPIName string) string {
+	return messageID + "|" + userID + "|" + c4NormalizeEmoji(emojiAPIName)
+}
+
+func (mgr *connect4Manager) markSelfRemoval(messageID, userID, emojiAPIName string) {
+	key := c4RemovalKey(messageID, userID, emojiAPIName)
+	mgr.mu.Lock()
+	mgr.pendingRemovals[key]++
+	mgr.mu.Unlock()
+}
+
+func (mgr *connect4Manager) unmarkSelfRemoval(messageID, userID, emojiAPIName string) {
+	key := c4RemovalKey(messageID, userID, emojiAPIName)
+	mgr.mu.Lock()
+	mgr.decPendingLocked(key)
+	mgr.mu.Unlock()
+}
+
+// consumeSelfRemoval reports whether the given removal was one the bot itself
+// performed, decrementing the pending count when so.
+func (mgr *connect4Manager) consumeSelfRemoval(messageID, userID, emojiAPIName string) bool {
+	key := c4RemovalKey(messageID, userID, emojiAPIName)
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	if mgr.pendingRemovals[key] > 0 {
+		mgr.decPendingLocked(key)
+		return true
+	}
+	return false
+}
+
+func (mgr *connect4Manager) decPendingLocked(key string) {
+	if mgr.pendingRemovals[key] > 0 {
+		mgr.pendingRemovals[key]--
+		if mgr.pendingRemovals[key] == 0 {
+			delete(mgr.pendingRemovals, key)
+		}
+	}
+}
+
+// purgePendingRemovalsLocked drops any outstanding self-removal tokens for a
+// message. Callers must hold mgr.mu.
+func (mgr *connect4Manager) purgePendingRemovalsLocked(messageID string) {
+	prefix := messageID + "|"
+	for key := range mgr.pendingRemovals {
+		if strings.HasPrefix(key, prefix) {
+			delete(mgr.pendingRemovals, key)
+		}
+	}
+}
+
+// cleanupUserReaction removes a player's reaction to keep the row tidy, marking
+// the removal first so its gateway event isn't replayed as a move. If the API
+// call fails (commonly missing Manage Messages) no event will arrive, so the
+// token is dropped to avoid swallowing the player's next genuine toggle.
+func (mgr *connect4Manager) cleanupUserReaction(s *discordgo.Session, channelID, messageID, userID, emojiAPIName string) {
+	mgr.markSelfRemoval(messageID, userID, emojiAPIName)
+	if err := s.MessageReactionRemove(channelID, messageID, emojiAPIName, userID); err != nil {
+		mgr.unmarkSelfRemoval(messageID, userID, emojiAPIName)
+	}
+}
+
 // updateGameMessage edits the game's Discord message with the current state.
+// The embed and components are built while holding the lock so the rendered
+// board can't tear against a concurrent move; the network call runs unlocked.
 func (mgr *connect4Manager) updateGameMessage(game *Connect4Game) {
+	mgr.mu.Lock()
 	if mgr.session == nil || game.MessageID == "" {
+		mgr.mu.Unlock()
 		return
 	}
+	session := mgr.session
+	channelID := game.ChannelID
+	messageID := game.MessageID
 	embed := c4BuildGameEmbed(game)
 	components := c4BuildComponents(game)
-	_, _ = mgr.session.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		Channel:    game.ChannelID,
-		ID:         game.MessageID,
+	mgr.mu.Unlock()
+
+	_, _ = session.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Channel:    channelID,
+		ID:         messageID,
 		Embeds:     &[]*discordgo.MessageEmbed{embed},
 		Components: &components,
 	})
@@ -297,8 +397,12 @@ func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 		embed.Title = "🎮 Connect 4"
 		embed.Footer.Text = fmt.Sprintf("Game %s • Game over", game.ID)
 		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
-		desc.WriteString(c4RenderBoard(game))
-		desc.WriteString("\n")
+		// Only show the board if at least one piece was played; declined,
+		// cancelled, and pre-start timeouts shouldn't render an empty grid.
+		if game.Moves > 0 {
+			desc.WriteString(c4RenderBoard(game))
+			desc.WriteString("\n")
+		}
 		if game.WinReason != "" {
 			desc.WriteString(game.WinReason)
 		} else if game.Winner == c4Player1 {
@@ -350,7 +454,7 @@ func c4AddReactions(s *discordgo.Session, channelID, messageID string) {
 	for _, emoji := range c4ColumnEmoji {
 		_ = s.MessageReactionAdd(channelID, messageID, emoji)
 	}
-	_ = s.MessageReactionAdd(channelID, messageID, "🏳️")
+	_ = s.MessageReactionAdd(channelID, messageID, c4EmojiForfeit)
 }
 
 // --- Slash Command Handler ---
@@ -446,10 +550,10 @@ func (m *Module) handleC4Accept(s *discordgo.Session, i *discordgo.InteractionCr
 		return
 	}
 	game.Status = c4Active
+	game.Accepted = true
 	game.LastActivity = time.Now()
-	c4mgr.mu.Unlock()
-
 	embed := c4BuildGameEmbed(game)
+	c4mgr.mu.Unlock()
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -490,9 +594,8 @@ func (m *Module) handleC4Decline(s *discordgo.Session, i *discordgo.InteractionC
 	} else {
 		game.WinReason = fmt.Sprintf("❌ <@%s> declined the challenge.", game.Player2)
 	}
-	c4mgr.mu.Unlock()
-
 	embed := c4BuildGameEmbed(game)
+	c4mgr.mu.Unlock()
 
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
@@ -514,7 +617,7 @@ func IsConnect4Message(messageID string) bool {
 	return ok
 }
 
-// HandleReactionAdd processes a reaction on a Connect 4 game message.
+// HandleReactionAdd processes a reaction added on a Connect 4 game message.
 // Called from the bot's reaction event handler.
 func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 	// Ignore bot's own reactions
@@ -527,43 +630,61 @@ func HandleReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 		return
 	}
 
-	// Always remove the user's reaction to keep the board clean
-	defer func() {
-		_ = s.MessageReactionRemove(r.ChannelID, r.MessageID, r.Emoji.APIName(), r.UserID)
-	}()
+	// Keep the board clean by removing the user's reaction once handled. Record
+	// the removal first so the resulting gateway event is recognized as our own
+	// and not replayed as a phantom move (see HandleReactionRemove).
+	defer c4mgr.cleanupUserReaction(s, r.ChannelID, r.MessageID, r.UserID, r.Emoji.APIName())
 
-	if game.Status != c4Active {
+	c4RouteReactionIntent(s, game, r.UserID, r.Emoji.Name)
+}
+
+// HandleReactionRemove processes a reaction removed from a Connect 4 game
+// message. A removal counts as input too: when the bot's cleanup is lagging
+// (Discord rate-limits reaction deletes) a player's reaction lingers, so their
+// next tap on that column toggles it off, and that tap should still register.
+// Removals the bot performed itself are swallowed so they don't replay as moves.
+func HandleReactionRemove(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
+	if r.UserID == s.State.User.ID {
 		return
 	}
 
-	// Handle forfeit
-	if r.Emoji.Name == "🏳️" {
-		c4HandleReactionForfeit(s, game, r.UserID)
+	game := c4mgr.getGameByMessage(r.MessageID)
+	if game == nil {
 		return
 	}
 
-	// Determine column from emoji
-	col := -1
+	// Swallow the removal the bot itself issued while cleaning up after a move.
+	if c4mgr.consumeSelfRemoval(r.MessageID, r.UserID, r.Emoji.APIName()) {
+		return
+	}
+
+	c4RouteReactionIntent(s, game, r.UserID, r.Emoji.Name)
+}
+
+// c4RouteReactionIntent interprets a reaction emoji as a forfeit or column move
+// for an active game. Shared by the add and remove handlers so either toggle
+// direction registers as the same input.
+func c4RouteReactionIntent(s *discordgo.Session, game *Connect4Game, userID, emojiName string) {
+	// Normalize away variation selectors: Discord doesn't reliably include
+	// U+FE0F on reaction payloads, which otherwise breaks emoji matching.
+	name := c4NormalizeEmoji(emojiName)
+
+	if name == c4NormalizeEmoji(c4EmojiForfeit) {
+		c4HandleReactionForfeit(s, game, userID)
+		return
+	}
+
 	for i, emoji := range c4ColumnEmoji {
-		if r.Emoji.Name == emoji {
-			col = i
-			break
+		if name == c4NormalizeEmoji(emoji) {
+			c4HandleReactionMove(s, game, userID, i)
+			return
 		}
 	}
-	if col == -1 {
-		return
-	}
-
-	c4HandleReactionMove(s, game, r.UserID, col)
 }
 
 func c4HandleReactionMove(s *discordgo.Session, game *Connect4Game, userID string, col int) {
-	var player int
-	if userID == game.Player1 {
-		player = c4Player1
-	} else if userID == game.Player2 {
-		player = c4Player2
-	} else {
+	player := c4PlayerForUser(game, userID)
+	if player == c4Empty {
 		return // not a player
 	}
 
@@ -580,25 +701,28 @@ func c4HandleReactionMove(s *discordgo.Session, game *Connect4Game, userID strin
 		return // column full, just ignore
 	}
 
+	game.Moves++
 	game.LastActivity = time.Now()
 
-	if c4CheckWin(game, row, col, player) {
+	finished := true
+	switch {
+	case c4CheckWin(game, row, col, player):
 		game.Status = c4Finished
 		game.Winner = player
-	} else if c4CheckDraw(game) {
+	case c4CheckDraw(game):
 		game.Status = c4Finished
 		game.Winner = 0
-	} else {
-		if game.Turn == c4Player1 {
-			game.Turn = c4Player2
-		} else {
-			game.Turn = c4Player1
-		}
+	default:
+		game.Turn = c4Other(player)
+		finished = false
 	}
 
 	c4mgr.mu.Unlock()
 
 	c4mgr.updateGameMessage(game)
+	if finished {
+		c4ClearReactions(s, game)
+	}
 }
 
 func c4HandleReactionForfeit(s *discordgo.Session, game *Connect4Game, userID string) {
@@ -609,13 +733,14 @@ func c4HandleReactionForfeit(s *discordgo.Session, game *Connect4Game, userID st
 		return
 	}
 
-	if userID == game.Player1 {
+	switch userID {
+	case game.Player1:
 		game.Winner = c4Player2
-		game.WinReason = fmt.Sprintf("🏳️ <@%s> forfeited — %s <@%s> wins!", game.Player1, c4EmojiPlayer2, game.Player2)
-	} else if userID == game.Player2 {
+		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player1, c4EmojiPlayer2, game.Player2)
+	case game.Player2:
 		game.Winner = c4Player1
-		game.WinReason = fmt.Sprintf("🏳️ <@%s> forfeited — %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
-	} else {
+		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player2, c4EmojiPlayer1, game.Player1)
+	default:
 		c4mgr.mu.Unlock()
 		return
 	}
@@ -625,9 +750,46 @@ func c4HandleReactionForfeit(s *discordgo.Session, game *Connect4Game, userID st
 	c4mgr.mu.Unlock()
 
 	c4mgr.updateGameMessage(game)
+	c4ClearReactions(s, game)
 }
 
 // --- Helpers ---
+
+// c4PlayerForUser maps a Discord user ID to its player number, or c4Empty if
+// the user isn't a participant in the game.
+func c4PlayerForUser(game *Connect4Game, userID string) int {
+	switch userID {
+	case game.Player1:
+		return c4Player1
+	case game.Player2:
+		return c4Player2
+	default:
+		return c4Empty
+	}
+}
+
+// c4Other returns the opposing player number.
+func c4Other(player int) int {
+	if player == c4Player1 {
+		return c4Player2
+	}
+	return c4Player1
+}
+
+// c4NormalizeEmoji strips Unicode variation selectors (U+FE0F) so reaction
+// matching works whether or not Discord includes them in the gateway payload.
+func c4NormalizeEmoji(emoji string) string {
+	return strings.ReplaceAll(emoji, "\uFE0F", "")
+}
+
+// c4ClearReactions best-effort removes every reaction from a finished game's
+// message so players can't keep clicking dead buttons. Requires Manage Messages.
+func c4ClearReactions(s *discordgo.Session, game *Connect4Game) {
+	if s == nil || game.MessageID == "" {
+		return
+	}
+	_ = s.MessageReactionsRemoveAll(game.ChannelID, game.MessageID)
+}
 
 func generateGameID() string {
 	b := make([]byte, 4)

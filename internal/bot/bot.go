@@ -150,6 +150,9 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.MessageReactionAdd) {
 		handler.HandleReactionAdd(s, r)
 	})
+	session.AddHandler(func(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
+		handler.HandleReactionRemove(s, r)
+	})
 
 	return bot, nil
 }

@@ -244,6 +244,15 @@ func (h *ModuleHandler) HandleReactionAdd(s *discordgo.Session, r *discordgo.Mes
 	}
 }
 
+// HandleReactionRemove routes message reaction removal events to modules that
+// use them. Connect 4 treats a removed reaction as input too, so a tap that
+// toggles a lingering reaction off still registers as a move.
+func (h *ModuleHandler) HandleReactionRemove(s *discordgo.Session, r *discordgo.MessageReactionRemove) {
+	if fun.IsConnect4Message(r.MessageID) {
+		fun.HandleReactionRemove(s, r)
+	}
+}
+
 // UnregisterCommands removes all registered commands
 func (h *ModuleHandler) UnregisterCommands(s *discordgo.Session) {
 	existingCommands, err := s.ApplicationCommands(s.State.User.ID, "")

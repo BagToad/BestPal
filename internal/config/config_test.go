@@ -93,7 +93,7 @@ func TestGetSuperAdmins(t *testing.T) {
 		_, present := os.LookupEnv("GAMERPAL_SUPER_ADMINS")
 		require.False(t, present, "test pollution: GAMERPAL_SUPER_ADMINS must be unset")
 
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"super_admins": []string{"weird,id,with,commas"},
 		})
 		require.Equal(t, []string{"weird,id,with,commas"}, cfg.GetSuperAdmins())
@@ -103,14 +103,14 @@ func TestGetSuperAdmins(t *testing.T) {
 		_, present := os.LookupEnv("GAMERPAL_SUPER_ADMINS")
 		require.False(t, present, "test pollution: GAMERPAL_SUPER_ADMINS must be unset")
 
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"super_admins": []string{"  admin1  ", "", "admin2", "   "},
 		})
 		require.Equal(t, []string{"admin1", "admin2"}, cfg.GetSuperAdmins())
 	})
 
 	t.Run("empty slice returns nil", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"super_admins": []string{},
 		})
 		require.Nil(t, cfg.GetSuperAdmins())
@@ -134,44 +134,44 @@ func TestScamGuardDefaults(t *testing.T) {
 
 func TestScamGuardAccessors(t *testing.T) {
 	t.Run("explicit zero threshold is honored", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 0})
+		cfg := NewMockConfig(map[string]any{"scamguard_hash_threshold": 0})
 		require.Equal(t, 0, cfg.GetScamGuardHashThreshold())
 	})
 
 	t.Run("negative threshold falls back to default", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": -3})
+		cfg := NewMockConfig(map[string]any{"scamguard_hash_threshold": -3})
 		require.Equal(t, 8, cfg.GetScamGuardHashThreshold())
 	})
 
 	t.Run("oversized threshold is capped at 16", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 64})
+		cfg := NewMockConfig(map[string]any{"scamguard_hash_threshold": 64})
 		require.Equal(t, 16, cfg.GetScamGuardHashThreshold())
 	})
 
 	t.Run("threshold within range is honored", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_hash_threshold": 12})
+		cfg := NewMockConfig(map[string]any{"scamguard_hash_threshold": 12})
 		require.Equal(t, 12, cfg.GetScamGuardHashThreshold())
 	})
 
 	t.Run("invalid action falls back to timeout", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_action": "explode"})
+		cfg := NewMockConfig(map[string]any{"scamguard_action": "explode"})
 		require.Equal(t, "timeout", cfg.GetScamGuardAction())
 	})
 
 	t.Run("valid action is honored", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{"scamguard_action": "delete"})
+		cfg := NewMockConfig(map[string]any{"scamguard_action": "delete"})
 		require.Equal(t, "delete", cfg.GetScamGuardAction())
 	})
 
 	t.Run("log channel falls back to mod action log channel", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"gamerpals_mod_action_log_channel_id": "MODLOG",
 		})
 		require.Equal(t, "MODLOG", cfg.GetScamGuardLogChannelID())
 	})
 
 	t.Run("explicit log channel wins", func(t *testing.T) {
-		cfg := NewMockConfig(map[string]interface{}{
+		cfg := NewMockConfig(map[string]any{
 			"scamguard_log_channel_id":            "SCAMLOG",
 			"gamerpals_mod_action_log_channel_id": "MODLOG",
 		})

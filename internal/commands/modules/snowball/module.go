@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"sort"
 	"strings"
@@ -701,7 +702,7 @@ func (m *Module) handleSnowballScore(s *discordgo.Session, i *discordgo.Interact
 	scores, err := m.db.GetTopSnowballScores(i.GuildID, 20)
 	if err != nil {
 		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("Couldn't fetch the snowball leaderboard. Snowplow hit the database."),
+			Content: new("Couldn't fetch the snowball leaderboard. Snowplow hit the database."),
 		})
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to edit response with leaderboard fetch error: %v", err)
@@ -711,7 +712,7 @@ func (m *Module) handleSnowballScore(s *discordgo.Session, i *discordgo.Interact
 
 	if len(scores) == 0 {
 		_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("No one has thrown a snowball yet. First hit gets bragging rights!"),
+			Content: new("No one has thrown a snowball yet. First hit gets bragging rights!"),
 		})
 		if err != nil {
 			m.config.Logger.Warnf("snowball: failed to edit response with empty leaderboard message: %v", err)
@@ -748,7 +749,7 @@ func (m *Module) handleSnowballScore(s *discordgo.Session, i *discordgo.Interact
 	}
 
 	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(leaderboard.String()),
+		Content: new(leaderboard.String()),
 	})
 	if err != nil {
 		m.config.Logger.Warnf("snowball: failed to edit response with leaderboard: %v", err)
@@ -800,15 +801,9 @@ func (m *Module) postSummaryAndReset(s *discordgo.Session) {
 	hitsOn := make(map[string]int)
 
 	// Deep copy the maps while we have the lock
-	for k, v := range m.state.ThrowsByUser {
-		throws[k] = v
-	}
-	for k, v := range m.state.HitsByUser {
-		hits[k] = v
-	}
-	for k, v := range m.state.HitsOnUser {
-		hitsOn[k] = v
-	}
+	maps.Copy(throws, m.state.ThrowsByUser)
+	maps.Copy(hits, m.state.HitsByUser)
+	maps.Copy(hitsOn, m.state.HitsOnUser)
 
 	// Clear the state maps immediately
 	m.state.ChannelID = ""
@@ -952,15 +947,9 @@ func (m *Module) snowfallState() snowfallState {
 		HitsOnUser:   make(map[string]int, len(m.state.HitsOnUser)),
 	}
 
-	for k, v := range m.state.ThrowsByUser {
-		s.ThrowsByUser[k] = v
-	}
-	for k, v := range m.state.HitsByUser {
-		s.HitsByUser[k] = v
-	}
-	for k, v := range m.state.HitsOnUser {
-		s.HitsOnUser[k] = v
-	}
+	maps.Copy(s.ThrowsByUser, m.state.ThrowsByUser)
+	maps.Copy(s.HitsByUser, m.state.HitsByUser)
+	maps.Copy(s.HitsOnUser, m.state.HitsOnUser)
 
 	return s
 }

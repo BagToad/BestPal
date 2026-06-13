@@ -70,13 +70,13 @@ func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Interactio
 	clientID := m.config.GetIGDBClientID()
 	secret := m.config.GetIGDBClientSecret()
 	if clientID == "" || secret == "" {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr("❌ Missing igdb_client_id or igdb_client_secret in configuration.")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new("❌ Missing igdb_client_id or igdb_client_secret in configuration.")})
 		return
 	}
 
 	token, expiresIn, err := m.fetchTwitchAppToken(clientID, secret)
 	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(fmt.Sprintf("❌ Failed to refresh token: %v", err))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new(fmt.Sprintf("❌ Failed to refresh token: %v", err))})
 		return
 	}
 
@@ -90,7 +90,7 @@ func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	msg := fmt.Sprintf("✅ IGDB token refreshed for this session.\nExpires In: %.2f hours", (time.Duration(expiresIn) * time.Second).Hours())
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: utils.StringPtr(msg)})
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: new(msg)})
 }
 
 // fetchTwitchAppToken requests a new app access token from Twitch/IGDB.

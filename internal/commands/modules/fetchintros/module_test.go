@@ -13,7 +13,7 @@ import (
 
 // TestModuleRegistration tests that the module registers correctly
 func TestModuleRegistration(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{
 		"gamerpals_introductions_forum_channel_id": "forum1",
 	})
 
@@ -37,7 +37,7 @@ func TestModuleRegistration(t *testing.T) {
 
 // TestFetchAndStoreThreadsCacheMiss tests cache refresh on miss
 func TestFetchAndStoreThreadsCacheMiss(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{
 		"gamerpals_introductions_forum_channel_id": "forum1",
 	})
 	// Don't register forum - force cache miss
@@ -62,7 +62,7 @@ func TestFetchAndStoreThreadsCacheMiss(t *testing.T) {
 
 // TestModuleNilDatabaseGuard tests that nil database is checked
 func TestModuleNilDatabaseGuard(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{
 		"gamerpals_introductions_forum_channel_id": "forum1",
 	})
 

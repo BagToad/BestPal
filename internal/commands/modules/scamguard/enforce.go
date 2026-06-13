@@ -29,10 +29,7 @@ func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, match
 	timedOut := false
 	var appliedTimeout time.Duration
 	if action == "timeout" {
-		dur := m.config.GetScamGuardTimeoutDuration()
-		if dur > maxTimeout {
-			dur = maxTimeout
-		}
+		dur := min(m.config.GetScamGuardTimeoutDuration(), maxTimeout)
 		appliedTimeout = dur
 		until := time.Now().Add(dur)
 		if err := m.timeoutMember(s, e.GuildID, e.Author.ID, &until); err != nil {

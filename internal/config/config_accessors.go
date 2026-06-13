@@ -193,7 +193,7 @@ func (c *Config) GetDisableFileLogging() bool {
 // for runtime-refreshed secrets (e.g. the IGDB token) that are not persisted to
 // the database. Per-guild operational settings are persisted via GuildConfig
 // overrides, not this method.
-func (c *Config) Set(key string, value interface{}) {
+func (c *Config) Set(key string, value any) {
 	c.v.Set(key, value)
 }
 

@@ -67,7 +67,7 @@ func withHooks(t *testing.T, cap *hookCapture, fn func()) {
 }
 
 func TestIntroCacheHitDefaultEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumA"})
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{"gamerpals_introductions_forum_channel_id": "forumA"})
 	fc.RegisterForum("forumA")
 	seedThread(fc, "forumA", "guild1", "user1", "700")
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -90,7 +90,7 @@ func TestIntroCacheHitDefaultEphemeral(t *testing.T) {
 }
 
 func TestIntroCacheMissExplicitNonEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumB", "gamerpals_log_channel_id": "logChan"})
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{"gamerpals_introductions_forum_channel_id": "forumB", "gamerpals_log_channel_id": "logChan"})
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
 	mod := New(deps)
 	cmds := map[string]*types.Command{}
@@ -123,7 +123,7 @@ func TestIntroCacheMissExplicitNonEphemeral(t *testing.T) {
 }
 
 func TestIntroConfigMissingDefaultEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{}) // no forum id
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{}) // no forum id
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
 	mod := New(deps)
 	cmds := map[string]*types.Command{}
@@ -160,7 +160,7 @@ func buildUserContextInteraction(guildID, invokingUserID, targetUserID string) *
 }
 
 func TestUserIntroCacheHitAlwaysEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUC"})
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{"gamerpals_introductions_forum_channel_id": "forumUC"})
 	fc.RegisterForum("forumUC")
 	seedThread(fc, "forumUC", "guildUC", "targetUser", "900")
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
@@ -184,7 +184,7 @@ func TestUserIntroCacheHitAlwaysEphemeral(t *testing.T) {
 }
 
 func TestUserIntroCacheMissAlwaysEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{"gamerpals_introductions_forum_channel_id": "forumUM", "gamerpals_log_channel_id": "logChan"})
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{"gamerpals_introductions_forum_channel_id": "forumUM", "gamerpals_log_channel_id": "logChan"})
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
 	mod := New(deps)
 	cmds := map[string]*types.Command{}
@@ -205,7 +205,7 @@ func TestUserIntroCacheMissAlwaysEphemeral(t *testing.T) {
 }
 
 func TestUserIntroConfigMissingAlwaysEphemeral(t *testing.T) {
-	cfg, fc := forumcache.NewTestForumCache(map[string]interface{}{})
+	cfg, fc := forumcache.NewTestForumCache(map[string]any{})
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
 	mod := New(deps)
 	cmds := map[string]*types.Command{}

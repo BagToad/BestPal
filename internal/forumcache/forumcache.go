@@ -3,6 +3,8 @@ package forumcache
 import (
 	"fmt"
 	"gamerpal/internal/config"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -100,9 +102,9 @@ func NewForumCacheService(config *config.Config) *Service {
 
 // NewTestForumCache constructs a mock Config and Service for tests in other packages.
 // Ensures a bot_token is present unless provided, mirroring prior per-file helpers.
-func NewTestForumCache(kv map[string]interface{}) (*config.Config, *Service) {
+func NewTestForumCache(kv map[string]any) (*config.Config, *Service) {
 	if kv == nil {
-		kv = map[string]interface{}{"bot_token": "x"}
+		kv = map[string]any{"bot_token": "x"}
 	}
 	if _, ok := kv["bot_token"]; !ok {
 		kv["bot_token"] = "x"
@@ -376,13 +378,7 @@ func (s *Service) SearchThreads(forumID, query string, limit int) ([]*ThreadMeta
 		}
 		// word boundary: any token equals query
 		tokens := strings.Fields(norm)
-		matchedBoundary := false
-		for _, tk := range tokens {
-			if tk == q {
-				matchedBoundary = true
-				break
-			}
-		}
+		matchedBoundary := slices.Contains(tokens, q)
 		if matchedBoundary {
 			boundary = append(boundary, meta)
 			continue
@@ -602,9 +598,7 @@ func (s *Service) OnThreadListSync(_ *discordgo.Session, e *discordgo.ThreadList
 			s.seedMeta(tempThreads, tempOwnerLatest, tempNameExact, th.GuildID, forumID, th)
 		}
 		idx.mu.Lock()
-		for id, meta := range tempThreads {
-			idx.threads[id] = meta
-		}
+		maps.Copy(idx.threads, tempThreads)
 		for owner, meta := range tempOwnerLatest {
 			if prev := idx.ownerLatest[owner]; latestTieBreak(meta, prev) {
 				idx.ownerLatest[owner] = meta

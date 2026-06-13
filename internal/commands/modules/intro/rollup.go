@@ -57,7 +57,7 @@ func (m *Module) handleIntroductionRollup(s *discordgo.Session, i *discordgo.Int
 
 	if m.config.DB == nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ Database not available."),
+			Content: new("❌ Database not available."),
 		})
 		return
 	}
@@ -65,7 +65,7 @@ func (m *Module) handleIntroductionRollup(s *discordgo.Session, i *discordgo.Int
 	rollupText, mentionedUserIDs, err := m.feedService.GenerateRollup(s, i.GuildID)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ %s", err.Error())),
+			Content: new(fmt.Sprintf("❌ %s", err.Error())),
 		})
 		return
 	}
@@ -84,14 +84,14 @@ func (m *Module) handleIntroductionRollup(s *discordgo.Session, i *discordgo.Int
 		})
 		if err != nil {
 			_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-				Content: utils.StringPtr(fmt.Sprintf("❌ Failed to send rollup message: %s", err.Error())),
+				Content: new(fmt.Sprintf("❌ Failed to send rollup message: %s", err.Error())),
 			})
 			return
 		}
 	}
 
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr("✅ Introduction rollup posted!"),
+		Content: new("✅ Introduction rollup posted!"),
 	})
 }
 
@@ -223,10 +223,7 @@ func splitMessage(text string, maxLen int) []string {
 		}
 
 		// Look for the last newline within the rune limit
-		limit := maxLen
-		if limit > len(runes) {
-			limit = len(runes)
-		}
+		limit := min(maxLen, len(runes))
 		cut := -1
 		for i := limit - 1; i >= 0; i-- {
 			if runes[i] == '\n' {

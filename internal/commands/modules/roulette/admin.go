@@ -141,7 +141,7 @@ func (m *RouletteModule) handleRouletteAdminDebug(s *discordgo.Session, i *disco
 	response.WriteString(fmt.Sprintf("• Mod Log Channel ID: %s\n", modLogChannelID))
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response.String()),
+		Content: new(response.String()),
 	})
 }
 
@@ -195,7 +195,7 @@ func (m *RouletteModule) handleRouletteAdminPair(s *discordgo.Session, i *discor
 		m.schedulePairing(s, i, guildID, *pairTime, dryRun)
 	} else {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ You must specify either a pair time or set immediate-pair-bool to true."),
+			Content: new("❌ You must specify either a pair time or set immediate-pair-bool to true."),
 		})
 	}
 }
@@ -206,7 +206,7 @@ func (m *RouletteModule) schedulePairing(s *discordgo.Session, i *discordgo.Inte
 		err := m.db.SetRouletteSchedule(guildID, pairTime)
 		if err != nil {
 			_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-				Content: utils.StringPtr(fmt.Sprintf("❌ Error scheduling pairing: %v", err)),
+				Content: new(fmt.Sprintf("❌ Error scheduling pairing: %v", err)),
 			})
 			return
 		}
@@ -218,7 +218,7 @@ func (m *RouletteModule) schedulePairing(s *discordgo.Session, i *discordgo.Inte
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(fmt.Sprintf("✅ Pairing scheduled for <t:%d:F>%s", pairTime.Unix(), dryRunText)),
+		Content: new(fmt.Sprintf("✅ Pairing scheduled for <t:%d:F>%s", pairTime.Unix(), dryRunText)),
 	})
 }
 
@@ -228,7 +228,7 @@ func (m *RouletteModule) executePairing(s *discordgo.Session, i *discordgo.Inter
 	result, err := m.pairingService.ExecutePairing(guildID, dryRun)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing pairing: %v", err)),
+			Content: new(fmt.Sprintf("❌ Error executing pairing: %v", err)),
 		})
 		return
 	}
@@ -291,7 +291,7 @@ func (m *RouletteModule) executePairing(s *discordgo.Session, i *discordgo.Inter
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response.String()),
+		Content: new(response.String()),
 	})
 }
 
@@ -348,7 +348,7 @@ func (m *RouletteModule) handleRouletteAdminReset(s *discordgo.Session, i *disco
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response.String()),
+		Content: new(response.String()),
 	})
 }
 
@@ -368,14 +368,14 @@ func (m *RouletteModule) handleRouletteAdminDeleteSchedule(s *discordgo.Session,
 	schedule, err := m.db.GetRouletteSchedule(guildID)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error checking schedule: %v", err)),
+			Content: new(fmt.Sprintf("❌ Error checking schedule: %v", err)),
 		})
 		return
 	}
 
 	if schedule == nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr("❌ No scheduled pairing found to delete."),
+			Content: new("❌ No scheduled pairing found to delete."),
 		})
 		return
 	}
@@ -387,7 +387,7 @@ func (m *RouletteModule) handleRouletteAdminDeleteSchedule(s *discordgo.Session,
 	err = m.db.ClearRouletteSchedule(guildID)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error deleting schedule: %v", err)),
+			Content: new(fmt.Sprintf("❌ Error deleting schedule: %v", err)),
 		})
 		return
 	}
@@ -412,7 +412,7 @@ func (m *RouletteModule) handleRouletteAdminDeleteSchedule(s *discordgo.Session,
 	}
 
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(response),
+		Content: new(response),
 	})
 }
 
@@ -468,7 +468,7 @@ func (m *RouletteModule) handleRouletteAdminSimulatePairing(s *discordgo.Session
 	result, err := m.pairingService.SimulatePairing(guildID, userCount, createChannels)
 	if err != nil {
 		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-			Content: utils.StringPtr(fmt.Sprintf("❌ Error executing simulation: %v", err)),
+			Content: new(fmt.Sprintf("❌ Error executing simulation: %v", err)),
 		})
 		return
 	}
@@ -547,7 +547,7 @@ func (m *RouletteModule) handleRouletteAdminSimulatePairing(s *discordgo.Session
 
 	// Send as file attachment
 	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
-		Content: utils.StringPtr(fmt.Sprintf("🧪 **Roulette Pairing Simulation Complete**\n\nResults saved to file. %d users simulated with %.1f%% pairing efficiency.",
+		Content: new(fmt.Sprintf("🧪 **Roulette Pairing Simulation Complete**\n\nResults saved to file. %d users simulated with %.1f%% pairing efficiency.",
 			userCount,
 			func() float64 {
 				if result.Success {

@@ -13,11 +13,11 @@ func TestRegistry_Table(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		ops       []op
-		lookupID  string
-		wantOK    bool
-		wantUser  string
+		name     string
+		ops      []op
+		lookupID string
+		wantOK   bool
+		wantUser string
 	}{
 		{
 			name: "register then lookup returns caller",
@@ -29,8 +29,8 @@ func TestRegistry_Table(t *testing.T) {
 			wantUser: "u1",
 		},
 		{
-			name: "lookup unknown session returns false",
-			ops:  nil,
+			name:     "lookup unknown session returns false",
+			ops:      nil,
 			lookupID: "missing",
 			wantOK:   false,
 		},

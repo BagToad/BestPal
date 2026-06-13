@@ -1234,129 +1234,129 @@ func TestUTF8TruncationDoesNotSplitRunes(t *testing.T) {
 }
 
 func TestRenderUnifiedDiff(t *testing.T) {
-tests := []struct {
-name        string
-before      string
-after       string
-wantSubstrs []string
-wantEmpty   bool
-}{
-{
-name:        "single line change shows minus and plus",
-before:      "hello",
-after:       "world",
-wantSubstrs: []string{"-hello", "+world", "@@"},
-},
-{
-name:        "added line",
-before:      "a\n",
-after:       "a\nb\n",
-wantSubstrs: []string{"+b"},
-},
-{
-name:      "identical inputs produce empty diff",
-before:    "same",
-after:     "same",
-wantEmpty: true,
-},
-}
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-got := renderUnifiedDiff(tt.before, tt.after)
-if tt.wantEmpty {
-if got != "" {
-t.Errorf("expected empty diff, got %q", got)
-}
-return
-}
-for _, sub := range tt.wantSubstrs {
-if !strings.Contains(got, sub) {
-t.Errorf("missing %q in diff:\n%s", sub, got)
-}
-}
-})
-}
+	tests := []struct {
+		name        string
+		before      string
+		after       string
+		wantSubstrs []string
+		wantEmpty   bool
+	}{
+		{
+			name:        "single line change shows minus and plus",
+			before:      "hello",
+			after:       "world",
+			wantSubstrs: []string{"-hello", "+world", "@@"},
+		},
+		{
+			name:        "added line",
+			before:      "a\n",
+			after:       "a\nb\n",
+			wantSubstrs: []string{"+b"},
+		},
+		{
+			name:      "identical inputs produce empty diff",
+			before:    "same",
+			after:     "same",
+			wantEmpty: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderUnifiedDiff(tt.before, tt.after)
+			if tt.wantEmpty {
+				if got != "" {
+					t.Errorf("expected empty diff, got %q", got)
+				}
+				return
+			}
+			for _, sub := range tt.wantSubstrs {
+				if !strings.Contains(got, sub) {
+					t.Errorf("missing %q in diff:\n%s", sub, got)
+				}
+			}
+		})
+	}
 }
 
 func TestOnMessageUpdate_RendersDiffBlock(t *testing.T) {
-m, r := newTestModule(t)
-s := newTestSession(textChannel("C1", "general"))
-editTime := time.Now()
-m.OnMessageUpdate(s, &discordgo.MessageUpdate{
-Message: &discordgo.Message{
-ID: "M1", ChannelID: "C1", GuildID: testGuildID,
-Author: &fakeUser, Content: "new text", EditedTimestamp: &editTime,
-},
-BeforeUpdate: &discordgo.Message{Content: "old text", Author: &fakeUser},
-})
-if len(r.logs) != 1 {
-t.Fatalf("want 1 log got %d", len(r.logs))
-}
-p := r.logs[0].payload
-assertPayloadWithinLimits(t, p)
-if !strings.Contains(p.content, "```diff") {
-t.Errorf("expected ```diff fenced block, got:\n%s", p.content)
-}
-if !strings.Contains(p.content, "-old text") || !strings.Contains(p.content, "+new text") {
-t.Errorf("expected diff lines, got:\n%s", p.content)
-}
+	m, r := newTestModule(t)
+	s := newTestSession(textChannel("C1", "general"))
+	editTime := time.Now()
+	m.OnMessageUpdate(s, &discordgo.MessageUpdate{
+		Message: &discordgo.Message{
+			ID: "M1", ChannelID: "C1", GuildID: testGuildID,
+			Author: &fakeUser, Content: "new text", EditedTimestamp: &editTime,
+		},
+		BeforeUpdate: &discordgo.Message{Content: "old text", Author: &fakeUser},
+	})
+	if len(r.logs) != 1 {
+		t.Fatalf("want 1 log got %d", len(r.logs))
+	}
+	p := r.logs[0].payload
+	assertPayloadWithinLimits(t, p)
+	if !strings.Contains(p.content, "```diff") {
+		t.Errorf("expected ```diff fenced block, got:\n%s", p.content)
+	}
+	if !strings.Contains(p.content, "-old text") || !strings.Contains(p.content, "+new text") {
+		t.Errorf("expected diff lines, got:\n%s", p.content)
+	}
 }
 
 func TestOnMessageUpdate_LongDiffStaysWithinLimits(t *testing.T) {
-// Build large before/after that produce a diff well over inline limits.
-// Each line is ~80 chars; 200 lines ~= 16KB before, with every line
-// changed in after, producing ~32KB of diff hunk lines.
-var beforeBuf, afterBuf strings.Builder
-for i := 0; i < 200; i++ {
-beforeBuf.WriteString(strings.Repeat("a", 80))
-beforeBuf.WriteByte('\n')
-afterBuf.WriteString(strings.Repeat("b", 80))
-afterBuf.WriteByte('\n')
-}
+	// Build large before/after that produce a diff well over inline limits.
+	// Each line is ~80 chars; 200 lines ~= 16KB before, with every line
+	// changed in after, producing ~32KB of diff hunk lines.
+	var beforeBuf, afterBuf strings.Builder
+	for i := 0; i < 200; i++ {
+		beforeBuf.WriteString(strings.Repeat("a", 80))
+		beforeBuf.WriteByte('\n')
+		afterBuf.WriteString(strings.Repeat("b", 80))
+		afterBuf.WriteByte('\n')
+	}
 
-m, r := newTestModule(t)
-s := newTestSession(textChannel("C1", "general"))
-editTime := time.Now()
-m.OnMessageUpdate(s, &discordgo.MessageUpdate{
-Message: &discordgo.Message{
-ID: "M1", ChannelID: "C1", GuildID: testGuildID,
-Author: &fakeUser, Content: afterBuf.String(), EditedTimestamp: &editTime,
-},
-BeforeUpdate: &discordgo.Message{Content: beforeBuf.String(), Author: &fakeUser},
-})
+	m, r := newTestModule(t)
+	s := newTestSession(textChannel("C1", "general"))
+	editTime := time.Now()
+	m.OnMessageUpdate(s, &discordgo.MessageUpdate{
+		Message: &discordgo.Message{
+			ID: "M1", ChannelID: "C1", GuildID: testGuildID,
+			Author: &fakeUser, Content: afterBuf.String(), EditedTimestamp: &editTime,
+		},
+		BeforeUpdate: &discordgo.Message{Content: beforeBuf.String(), Author: &fakeUser},
+	})
 
-if len(r.logs) != 1 {
-t.Fatalf("want 1 log got %d", len(r.logs))
-}
-assertPayloadWithinLimits(t, r.logs[0].payload)
+	if len(r.logs) != 1 {
+		t.Fatalf("want 1 log got %d", len(r.logs))
+	}
+	assertPayloadWithinLimits(t, r.logs[0].payload)
 }
 
 func TestCodeBlockLang(t *testing.T) {
-tests := []struct {
-name        string
-lang        string
-input       string
-wantPrefix  string
-wantContent string
-}{
-{name: "diff lang", lang: "diff", input: "-a\n+b", wantPrefix: "```diff\n"},
-{name: "no lang", lang: "", input: "x", wantPrefix: "```\n"},
-{name: "empty body diff", lang: "diff", input: "", wantContent: "```diff\n```"},
-}
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-got := codeBlockLang(tt.lang, tt.input)
-if tt.wantContent != "" {
-if got != tt.wantContent {
-t.Errorf("got %q want %q", got, tt.wantContent)
-}
-return
-}
-if !strings.HasPrefix(got, tt.wantPrefix) {
-t.Errorf("missing prefix %q in:\n%s", tt.wantPrefix, got)
-}
-})
-}
+	tests := []struct {
+		name        string
+		lang        string
+		input       string
+		wantPrefix  string
+		wantContent string
+	}{
+		{name: "diff lang", lang: "diff", input: "-a\n+b", wantPrefix: "```diff\n"},
+		{name: "no lang", lang: "", input: "x", wantPrefix: "```\n"},
+		{name: "empty body diff", lang: "diff", input: "", wantContent: "```diff\n```"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := codeBlockLang(tt.lang, tt.input)
+			if tt.wantContent != "" {
+				if got != tt.wantContent {
+					t.Errorf("got %q want %q", got, tt.wantContent)
+				}
+				return
+			}
+			if !strings.HasPrefix(got, tt.wantPrefix) {
+				t.Errorf("missing prefix %q in:\n%s", tt.wantPrefix, got)
+			}
+		})
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1364,149 +1364,149 @@ t.Errorf("missing prefix %q in:\n%s", tt.wantPrefix, got)
 // ---------------------------------------------------------------------------
 
 func TestIsImageAttachment(t *testing.T) {
-tests := []struct {
-name string
-att  *discordgo.MessageAttachment
-want bool
-}{
-{"image content type", &discordgo.MessageAttachment{ContentType: "image/png", Filename: "x"}, true},
-{"image content type uppercase", &discordgo.MessageAttachment{ContentType: "IMAGE/JPEG", Filename: "x"}, true},
-{"png by ext", &discordgo.MessageAttachment{Filename: "pic.PNG"}, true},
-{"jpg by ext", &discordgo.MessageAttachment{Filename: "pic.jpg"}, true},
-{"webp by ext", &discordgo.MessageAttachment{Filename: "pic.webp"}, true},
-{"gif by ext", &discordgo.MessageAttachment{Filename: "anim.gif"}, true},
-{"non-image text", &discordgo.MessageAttachment{ContentType: "text/plain", Filename: "notes.txt"}, false},
-{"non-image video", &discordgo.MessageAttachment{ContentType: "video/mp4", Filename: "clip.mp4"}, false},
-{"unknown ext", &discordgo.MessageAttachment{Filename: "data.bin"}, false},
-}
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-if got := isImageAttachment(tt.att); got != tt.want {
-t.Errorf("isImageAttachment(%+v) = %v, want %v", tt.att, got, tt.want)
-}
-})
-}
+	tests := []struct {
+		name string
+		att  *discordgo.MessageAttachment
+		want bool
+	}{
+		{"image content type", &discordgo.MessageAttachment{ContentType: "image/png", Filename: "x"}, true},
+		{"image content type uppercase", &discordgo.MessageAttachment{ContentType: "IMAGE/JPEG", Filename: "x"}, true},
+		{"png by ext", &discordgo.MessageAttachment{Filename: "pic.PNG"}, true},
+		{"jpg by ext", &discordgo.MessageAttachment{Filename: "pic.jpg"}, true},
+		{"webp by ext", &discordgo.MessageAttachment{Filename: "pic.webp"}, true},
+		{"gif by ext", &discordgo.MessageAttachment{Filename: "anim.gif"}, true},
+		{"non-image text", &discordgo.MessageAttachment{ContentType: "text/plain", Filename: "notes.txt"}, false},
+		{"non-image video", &discordgo.MessageAttachment{ContentType: "video/mp4", Filename: "clip.mp4"}, false},
+		{"unknown ext", &discordgo.MessageAttachment{Filename: "data.bin"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isImageAttachment(tt.att); got != tt.want {
+				t.Errorf("isImageAttachment(%+v) = %v, want %v", tt.att, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestRehostImages(t *testing.T) {
-pngBytes := []byte("\x89PNG\r\n\x1a\nfakeimagedata")
-tests := []struct {
-name        string
-attachments []*discordgo.MessageAttachment
-fetcher     func(url string, max int) ([]byte, error)
-wantFiles   int
-wantNotes   int
-wantNoteSub string
-}{
-{
-name:        "no attachments",
-attachments: nil,
-wantFiles:   0,
-wantNotes:   0,
-},
-{
-name: "single image rehosted",
-attachments: []*discordgo.MessageAttachment{
-{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
-},
-fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
-wantFiles: 1,
-wantNotes: 0,
-},
-{
-name: "non-image skipped silently",
-attachments: []*discordgo.MessageAttachment{
-{Filename: "doc.pdf", ContentType: "application/pdf", URL: "https://x/doc.pdf", Size: 100},
-},
-fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
-wantFiles: 0,
-wantNotes: 0,
-},
-{
-name: "fetch failure produces note, no file",
-attachments: []*discordgo.MessageAttachment{
-{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
-},
-fetcher:     func(_ string, _ int) ([]byte, error) { return nil, errFetch },
-wantFiles:   0,
-wantNotes:   1,
-wantNoteSub: "not re-hosted",
-},
-{
-name: "oversized declared size produces note, fetcher not called",
-attachments: []*discordgo.MessageAttachment{
-{Filename: "huge.png", ContentType: "image/png", URL: "https://x/huge.png", Size: maxAttachmentBytes + 1},
-},
-fetcher: func(_ string, _ int) ([]byte, error) {
-t.Fatalf("fetcher should not be called for oversized attachment")
-return nil, nil
-},
-wantFiles:   0,
-wantNotes:   1,
-wantNoteSub: "exceeds",
-},
-{
-name: "mixed: image rehosted, text skipped, broken-image noted",
-attachments: []*discordgo.MessageAttachment{
-{Filename: "ok.png", ContentType: "image/png", URL: "https://x/ok.png", Size: 100},
-{Filename: "notes.txt", ContentType: "text/plain", URL: "https://x/notes.txt", Size: 100},
-{Filename: "broken.jpg", ContentType: "image/jpeg", URL: "https://x/broken.jpg", Size: 100},
-},
-fetcher: func(url string, _ int) ([]byte, error) {
-if strings.Contains(url, "broken") {
-return nil, errFetch
-}
-return pngBytes, nil
-},
-wantFiles: 1,
-wantNotes: 1,
-},
-{
-name: "nil entry tolerated",
-attachments: []*discordgo.MessageAttachment{
-nil,
-{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
-},
-fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
-wantFiles: 1,
-wantNotes: 0,
-},
-}
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-m, _ := newTestModule(t)
-if tt.fetcher != nil {
-m.fetchImage = tt.fetcher
-}
-files, notes := m.rehostImages(tt.attachments)
-if len(files) != tt.wantFiles {
-t.Errorf("files = %d, want %d", len(files), tt.wantFiles)
-}
-if len(notes) != tt.wantNotes {
-t.Errorf("notes = %d, want %d (notes=%v)", len(notes), tt.wantNotes, notes)
-}
-if tt.wantNoteSub != "" {
-found := false
-for _, n := range notes {
-if strings.Contains(n, tt.wantNoteSub) {
-found = true
-break
-}
-}
-if !found {
-t.Errorf("no note contained %q; notes=%v", tt.wantNoteSub, notes)
-}
-}
-for _, f := range files {
-if f.name == "" {
-t.Error("rehosted file has empty name")
-}
-if len(f.content) == 0 {
-t.Error("rehosted file has empty content")
-}
-}
-})
-}
+	pngBytes := []byte("\x89PNG\r\n\x1a\nfakeimagedata")
+	tests := []struct {
+		name        string
+		attachments []*discordgo.MessageAttachment
+		fetcher     func(url string, max int) ([]byte, error)
+		wantFiles   int
+		wantNotes   int
+		wantNoteSub string
+	}{
+		{
+			name:        "no attachments",
+			attachments: nil,
+			wantFiles:   0,
+			wantNotes:   0,
+		},
+		{
+			name: "single image rehosted",
+			attachments: []*discordgo.MessageAttachment{
+				{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
+			},
+			fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
+			wantFiles: 1,
+			wantNotes: 0,
+		},
+		{
+			name: "non-image skipped silently",
+			attachments: []*discordgo.MessageAttachment{
+				{Filename: "doc.pdf", ContentType: "application/pdf", URL: "https://x/doc.pdf", Size: 100},
+			},
+			fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
+			wantFiles: 0,
+			wantNotes: 0,
+		},
+		{
+			name: "fetch failure produces note, no file",
+			attachments: []*discordgo.MessageAttachment{
+				{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
+			},
+			fetcher:     func(_ string, _ int) ([]byte, error) { return nil, errFetch },
+			wantFiles:   0,
+			wantNotes:   1,
+			wantNoteSub: "not re-hosted",
+		},
+		{
+			name: "oversized declared size produces note, fetcher not called",
+			attachments: []*discordgo.MessageAttachment{
+				{Filename: "huge.png", ContentType: "image/png", URL: "https://x/huge.png", Size: maxAttachmentBytes + 1},
+			},
+			fetcher: func(_ string, _ int) ([]byte, error) {
+				t.Fatalf("fetcher should not be called for oversized attachment")
+				return nil, nil
+			},
+			wantFiles:   0,
+			wantNotes:   1,
+			wantNoteSub: "exceeds",
+		},
+		{
+			name: "mixed: image rehosted, text skipped, broken-image noted",
+			attachments: []*discordgo.MessageAttachment{
+				{Filename: "ok.png", ContentType: "image/png", URL: "https://x/ok.png", Size: 100},
+				{Filename: "notes.txt", ContentType: "text/plain", URL: "https://x/notes.txt", Size: 100},
+				{Filename: "broken.jpg", ContentType: "image/jpeg", URL: "https://x/broken.jpg", Size: 100},
+			},
+			fetcher: func(url string, _ int) ([]byte, error) {
+				if strings.Contains(url, "broken") {
+					return nil, errFetch
+				}
+				return pngBytes, nil
+			},
+			wantFiles: 1,
+			wantNotes: 1,
+		},
+		{
+			name: "nil entry tolerated",
+			attachments: []*discordgo.MessageAttachment{
+				nil,
+				{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
+			},
+			fetcher:   func(_ string, _ int) ([]byte, error) { return pngBytes, nil },
+			wantFiles: 1,
+			wantNotes: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := newTestModule(t)
+			if tt.fetcher != nil {
+				m.fetchImage = tt.fetcher
+			}
+			files, notes := m.rehostImages(tt.attachments)
+			if len(files) != tt.wantFiles {
+				t.Errorf("files = %d, want %d", len(files), tt.wantFiles)
+			}
+			if len(notes) != tt.wantNotes {
+				t.Errorf("notes = %d, want %d (notes=%v)", len(notes), tt.wantNotes, notes)
+			}
+			if tt.wantNoteSub != "" {
+				found := false
+				for _, n := range notes {
+					if strings.Contains(n, tt.wantNoteSub) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("no note contained %q; notes=%v", tt.wantNoteSub, notes)
+				}
+			}
+			for _, f := range files {
+				if f.name == "" {
+					t.Error("rehosted file has empty name")
+				}
+				if len(f.content) == 0 {
+					t.Error("rehosted file has empty content")
+				}
+			}
+		})
+	}
 }
 
 var errFetch = fakeErr("fetch failed")
@@ -1516,129 +1516,129 @@ type fakeErr string
 func (e fakeErr) Error() string { return string(e) }
 
 func TestOnMessageCreate_RehostsImages(t *testing.T) {
-m, r := newTestModule(t)
-pngBytes := []byte("\x89PNG\r\n\x1a\nfakeimagedata")
-m.fetchImage = func(url string, _ int) ([]byte, error) {
-return pngBytes, nil
-}
-s := newTestSession(textChannel("C1", "general"))
+	m, r := newTestModule(t)
+	pngBytes := []byte("\x89PNG\r\n\x1a\nfakeimagedata")
+	m.fetchImage = func(url string, _ int) ([]byte, error) {
+		return pngBytes, nil
+	}
+	s := newTestSession(textChannel("C1", "general"))
 
-m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
-ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
-Content: "hello",
-Attachments: []*discordgo.MessageAttachment{
-{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
-},
-}})
+	m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
+		Content: "hello",
+		Attachments: []*discordgo.MessageAttachment{
+			{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
+		},
+	}})
 
-if len(r.logs) != 1 {
-t.Fatalf("logs = %d, want 1", len(r.logs))
-}
-p := r.logs[0].payload
-assertPayloadWithinLimits(t, p)
-if len(p.files) != 1 {
-t.Fatalf("files = %d, want 1", len(p.files))
-}
-if p.files[0].name != "pic.png" {
-t.Errorf("file name = %q, want pic.png", p.files[0].name)
-}
-if string(p.files[0].content) != string(pngBytes) {
-t.Errorf("file content not preserved")
-}
+	if len(r.logs) != 1 {
+		t.Fatalf("logs = %d, want 1", len(r.logs))
+	}
+	p := r.logs[0].payload
+	assertPayloadWithinLimits(t, p)
+	if len(p.files) != 1 {
+		t.Fatalf("files = %d, want 1", len(p.files))
+	}
+	if p.files[0].name != "pic.png" {
+		t.Errorf("file name = %q, want pic.png", p.files[0].name)
+	}
+	if string(p.files[0].content) != string(pngBytes) {
+		t.Errorf("file content not preserved")
+	}
 }
 
 func TestOnMessageCreate_SkipsNonImageAttachments(t *testing.T) {
-m, r := newTestModule(t)
-called := 0
-m.fetchImage = func(_ string, _ int) ([]byte, error) {
-called++
-return []byte("data"), nil
-}
-s := newTestSession(textChannel("C1", "general"))
+	m, r := newTestModule(t)
+	called := 0
+	m.fetchImage = func(_ string, _ int) ([]byte, error) {
+		called++
+		return []byte("data"), nil
+	}
+	s := newTestSession(textChannel("C1", "general"))
 
-m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
-ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
-Content: "hello",
-Attachments: []*discordgo.MessageAttachment{
-{Filename: "doc.pdf", ContentType: "application/pdf", URL: "https://x/doc.pdf", Size: 100},
-{Filename: "clip.mp4", ContentType: "video/mp4", URL: "https://x/clip.mp4", Size: 100},
-},
-}})
+	m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
+		Content: "hello",
+		Attachments: []*discordgo.MessageAttachment{
+			{Filename: "doc.pdf", ContentType: "application/pdf", URL: "https://x/doc.pdf", Size: 100},
+			{Filename: "clip.mp4", ContentType: "video/mp4", URL: "https://x/clip.mp4", Size: 100},
+		},
+	}})
 
-if called != 0 {
-t.Errorf("fetcher called %d times for non-image attachments, want 0", called)
-}
-if len(r.logs) != 1 {
-t.Fatalf("logs = %d, want 1", len(r.logs))
-}
-if len(r.logs[0].payload.files) != 0 {
-t.Errorf("files = %d, want 0", len(r.logs[0].payload.files))
-}
+	if called != 0 {
+		t.Errorf("fetcher called %d times for non-image attachments, want 0", called)
+	}
+	if len(r.logs) != 1 {
+		t.Fatalf("logs = %d, want 1", len(r.logs))
+	}
+	if len(r.logs[0].payload.files) != 0 {
+		t.Errorf("files = %d, want 0", len(r.logs[0].payload.files))
+	}
 }
 
 func TestOnMessageCreate_FetchFailureStillLogs(t *testing.T) {
-m, r := newTestModule(t)
-m.fetchImage = func(_ string, _ int) ([]byte, error) {
-return nil, errFetch
-}
-s := newTestSession(textChannel("C1", "general"))
+	m, r := newTestModule(t)
+	m.fetchImage = func(_ string, _ int) ([]byte, error) {
+		return nil, errFetch
+	}
+	s := newTestSession(textChannel("C1", "general"))
 
-m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
-ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
-Content: "hi",
-Attachments: []*discordgo.MessageAttachment{
-{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
-},
-}})
+	m.OnMessageCreate(s, &discordgo.MessageCreate{Message: &discordgo.Message{
+		ID: "M1", ChannelID: "C1", GuildID: testGuildID, Author: &fakeUser,
+		Content: "hi",
+		Attachments: []*discordgo.MessageAttachment{
+			{Filename: "pic.png", ContentType: "image/png", URL: "https://x/pic.png", Size: 100},
+		},
+	}})
 
-if len(r.logs) != 1 {
-t.Fatalf("logs = %d, want 1", len(r.logs))
-}
-if !strings.Contains(r.logs[0].payload.content, "not re-hosted") {
-t.Errorf("expected failure note in content, got: %q", r.logs[0].payload.content)
-}
-if len(r.logs[0].payload.files) != 0 {
-t.Errorf("files = %d, want 0 on fetch failure", len(r.logs[0].payload.files))
-}
+	if len(r.logs) != 1 {
+		t.Fatalf("logs = %d, want 1", len(r.logs))
+	}
+	if !strings.Contains(r.logs[0].payload.content, "not re-hosted") {
+		t.Errorf("expected failure note in content, got: %q", r.logs[0].payload.content)
+	}
+	if len(r.logs[0].payload.files) != 0 {
+		t.Errorf("files = %d, want 0 on fetch failure", len(r.logs[0].payload.files))
+	}
 }
 
 func TestBuildPayload_ExtraFilesPriority(t *testing.T) {
-// With 11 binary files plus content > inline cap (which would normally
-// add a log.txt), we should drop overflow and note it. Binary files
-// should keep their slots; the long content text fallback is the one
-// that gets dropped.
-bins := make([]fileSpec, maxAttachmentsPerMessage+1)
-for i := range bins {
-bins[i] = fileSpec{name: "img.png", content: []byte("img")}
-}
-p := buildPayload("short", nil, bins)
-assertPayloadWithinLimits(t, p)
-if len(p.files) != maxAttachmentsPerMessage {
-t.Fatalf("files = %d, want %d", len(p.files), maxAttachmentsPerMessage)
-}
-if !strings.Contains(p.content, "omitted") {
-t.Errorf("expected omitted note in content, got: %q", p.content)
-}
+	// With 11 binary files plus content > inline cap (which would normally
+	// add a log.txt), we should drop overflow and note it. Binary files
+	// should keep their slots; the long content text fallback is the one
+	// that gets dropped.
+	bins := make([]fileSpec, maxAttachmentsPerMessage+1)
+	for i := range bins {
+		bins[i] = fileSpec{name: "img.png", content: []byte("img")}
+	}
+	p := buildPayload("short", nil, bins)
+	assertPayloadWithinLimits(t, p)
+	if len(p.files) != maxAttachmentsPerMessage {
+		t.Fatalf("files = %d, want %d", len(p.files), maxAttachmentsPerMessage)
+	}
+	if !strings.Contains(p.content, "omitted") {
+		t.Errorf("expected omitted note in content, got: %q", p.content)
+	}
 }
 
 func TestDetectContentType(t *testing.T) {
-tests := []struct {
-name     string
-fname    string
-data     []byte
-wantSub  string
-}{
-{"txt", "log.txt", []byte("hello"), "text/plain"},
-{"patch", "diff.patch", []byte("--- a"), "text/plain"},
-{"png", "pic.png", []byte("\x89PNG\r\n\x1a\n"), "image/png"},
-{"empty", "x.bin", nil, "application/octet-stream"},
-}
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-got := detectContentType(tt.fname, tt.data)
-if !strings.Contains(got, tt.wantSub) {
-t.Errorf("detectContentType(%q) = %q, want substr %q", tt.fname, got, tt.wantSub)
-}
-})
-}
+	tests := []struct {
+		name    string
+		fname   string
+		data    []byte
+		wantSub string
+	}{
+		{"txt", "log.txt", []byte("hello"), "text/plain"},
+		{"patch", "diff.patch", []byte("--- a"), "text/plain"},
+		{"png", "pic.png", []byte("\x89PNG\r\n\x1a\n"), "image/png"},
+		{"empty", "x.bin", nil, "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectContentType(tt.fname, tt.data)
+			if !strings.Contains(got, tt.wantSub) {
+				t.Errorf("detectContentType(%q) = %q, want substr %q", tt.fname, got, tt.wantSub)
+			}
+		})
+	}
 }

@@ -81,4 +81,3 @@ func TestModuleNilDatabaseGuard(t *testing.T) {
 	// The actual handler would check for nil DB and return error
 	// This test just verifies the module can be created with nil DB
 }
-

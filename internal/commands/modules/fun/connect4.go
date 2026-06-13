@@ -66,12 +66,12 @@ type Connect4Game struct {
 // --- Manager ---
 
 type connect4Manager struct {
-	games      map[string]*Connect4Game
-	msgToGame  map[string]string // messageID → gameID for fast reaction lookup
-	mu         sync.Mutex
-	session    *discordgo.Session
-	cfg        *config.Config
-	once       sync.Once
+	games     map[string]*Connect4Game
+	msgToGame map[string]string // messageID → gameID for fast reaction lookup
+	mu        sync.Mutex
+	session   *discordgo.Session
+	cfg       *config.Config
+	once      sync.Once
 }
 
 var c4mgr = &connect4Manager{

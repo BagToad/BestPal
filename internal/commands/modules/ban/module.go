@@ -199,8 +199,8 @@ func (m *Module) handleBanSlash(s *discordgo.Session, i *discordgo.InteractionCr
 	}
 	targetUser := data.Resolved.Users[targetID]
 
-	if err := m.validateTarget(s, i, targetUser.ID); err != nil {
-		m.editEphemeral(s, i, err.Error())
+	if msg := m.validateTarget(s, i, targetUser.ID); msg != "" {
+		m.editEphemeral(s, i, msg)
 		return
 	}
 
@@ -230,8 +230,8 @@ func (m *Module) handleBanContext(s *discordgo.Session, i *discordgo.Interaction
 	}
 	targetUser := data.Resolved.Users[targetID]
 
-	if err := m.validateTarget(s, i, targetUser.ID); err != nil {
-		m.editEphemeral(s, i, err.Error())
+	if msg := m.validateTarget(s, i, targetUser.ID); msg != "" {
+		m.editEphemeral(s, i, msg)
 		return
 	}
 
@@ -243,14 +243,16 @@ func (m *Module) handleBanContext(s *discordgo.Session, i *discordgo.Interaction
 	m.executeBan(s, i, targetUser, contextMenuReason, "", days, "context menu")
 }
 
-func (m *Module) validateTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetID string) error {
+// validateTarget returns a user-facing reason the target cannot be banned, or
+// an empty string if the target is valid.
+func (m *Module) validateTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetID string) string {
 	if targetID == i.Member.User.ID {
-		return fmt.Errorf("❌ You cannot ban yourself.")
+		return "❌ You cannot ban yourself."
 	}
 	if targetID == s.State.User.ID {
-		return fmt.Errorf("❌ I cannot ban myself.")
+		return "❌ I cannot ban myself."
 	}
-	return nil
+	return ""
 }
 
 func (m *Module) executeBan(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {

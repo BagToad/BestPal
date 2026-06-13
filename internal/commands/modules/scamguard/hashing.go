@@ -53,6 +53,8 @@ func parseHash(s string) (*goimagehash.ImageHash, error) {
 	if s == "" {
 		return nil, fmt.Errorf("empty hash")
 	}
+	// Hashes are persisted in their compact string form, so we parse that form
+	// with ImageHashFromString rather than the binary LoadImageHash.
 	return goimagehash.ImageHashFromString(s)
 }
 

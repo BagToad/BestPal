@@ -40,5 +40,5 @@ func (m *Module) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate
 
 // Service returns nil as this module has no services requiring initialization
 func (m *Module) Service() types.ModuleService {
-return nil
+	return nil
 }

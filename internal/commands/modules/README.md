@@ -19,7 +19,6 @@ Each module encapsulates:
 | **intro** | `/intro`, user app context: `Lookup intro` | Simple | Forum introduction lookup (slash + right-click user). `/intro` supports optional `ephemeral` boolean (default true) to control visibility. |
 | **config** | `/config` | Medium | Bot configuration (SuperAdmin) |
 | **refreshigdb** | `/refresh-igdb` | Simple | IGDB token refresh |
-| **game** | `/game` | Medium | IGDB game search |
 | **userstats** | `/userstats` | Medium | Server statistics |
 | **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
 | **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |

@@ -6,7 +6,6 @@ import (
 	"gamerpal/internal/commands/modules/config"
 	"gamerpal/internal/commands/modules/fetchintros"
 	"gamerpal/internal/commands/modules/fun"
-	"gamerpal/internal/commands/modules/game"
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
@@ -20,7 +19,6 @@ import (
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/snowball"
 	"gamerpal/internal/commands/modules/status"
-	"gamerpal/internal/commands/modules/time"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -93,14 +91,12 @@ func (h *ModuleHandler) registerModules() {
 	}{
 		{"ping", ping.New(h.deps)},
 		{"ban", ban.New(h.deps)},
-		{"time", time.New(h.deps)},
 		{"say", say.New(h.deps)},
 		{"help", help.New(h.deps)},
 		{"intro", intro.New(h.deps)},
 		{"fetchintros", fetchintros.New(h.deps)},
 		{"config", config.New(h.deps)},
 		{"refreshigdb", refreshigdb.New(h.deps)},
-		{"game", game.New(h.deps)},
 		{"userstats", userstats.New(h.deps)},
 		{"prune", prune.New(h.deps)},
 		{"lfg", lfg.New(h.deps)},

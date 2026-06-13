@@ -26,15 +26,15 @@
 │                 │  │  service.go     │
 └─────────────────┘  └─────────────────┘
 
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│ modules/lfg/    │  │ modules/        │  │ modules/game/   │
-│  lfg.go         │  │ roulette/       │  │  game.go        │
-│  module.go      │  │  roulette.go    │  │                 │
-│  now.go         │  │  admin.go       │  │                 │
-│                 │  │  module.go      │  │                 │
-└─────────────────┘  └─────────────────┘  └─────────────────┘
+┌─────────────────┐  ┌─────────────────┐
+│ modules/lfg/    │  │ modules/        │
+│  lfg.go         │  │ roulette/       │
+│  module.go      │  │  roulette.go    │
+│  now.go         │  │  admin.go       │
+│                 │  │  module.go      │
+└─────────────────┘  └─────────────────┘
 
-All logic for each command in its module. (Former `modules/time/` deprecated and now development-only for removal.)
+All logic for each command lives in its module.
 ```
 
 ## Dependency Flow

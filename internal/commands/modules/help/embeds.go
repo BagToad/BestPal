@@ -23,11 +23,6 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
-				Name:   "/game",
-				Value:  "Look up information about a video game from IGDB\n• Use `/game name:GameName` to search for a game",
-				Inline: false,
-			},
-			{
 				Name:   "/intro",
 				Value:  "Look up a user's latest introduction post\n• Use `/intro` to find your own introduction\n• Use `/intro user:@username` to find someone else's introduction",
 				Inline: false,

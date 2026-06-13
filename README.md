@@ -16,7 +16,6 @@ environment (see `config.example.yaml`).
 | `/ping` | Bot health check |
 | `/help` | List available commands |
 | `/intro` | Find a user's intro forum post |
-| `/game` | IGDB game lookup |
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
 | `/roulette signup` | Sign up for roulette pairing |

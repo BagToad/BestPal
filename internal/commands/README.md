@@ -99,9 +99,6 @@ Original 600+ line handler. Being phased out as commands migrate.
 - ~30 lines of code
 - Shows basic pattern
 
-### (Removed) Time Module
-The former `time` module has been deprecated and marked development-only for automatic unregistration. Its date parsing helper remains available in `internal/utils/time.go` for any future features.
-
 ### Complex Module (say)
 - Multiple files: `say.go`, `service.go`
 - Includes service for scheduling

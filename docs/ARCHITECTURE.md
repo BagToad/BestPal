@@ -27,7 +27,6 @@ internal/commands/
 │   └── types.go              # Shared interfaces and types
 ├── modules/
 │   ├── ping/                 # Simple command
-│   ├── (deprecated: time/)   # Removed; helpers live in internal/utils/time.go
 │   ├── say/                  # Complex with service
 │   ├── lfg/                  # Complex with modals/components
 │   ├── roulette/             # Complex with pairing service
@@ -256,9 +255,6 @@ See existing modules for reference:
 - **Complex**: `modules/say/` - Multiple commands with service
 - **Advanced**: `modules/lfg/` - Modal and component interactions
 - **Service Integration**: `modules/roulette/` - External service integration
-
-Deprecated:
-- `modules/time/` (date parsing logic consolidated; command unregistered)
 
 ## Further Reading
 

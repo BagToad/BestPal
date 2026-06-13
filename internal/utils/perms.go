@@ -31,17 +31,3 @@ func IsSuperAdmin(ID string, config *config.Config) bool {
 	}
 	return false
 }
-
-// HasRoleByName checks if the user has a specific role by name (the text descriptor)
-func HasRoleByName(s *discordgo.Session, i *discordgo.InteractionCreate, roleName string) bool {
-	for _, role := range i.Member.Roles {
-		role, err := s.State.Role(i.GuildID, role)
-		if err != nil {
-			continue
-		}
-		if role.Name == roleName {
-			return true
-		}
-	}
-	return false
-}

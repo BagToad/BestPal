@@ -83,14 +83,6 @@ type enforceRec struct {
 	isMod    bool
 }
 
-func (r *enforceRec) reset() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.deleted = nil
-	r.timeouts = nil
-	r.logs = nil
-}
-
 // newTestModule builds a module with recording seams and an injectable image
 // store. db is nil so the hash cache lives purely in memory.
 func newTestModule(t *testing.T, kv map[string]interface{}) (*Module, *enforceRec, map[string][]byte) {

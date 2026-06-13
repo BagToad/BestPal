@@ -18,11 +18,6 @@ environment (see `config.example.yaml`).
 | `/intro` | Find a user's intro forum post |
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
-| `/roulette signup` | Sign up for roulette pairing |
-| `/roulette nah` | Remove yourself from pairing |
-| `/roulette games-add` | Add games to your pairing list |
-| `/roulette games-remove` | Remove games from your pairing list |
-| `/roulette help` | Show roulette help |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
@@ -41,12 +36,6 @@ environment (see `config.example.yaml`).
 |---------|-------------|
 | `/prune-inactive` | Remove users with no roles (dry-run by default) |
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
-| `/roulette-admin help` | Show admin roulette help |
-| `/roulette-admin debug` | Debug info about roulette system |
-| `/roulette-admin pair` | Schedule or execute pairing (supports time / immediate / dryrun) |
-| `/roulette-admin simulate-pairing` | Simulate pairing with fake users |
-| `/roulette-admin reset` | Delete all existing pairing channels |
-| `/roulette-admin delete-schedule` | Remove the scheduled pairing time |
 
 ### Moderator (requires Ban Members)
 | Command | Description |
@@ -63,7 +52,6 @@ environment (see `config.example.yaml`).
 |--------|---------|
 | `welcome` | Scheduled member welcome tasks |
 | `say` | Dispatch scheduled anonymous messages |
-| `roulette` | Automated pairing execution when scheduled |
 
 ## Quick Start
 
@@ -98,7 +86,6 @@ Each module provides:
 | Module | Service Functionality |
 |--------|-----------------------|
 | `say` | Scheduled message dispatch |
-| `roulette` | Pairing scheduling/execution engine |
 | `welcome` | New member welcome workflow |
 
 ### Interaction Routing

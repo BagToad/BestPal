@@ -38,11 +38,6 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
-				Name:   "/roulette help",
-				Value:  "Show detailed help for roulette pairing commands",
-				Inline: false,
-			},
-			{
 				Name:   "🛠️ Moderator Commands:",
 				Inline: false,
 			},
@@ -88,11 +83,6 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			{
 				Name:   "/prune-forum",
 				Value:  "Find forum threads whose starter post was deleted\n• Use `forum:#channel execute:true` to delete threads",
-				Inline: false,
-			},
-			{
-				Name:   "/roulette-admin help",
-				Value:  "Show detailed help for roulette admin commands",
 				Inline: false,
 			},
 		},

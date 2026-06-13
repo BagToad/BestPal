@@ -206,10 +206,6 @@ func (gc *GuildConfig) GetGamerpalsLogChannelID() string {
 	return gc.resolveString(KeyLogChannelID)
 }
 
-func (gc *GuildConfig) GetGamerPalsPairingCategoryID() string {
-	return gc.resolveString(KeyPairingCategoryID)
-}
-
 func (gc *GuildConfig) GetGamerPalsVoiceSyncCategoryID() string {
 	return gc.resolveString(KeyVoiceSyncCategoryID)
 }

@@ -12,7 +12,6 @@ package config
 const (
 	KeyModActionLogChannelID = "gamerpals_mod_action_log_channel_id"
 	KeyLogChannelID          = "gamerpals_log_channel_id"
-	KeyPairingCategoryID     = "gamerpals_pairing_category_id"
 	KeyVoiceSyncCategoryID   = "gamerpals_voice_sync_category_id"
 	KeyHelpDeskChannelID     = "gamerpals_help_desk_channel_id"
 	KeyEventFeedChannelID    = "event_feed_channel_id"

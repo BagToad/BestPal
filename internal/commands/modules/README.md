@@ -22,7 +22,6 @@ Each module encapsulates:
 | **userstats** | `/userstats` | Medium | Server statistics |
 | **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
 | **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |
-| **roulette** | `/roulette`, `/roulette-admin` | Advanced | Pairing service integration |
 
 ## Module Pattern
 

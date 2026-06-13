@@ -87,9 +87,6 @@ gamerpals_mod_action_log_channel_id: "your-mod-log-channel-id-here"
 # General bot log channel (separate from mod action log).
 gamerpals_log_channel_id: ""
 
-# Category under which the bot creates pairing voice channels.
-gamerpals_pairing_category_id: "your-pairing-category-id-here"
-
 # Forum channel where new member introductions are posted.
 gamerpals_introductions_forum_channel_id: "your-introductions-forum-channel-id-here"
 

@@ -26,13 +26,12 @@
 │                 │  │  service.go     │
 └─────────────────┘  └─────────────────┘
 
-┌─────────────────┐  ┌─────────────────┐
-│ modules/lfg/    │  │ modules/        │
-│  handlers.go    │  │ roulette/       │
-│  module.go      │  │  roulette.go    │
-│  now.go         │  │  admin.go       │
-│                 │  │  module.go      │
-└─────────────────┘  └─────────────────┘
+┌─────────────────┐
+│ modules/lfg/    │
+│  handlers.go    │
+│  module.go      │
+│  now.go         │
+└─────────────────┘
 
 All logic for each command lives in its module.
 ```

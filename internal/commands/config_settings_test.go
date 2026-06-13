@@ -40,7 +40,6 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 	expected := []string{
 		config.KeyModActionLogChannelID,
 		config.KeyLogChannelID,
-		config.KeyPairingCategoryID,
 		config.KeyVoiceSyncCategoryID,
 		config.KeyHelpDeskChannelID,
 		config.KeyEventFeedChannelID,

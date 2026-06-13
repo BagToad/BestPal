@@ -29,7 +29,6 @@ internal/commands/
 │   ├── ping/                 # Simple command
 │   ├── say/                  # Complex with service
 │   ├── lfg/                  # Complex with modals/components
-│   ├── roulette/             # Complex with pairing service
 │   └── ...                   # Other command modules
 └── module_handler.go         # Handler that orchestrates modules
 ```
@@ -254,7 +253,6 @@ See existing modules for reference:
 - **Simple**: `modules/ping/` - Basic command with no dependencies
 - **Complex**: `modules/say/` - Multiple commands with service
 - **Advanced**: `modules/lfg/` - Modal and component interactions
-- **Service Integration**: `modules/roulette/` - External service integration
 
 ## Further Reading
 

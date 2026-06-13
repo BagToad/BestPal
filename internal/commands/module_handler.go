@@ -14,7 +14,6 @@ import (
 	"gamerpal/internal/commands/modules/poll"
 	"gamerpal/internal/commands/modules/prune"
 	"gamerpal/internal/commands/modules/refreshigdb"
-	"gamerpal/internal/commands/modules/roulette"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/snowball"
@@ -48,8 +47,8 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 	db, err := database.NewDB(cfg.GetDatabasePath())
 	if err != nil {
 		// A nil database silently breaks every persistence-backed module
-		// (roulette, scamguard, intros, snowball, welcome) and panics the
-		// scheduled pairing job. Fail loudly instead of degrading silently.
+		// (scamguard, intros, snowball, welcome). Fail loudly instead of
+		// degrading silently.
 		cfg.Logger.Fatalf("Failed to initialize database at %q: %v", cfg.GetDatabasePath(), err)
 	}
 
@@ -100,7 +99,6 @@ func (h *ModuleHandler) registerModules() {
 		{"userstats", userstats.New(h.deps)},
 		{"prune", prune.New(h.deps)},
 		{"lfg", lfg.New(h.deps)},
-		{"roulette", roulette.New(h.deps)},
 		{"snowball", snowball.New(h.deps)},
 		{"welcome", welcome.New(h.deps)},
 		{"poll", poll.New(h.deps)},

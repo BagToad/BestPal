@@ -20,7 +20,7 @@
         ↓                  ↓                  ↓
 ┌─────────────────┐  ┌─────────────────┐
 │ modules/ping/   │  │ modules/say/    │
-│  ping.go        │  │  say.go         │
+│  module.go      │  │  module.go      │
 │  - Register()   │  │  - Register()   │
 │  - handler      │  │  - handlers     │
 │                 │  │  service.go     │
@@ -28,7 +28,7 @@
 
 ┌─────────────────┐  ┌─────────────────┐
 │ modules/lfg/    │  │ modules/        │
-│  lfg.go         │  │ roulette/       │
+│  handlers.go    │  │ roulette/       │
 │  module.go      │  │  roulette.go    │
 │  now.go         │  │  admin.go       │
 │                 │  │  module.go      │

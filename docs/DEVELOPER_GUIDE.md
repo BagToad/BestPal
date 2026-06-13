@@ -33,7 +33,7 @@ For commands without services or complex logic:
    mkdir -p internal/commands/modules/greet
    ```
 
-2. **Create `greet.go`**:
+2. **Create `module.go`**:
    ```go
    package greet
    
@@ -164,7 +164,7 @@ For commands that need background services:
    }
    ```
 
-3. **Create `reminder.go`**:
+3. **Create `module.go`**:
    ```go
    package reminder
    

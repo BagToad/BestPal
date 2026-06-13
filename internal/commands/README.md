@@ -94,13 +94,13 @@ Original 600+ line handler. Being phased out as commands migrate.
 ## Module Examples
 
 ### Simple Module (ping)
-- Single file: `modules/ping/ping.go`
+- Single file: `modules/ping/module.go`
 - No services
 - ~30 lines of code
 - Shows basic pattern
 
 ### Complex Module (say)
-- Multiple files: `say.go`, `service.go`
+- Multiple files: `module.go`, `service.go`
 - Includes service for scheduling
 - ~400 lines total
 - Shows service integration

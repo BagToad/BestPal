@@ -76,6 +76,59 @@ func (c *Config) GetCopilotAgentModel() string {
 	return c.PrimaryGuild().GetCopilotAgentModel()
 }
 
+// GetCopilotAgentBrainChannelID returns the channel ID whose messages are loaded
+// as extra moderator guidance for the agent. Empty means the feature is off.
+func (c *Config) GetCopilotAgentBrainChannelID() string {
+	return c.PrimaryGuild().GetCopilotAgentBrainChannelID()
+}
+
+// GetCopilotAgentBrainMaxItems returns the cap on how many brain-channel
+// messages become guidance items (default 50).
+func (c *Config) GetCopilotAgentBrainMaxItems() int {
+	return c.PrimaryGuild().GetCopilotAgentBrainMaxItems()
+}
+
+// GetCopilotAgentBrainMaxChars returns the cap on total guidance characters
+// injected into the prompt (default 4000).
+func (c *Config) GetCopilotAgentBrainMaxChars() int {
+	return c.PrimaryGuild().GetCopilotAgentBrainMaxChars()
+}
+
+// defaultBrainRefreshInterval is used when the brain refresh interval is unset
+// or invalid.
+const defaultBrainRefreshInterval = 5 * time.Minute
+
+// GetCopilotAgentBrainRefreshInterval returns how often the agent reloads the
+// brain channel. It defaults to 5m when unset, and warns then falls back to 5m
+// when the configured value is unparseable or non-positive. Read once at
+// startup; changing it requires a restart.
+func (c *Config) GetCopilotAgentBrainRefreshInterval() time.Duration {
+	raw := c.PrimaryGuild().resolveString(KeyCopilotAgentBrainRefreshInterval)
+	d, reason := parseBrainRefreshInterval(raw, defaultBrainRefreshInterval)
+	if reason != "" {
+		c.Logger.Warnf("agent: brain refresh interval %q %s; using %s", strings.TrimSpace(raw), reason, d)
+	}
+	return d
+}
+
+// parseBrainRefreshInterval parses a configured brain refresh interval. It
+// returns def with a reason when raw is empty, unparseable, or non-positive,
+// and the parsed duration with an empty reason otherwise.
+func parseBrainRefreshInterval(raw string, def time.Duration) (time.Duration, string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def, ""
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return def, "is not a valid duration"
+	}
+	if d <= 0 {
+		return def, "must be positive"
+	}
+	return d, ""
+}
+
 func (c *Config) GetGamerPalsModActionLogChannelID() string {
 	return c.PrimaryGuild().GetGamerPalsModActionLogChannelID()
 }

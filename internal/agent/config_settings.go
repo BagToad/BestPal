@@ -41,5 +41,36 @@ func (agentConfigProvider) ConfigSettings() []config.Setting {
 			Kind:        config.KindString,
 			Default:     "gpt-5.5",
 		},
+		{
+			Key:         config.KeyCopilotAgentBrainChannelID,
+			Category:    config.CategoryAgent,
+			Label:       "Brain channel",
+			Description: "Private, mod-only channel whose messages are loaded as extra guidance for the agent. Empty disables it. Must hide @everyone or it will be skipped.",
+			Kind:        config.KindChannel,
+		},
+		{
+			Key:         config.KeyCopilotAgentBrainRefreshInterval,
+			Category:    config.CategoryAgent,
+			Label:       "Brain refresh interval",
+			Description: "How often the brain channel is reloaded, as a Go duration like \"5m\". Defaults to 5m. Applied at startup.",
+			Kind:        config.KindDuration,
+			Default:     "5m",
+		},
+		{
+			Key:         config.KeyCopilotAgentBrainMaxItems,
+			Category:    config.CategoryAgent,
+			Label:       "Brain max items",
+			Description: "Maximum number of brain channel messages loaded as guidance (newest kept). Defaults to 50.",
+			Kind:        config.KindInt,
+			Default:     50,
+		},
+		{
+			Key:         config.KeyCopilotAgentBrainMaxChars,
+			Category:    config.CategoryAgent,
+			Label:       "Brain max characters",
+			Description: "Maximum total characters of guidance injected into the prompt. Defaults to 4000.",
+			Kind:        config.KindInt,
+			Default:     4000,
+		},
 	}
 }

@@ -46,6 +46,11 @@ const (
 	KeyCopilotAgentExcludeRoleID  = "copilot_agent_exclude_role_id"
 	KeyCopilotAgentReplyAllowlist = "copilot_agent_reply_channel_allowlist"
 	KeyCopilotAgentModel          = "copilot_agent_model"
+	KeyCopilotAgentBrainChannelID = "copilot_agent_brain_channel_id"
+
+	KeyCopilotAgentBrainRefreshInterval = "copilot_agent_brain_refresh_interval"
+	KeyCopilotAgentBrainMaxItems        = "copilot_agent_brain_max_items"
+	KeyCopilotAgentBrainMaxChars        = "copilot_agent_brain_max_chars"
 )
 
 // Kind is the value type of a setting. The config panel maps each Kind onto the

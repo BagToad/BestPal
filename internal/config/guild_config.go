@@ -390,6 +390,38 @@ func (gc *GuildConfig) GetCopilotAgentReplyChannelAllowlist() []string {
 	return out
 }
 
+// GetCopilotAgentBrainChannelID returns the channel whose messages are loaded
+// as extra moderator guidance for the agent. Empty means the feature is off.
+func (gc *GuildConfig) GetCopilotAgentBrainChannelID() string {
+	return gc.resolveString(KeyCopilotAgentBrainChannelID)
+}
+
+// Brain guidance caps used when the per-guild values are unset or non-positive.
+const (
+	defaultBrainMaxItems = 50
+	defaultBrainMaxChars = 4000
+)
+
+// GetCopilotAgentBrainMaxItems returns the cap on how many brain-channel
+// messages become guidance items. Defaults to 50 when unset or non-positive.
+func (gc *GuildConfig) GetCopilotAgentBrainMaxItems() int {
+	n, ok := gc.resolveInt(KeyCopilotAgentBrainMaxItems)
+	if !ok || n <= 0 {
+		return defaultBrainMaxItems
+	}
+	return n
+}
+
+// GetCopilotAgentBrainMaxChars returns the cap on total guidance characters
+// injected into the prompt. Defaults to 4000 when unset or non-positive.
+func (gc *GuildConfig) GetCopilotAgentBrainMaxChars() int {
+	n, ok := gc.resolveInt(KeyCopilotAgentBrainMaxChars)
+	if !ok || n <= 0 {
+		return defaultBrainMaxChars
+	}
+	return n
+}
+
 // GetCopilotAgentModel returns the agent model, defaulting to "gpt-5.5".
 func (gc *GuildConfig) GetCopilotAgentModel() string {
 	if v := gc.resolveString(KeyCopilotAgentModel); v != "" {

@@ -42,13 +42,16 @@ type Agent struct {
 
 	toolsMu sync.Mutex
 	tools   []copilot.Tool
+
+	brain          *Brain
+	brainRefreshMu sync.Mutex
 }
 
 func New(cfg *config.Config, s *discordgo.Session) (*Agent, error) {
 	if cfg == nil || s == nil {
 		return nil, fmt.Errorf("nil config or session")
 	}
-	return &Agent{cfg: cfg, session: s}, nil
+	return &Agent{cfg: cfg, session: s, brain: NewBrain()}, nil
 }
 
 // AddTools registers tools. Safe to call multiple times; tools added after
@@ -187,7 +190,7 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		Tools:      tools,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode:    "append",
-			Content: systemPrompt,
+			Content: assembleSystemPrompt(systemPrompt, a.brain.Guidance()),
 		},
 		// Defense in depth: SkipPermission=true on tools + AvailableTools
 		// allowlist below should mean we never reach this handler, but if

@@ -32,7 +32,7 @@ type searchResult struct {
 }
 
 // AgentTools satisfies the duck-typed agentToolProvider in the commands package.
-func (m *LfgModule) AgentTools() []copilot.Tool {
+func (m *Module) AgentTools() []copilot.Tool {
 	if m == nil || m.session == nil {
 		return nil
 	}
@@ -44,7 +44,7 @@ type lfgSearchParams struct {
 	Limit int    `json:"limit,omitempty" jsonschema:"maximum number of results to return (1-10, default 5)"`
 }
 
-func (m *LfgModule) newLFGSearchTool() copilot.Tool {
+func (m *Module) newLFGSearchTool() copilot.Tool {
 	t := copilot.DefineTool(
 		"lfg_search",
 		"Search the GamerPals LFG forum for existing game threads by name. Returns up to N results ordered by relevance. Use this to check whether a thread already exists before creating one.",
@@ -76,7 +76,7 @@ type lfgFindOrCreateParams struct {
 	GameName string `json:"game_name" jsonschema:"the exact game name to find or create a thread for; prefer the IGDB canonical name"`
 }
 
-func (m *LfgModule) newLFGFindOrCreateTool() copilot.Tool {
+func (m *Module) newLFGFindOrCreateTool() copilot.Tool {
 	t := copilot.DefineTool(
 		"lfg_find_or_create_thread",
 		`Find an existing LFG forum thread for a game, or create one with IGDB enrichment (cover art, summary, links). If the name is ambiguous, returns IGDB suggestions instead of creating; pick one and call again with that exact name. Status is one of: "found_existing", "created_new", "needs_disambiguation", "no_matches".`,

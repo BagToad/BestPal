@@ -355,7 +355,7 @@ func c4AddReactions(s *discordgo.Session, channelID, messageID string) {
 
 // --- Slash Command Handler ---
 
-func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleConnect4Challenge(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c4mgr.init(s, m.config)
 
 	var opponent *discordgo.User
@@ -407,7 +407,7 @@ func (m *FunModule) handleConnect4Challenge(s *discordgo.Session, i *discordgo.I
 
 // --- Component Handlers (Accept / Decline only) ---
 
-func (m *FunModule) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	c4mgr.init(s, m.config)
 
 	cid := i.MessageComponentData().CustomID
@@ -426,7 +426,7 @@ func (m *FunModule) HandleComponent(s *discordgo.Session, i *discordgo.Interacti
 	}
 }
 
-func (m *FunModule) handleC4Accept(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
+func (m *Module) handleC4Accept(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
 	game := c4mgr.getGame(gameID)
 	if game == nil {
 		c4RespondEphemeral(s, i, "❌ This game no longer exists.")
@@ -464,7 +464,7 @@ func (m *FunModule) handleC4Accept(s *discordgo.Session, i *discordgo.Interactio
 	go c4AddReactions(s, game.ChannelID, game.MessageID)
 }
 
-func (m *FunModule) handleC4Decline(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
+func (m *Module) handleC4Decline(s *discordgo.Session, i *discordgo.InteractionCreate, gameID string) {
 	game := c4mgr.getGame(gameID)
 	if game == nil {
 		c4RespondEphemeral(s, i, "❌ This game no longer exists.")

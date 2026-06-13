@@ -7,15 +7,15 @@ import (
 )
 
 // Module implements the CommandModule interface for the help command
-type HelpModule struct{}
+type Module struct{}
 
 // New creates a new help module
-func New(deps *types.Dependencies) *HelpModule {
-	return &HelpModule{}
+func New(deps *types.Dependencies) *Module {
+	return &Module{}
 }
 
 // Register adds the help command to the command map
-func (m *HelpModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["help"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "help",
@@ -26,7 +26,7 @@ func (m *HelpModule) Register(cmds map[string]*types.Command, deps *types.Depend
 }
 
 // handleHelp handles the help slash command
-func (m *HelpModule) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleHelp(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	embed := helpCommandsEmbed()
 
 	// Respond immediately with the embed
@@ -39,6 +39,6 @@ func (m *HelpModule) handleHelp(s *discordgo.Session, i *discordgo.InteractionCr
 }
 
 // Service returns nil as this module has no services requiring initialization
-func (m *HelpModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 return nil
 }

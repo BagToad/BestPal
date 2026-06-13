@@ -101,7 +101,7 @@ var translateLanguageKeys = func() []string {
 }()
 
 // getTranslateLanguage returns the configured translate language, resolving "random" to a random pick.
-func (m *FunModule) getTranslateLanguage() translateLanguage {
+func (m *Module) getTranslateLanguage() translateLanguage {
 	key := m.config.GetTranslateLanguage()
 	if key == "random" {
 		key = translateLanguageKeys[rand.Intn(len(translateLanguageKeys))]
@@ -114,20 +114,20 @@ func (m *FunModule) getTranslateLanguage() translateLanguage {
 	return lang
 }
 
-// FunModule implements the CommandModule interface for fun commands
-type FunModule struct {
+// Module implements the CommandModule interface for fun commands
+type Module struct {
 	config *config.Config
 }
 
 // New creates a new fun module
-func New(deps *types.Dependencies) *FunModule {
-	return &FunModule{
+func New(deps *types.Dependencies) *Module {
+	return &Module{
 		config: deps.Config,
 	}
 }
 
 // Register adds fun-related commands to the command map
-func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var modPerms int64 = discordgo.PermissionBanMembers
 
 	cmds["typing"] = &types.Command{
@@ -191,7 +191,7 @@ func (m *FunModule) Register(cmds map[string]*types.Command, deps *types.Depende
 }
 
 // handleTranslate handles the "Translate" message context menu command.
-func (m *FunModule) handleTranslate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleTranslate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	targetMsg := data.Resolved.Messages[data.TargetID]
 
@@ -251,12 +251,12 @@ func (m *FunModule) handleTranslate(s *discordgo.Session, i *discordgo.Interacti
 }
 
 // Service returns nil as this module has no services requiring initialization
-func (m *FunModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return nil
 }
 
 // handleTyping makes the bot show as typing in a channel for a specified duration.
-func (m *FunModule) handleTyping(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleTyping(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var channelID string
 	var minutes int64

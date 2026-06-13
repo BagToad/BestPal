@@ -8,17 +8,17 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// WelcomeModule handles welcome-related scheduled tasks
+// Module handles welcome-related scheduled tasks
 // Note: This module has no slash commands, only scheduled background services
-type WelcomeModule struct {
+type Module struct {
 	service *WelcomeService
 	config  *config.Config
 	db      *database.DB
 }
 
-// New creates a new WelcomeModule instance
+// New creates a new Module instance
 func New(deps *types.Dependencies) types.CommandModule {
-	return &WelcomeModule{
+	return &Module{
 		config:  deps.Config,
 		service: NewWelcomeService(deps),
 		db:      deps.DB,
@@ -26,7 +26,7 @@ func New(deps *types.Dependencies) types.CommandModule {
 }
 
 // Register registers the module (no commands for this module)
-func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var modPerms int64 = discordgo.PermissionBanMembers
 	cmds["setwelcomemsg"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
@@ -51,7 +51,7 @@ func (m *WelcomeModule) Register(cmds map[string]*types.Command, deps *types.Dep
 	}
 }
 
-func (m *WelcomeModule) handleGetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleGetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	msg, err := m.db.GetWelcomeMessage()
 	if err != nil {
 		msg = "😭 Sorry, Couldn't find the welcome message."
@@ -66,7 +66,7 @@ func (m *WelcomeModule) handleGetWelcomeMsg(s *discordgo.Session, i *discordgo.I
 	})
 }
 
-func (m *WelcomeModule) handleSetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSetWelcomeMsg(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	msg := i.ApplicationCommandData().Resolved.Messages[i.ApplicationCommandData().TargetID].Content
 	userID := i.Member.User.ID
 
@@ -95,6 +95,6 @@ func (m *WelcomeModule) handleSetWelcomeMsg(s *discordgo.Session, i *discordgo.I
 }
 
 // Service returns the module's service that needs session initialization
-func (m *WelcomeModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return m.service
 }

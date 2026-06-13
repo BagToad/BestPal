@@ -10,7 +10,7 @@ import (
 // (the translate style), auto-collected into the config panel registry. The
 // enum options are derived from translateLanguages so adding a new style here
 // makes it selectable in the panel for free.
-func (m *FunModule) ConfigSettings() []config.Setting {
+func (m *Module) ConfigSettings() []config.Setting {
 	opts := []config.Option{{Value: "random", Label: "Random"}}
 
 	keys := make([]string, 0, len(translateLanguages))

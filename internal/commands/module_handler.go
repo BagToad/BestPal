@@ -113,7 +113,7 @@ func (h *ModuleHandler) registerModules() {
 	for _, m := range modules {
 		// Special handling for refreshigdb module to update IGDB client
 		if m.name == "refreshigdb" {
-			if rm, ok := m.module.(*refreshigdb.RefreshigdbModule); ok {
+			if rm, ok := m.module.(*refreshigdb.Module); ok {
 				rm.SetIGDBClientRef(&h.igdbClient)
 			}
 		}
@@ -128,7 +128,7 @@ func (h *ModuleHandler) registerModules() {
 //
 // Example usage:
 //
-//	sayMod, ok := handler.GetModule("say").(*say.SayModule)
+//	sayMod, ok := handler.GetModule("say").(*say.Module)
 func (h *ModuleHandler) GetModule(name string) types.CommandModule {
 	return h.modules[name]
 }
@@ -187,20 +187,20 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 
 	switch {
 	case strings.HasPrefix(cid, "c4:"):
-		if funMod, ok := h.GetModule("fun").(*fun.FunModule); ok {
+		if funMod, ok := h.GetModule("fun").(*fun.Module); ok {
 			funMod.HandleComponent(s, i)
 		} else {
 			h.config.Logger.Warn("Connect 4 interaction received but fun module not available")
 		}
 	case strings.HasPrefix(cid, "config:"):
-		if cfgMod, ok := h.GetModule("config").(*config.ConfigModule); ok {
+		if cfgMod, ok := h.GetModule("config").(*config.Module); ok {
 			cfgMod.HandleComponent(s, i)
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
 	default:
 		// LFG module handles all other component interactions
-		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 			lfgMod.HandleComponent(s, i)
 		} else {
 			h.config.Logger.Warn("Component interaction received but LFG module not available")
@@ -211,7 +211,7 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 // HandleModalSubmit routes modal submissions to appropriate module handlers
 func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if strings.HasPrefix(i.ModalSubmitData().CustomID, "config:") {
-		if cfgMod, ok := h.GetModule("config").(*config.ConfigModule); ok {
+		if cfgMod, ok := h.GetModule("config").(*config.Module); ok {
 			cfgMod.HandleModalSubmit(s, i)
 		} else {
 			h.config.Logger.Warn("Config modal submit received but config module not available")
@@ -219,7 +219,7 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 		return
 	}
 	// Otherwise the LFG module handles modal submissions
-	if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+	if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 		lfgMod.HandleModalSubmit(s, i)
 	} else {
 		h.config.Logger.Warn("Modal submit received but LFG module not available")
@@ -233,7 +233,7 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 
 	// Currently only game-thread command (in LFG module) uses autocomplete
 	if commandName == "game-thread" {
-		if lfgMod, ok := h.GetModule("lfg").(*lfg.LfgModule); ok {
+		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 			lfgMod.HandleAutocomplete(s, i)
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")

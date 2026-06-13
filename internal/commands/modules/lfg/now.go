@@ -15,7 +15,7 @@ import (
 const pendingNowTTL = 15 * time.Minute
 
 // storePendingNow saves command options and returns a short key for use in button custom IDs.
-func (m *LfgModule) storePendingNow(p pendingLFGNow) string {
+func (m *Module) storePendingNow(p pendingLFGNow) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	key := hex.EncodeToString(b)
@@ -25,7 +25,7 @@ func (m *LfgModule) storePendingNow(p pendingLFGNow) string {
 }
 
 // loadPendingNow retrieves and deletes pending options by key. Returns false if expired or missing.
-func (m *LfgModule) loadPendingNow(key string) (pendingLFGNow, bool) {
+func (m *Module) loadPendingNow(key string) (pendingLFGNow, bool) {
 	val, ok := m.pendingNow.LoadAndDelete(key)
 	if !ok {
 		return pendingLFGNow{}, false
@@ -38,7 +38,7 @@ func (m *LfgModule) loadPendingNow(key string) (pendingLFGNow, bool) {
 }
 
 // handleLFGNow handles /lfg now subcommand
-func (m *LfgModule) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer an ephemeral reply
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral}})
 
@@ -131,7 +131,7 @@ func (m *LfgModule) handleLFGNow(s *discordgo.Session, i *discordgo.InteractionC
 
 // postToFeed sends the Looking NOW embed to the feed channel.
 // thread may be nil for "any game" posts.
-func (m *LfgModule) postToFeed(s *discordgo.Session, guildID, userID, region, message string, playerCount int, voiceChannelID string, thread *discordgo.Channel) {
+func (m *Module) postToFeed(s *discordgo.Session, guildID, userID, region, message string, playerCount int, voiceChannelID string, thread *discordgo.Channel) {
 	feedChannelID := m.config.GetLFGNowPanelChannelID()
 	if feedChannelID == "" {
 		return
@@ -193,7 +193,7 @@ func (m *LfgModule) postToFeed(s *discordgo.Session, guildID, userID, region, me
 }
 
 // handleLFGNowAnyGame handles the "Any game" button press from the /lfg now prompt.
-func (m *LfgModule) handleLFGNowAnyGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGNowAnyGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cid := i.MessageComponentData().CustomID
 	parts := strings.SplitN(cid, "::", 2)
 	if len(parts) != 2 {
@@ -226,7 +226,7 @@ func (m *LfgModule) handleLFGNowAnyGame(s *discordgo.Session, i *discordgo.Inter
 }
 
 // handleLFGNowSpecificGame handles the "Specific game" button press from the /lfg now prompt.
-func (m *LfgModule) handleLFGNowSpecificGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGNowSpecificGame(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := m.config.GetGamerPalsLFGForumChannelID()
 	forumURL := fmt.Sprintf("https://discord.com/channels/%s/%s", i.GuildID, forumID)
 	msg := fmt.Sprintf("Please run `/lfg now` in a [game thread](%s).", forumURL)
@@ -238,7 +238,7 @@ func (m *LfgModule) handleLFGNowSpecificGame(s *discordgo.Session, i *discordgo.
 }
 
 // handleLFGSetupLookingNow sets the feed channel
-func (m *LfgModule) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGSetupLookingNow(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredChannelMessageWithSource})
 	userID := ""
 	if i.Member != nil && i.Member.User != nil {

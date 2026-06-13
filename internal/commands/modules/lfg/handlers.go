@@ -30,7 +30,7 @@ const (
 )
 
 // handleLFG processes /lfg and /lfg-admin commands
-func (m *LfgModule) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFG(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if len(i.ApplicationCommandData().Options) == 0 {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ Missing subcommand"}})
 		return
@@ -52,7 +52,7 @@ func (m *LfgModule) handleLFG(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 // handleLFGRefreshCache rebuilds the in-memory LFG thread cache (admin only command path).
-func (m *LfgModule) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := m.config.GetGamerPalsLFGForumChannelID()
 	introForum := m.config.GetGamerPalsIntroductionsForumChannelID() // optional second forum
 	guildID := m.config.GetGamerPalsServerID()
@@ -111,7 +111,7 @@ func (m *LfgModule) handleLFGRefreshCache(s *discordgo.Session, i *discordgo.Int
 }
 
 // handleGameThread searches for a game thread in the cache and returns a link or not found message.
-func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleGameThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := m.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -244,7 +244,7 @@ func (m *LfgModule) handleGameThread(s *discordgo.Session, i *discordgo.Interact
 }
 
 // handleGameThreadAutocomplete handles autocomplete requests for the game-thread command
-func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleGameThreadAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
 	// Get the current input value
@@ -295,7 +295,7 @@ func (m *LfgModule) handleGameThreadAutocomplete(s *discordgo.Session, i *discor
 }
 
 // handleLFGSetup posts (or replaces) the LFG panel in the current channel.
-func (m *LfgModule) handleLFGSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGSetup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	forumID := m.config.GetGamerPalsLFGForumChannelID()
 	if forumID == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseChannelMessageWithSource, Data: &discordgo.InteractionResponseData{Content: "❌ LFG forum channel ID not configured.", Flags: discordgo.MessageFlagsEphemeral}})
@@ -323,7 +323,7 @@ func (m *LfgModule) handleLFGSetup(s *discordgo.Session, i *discordgo.Interactio
 }
 
 // createLFGThreadFromExactMatch builds metadata + creates the forum thread for an exact IGDB match.
-func (m *LfgModule) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game) (*discordgo.Channel, error) {
+func (m *Module) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game) (*discordgo.Channel, error) {
 	if exact == nil {
 		return nil, fmt.Errorf("nil exact game")
 	}
@@ -488,7 +488,7 @@ func threadLink(ch *discordgo.Channel) string {
 
 func fmtPtr(s string) *string { return &s }
 
-func (m *LfgModule) findCachedExactThread(forumID, normalized string) (*discordgo.Channel, bool) {
+func (m *Module) findCachedExactThread(forumID, normalized string) (*discordgo.Channel, bool) {
 	if forumID == "" || normalized == "" {
 		return nil, false
 	}
@@ -508,7 +508,7 @@ func (m *LfgModule) findCachedExactThread(forumID, normalized string) (*discordg
 // the LLM agent tool. Returns the resolved channel (existing or newly
 // created), whether it was created, and any IGDB suggestions when the name
 // is ambiguous. All zero values means no IGDB match.
-func (m *LfgModule) lookupOrCreateGameThread(forumID, name string) (ch *discordgo.Channel, created bool, suggestions []*igdb.Game, err error) {
+func (m *Module) lookupOrCreateGameThread(forumID, name string) (ch *discordgo.Channel, created bool, suggestions []*igdb.Game, err error) {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	if existing, ok := m.findCachedExactThread(forumID, normalized); ok && existing != nil {
 		return existing, false, nil, nil
@@ -538,7 +538,7 @@ func (m *LfgModule) lookupOrCreateGameThread(forumID, name string) (ch *discordg
 
 // searchForumThreads resolves cached search hits to live channel handles,
 // dropping anything stale or moved out of the forum.
-func (m *LfgModule) searchForumThreads(forumID, query string, limit int) []*discordgo.Channel {
+func (m *Module) searchForumThreads(forumID, query string, limit int) []*discordgo.Channel {
 	if forumID == "" || strings.TrimSpace(query) == "" || limit <= 0 {
 		return nil
 	}
@@ -558,7 +558,7 @@ func (m *LfgModule) searchForumThreads(forumID, query string, limit int) []*disc
 	return out
 }
 
-func (m *LfgModule) gatherPartialThreadSuggestionsDetailed(forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
+func (m *Module) gatherPartialThreadSuggestionsDetailed(forumID, searchTerm, excludeThreadID string, limit int) []discordgo.Channel {
 	searchTerm = strings.TrimSpace(strings.ToLower(searchTerm))
 	if forumID == "" || searchTerm == "" || limit <= 0 {
 		return nil
@@ -619,11 +619,11 @@ func downloadCoverImage(url string) ([]byte, string, error) {
 // Public wrappers used by bot interaction router
 
 // HandleLFGComponent handles the LFG component interactions.
-func (m *LfgModule) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGComponent(s, i)
 }
 
 // HandleLFGModalSubmit handles the submission of the LFG modal.
-func (m *LfgModule) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGModalSubmit(s, i)
 }

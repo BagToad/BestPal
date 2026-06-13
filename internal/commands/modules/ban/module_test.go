@@ -66,13 +66,13 @@ func testOpts(cap *banCapture) banOpts {
 	}
 }
 
-func newModule(t *testing.T, cap *banCapture) *BanModule {
+func newModule(t *testing.T, cap *banCapture) *Module {
 	t.Helper()
 	cfg := config.NewMockConfig(map[string]interface{}{
 		"gamerpals_mod_action_log_channel_id": "mod-log-chan",
 		"gamerpals_log_channel_id":            "bestpal-log-chan",
 	})
-	return &BanModule{config: cfg, opts: testOpts(cap)}
+	return &Module{config: cfg, opts: testOpts(cap)}
 }
 
 func buildSlashInteraction(invokerID, targetID string, days *int, reason *string) *discordgo.InteractionCreate {

@@ -32,7 +32,7 @@ func parseMessageLink(link string) (*parsedMessageLink, error) {
 }
 
 // pinMessageInIntroThread validates ownership and pins the message.
-func (m *IntroModule) pinMessageInIntroThread(s *discordgo.Session, i *discordgo.InteractionCreate, channelID, messageID string) {
+func (m *Module) pinMessageInIntroThread(s *discordgo.Session, i *discordgo.InteractionCreate, channelID, messageID string) {
 	// Resolve invoking user
 	var userID string
 	if i.Member != nil && i.Member.User != nil {
@@ -108,7 +108,7 @@ func (m *IntroModule) pinMessageInIntroThread(s *discordgo.Session, i *discordgo
 }
 
 // handlePinSlash handles the /pin slash command.
-func (m *IntroModule) handlePinSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handlePinSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	var link string
 	for _, opt := range options {
@@ -127,7 +127,7 @@ func (m *IntroModule) handlePinSlash(s *discordgo.Session, i *discordgo.Interact
 }
 
 // handlePinContext handles the "Pin to intro" message context menu command.
-func (m *IntroModule) handlePinContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handlePinContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	messageID := data.TargetID
 	channelID := i.ChannelID
@@ -152,7 +152,7 @@ func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, cont
 }
 
 // registerPinCommands registers the /pin and "Pin to intro" commands.
-func (m *IntroModule) registerPinCommands(cmds map[string]*types.Command) {
+func (m *Module) registerPinCommands(cmds map[string]*types.Command) {
 	cmds["pin"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "pin",

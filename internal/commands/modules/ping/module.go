@@ -6,16 +6,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// PingModule implements the CommandModule interface for the ping command
-type PingModule struct{}
+// Module implements the CommandModule interface for the ping command
+type Module struct{}
 
 // New creates a new ping module
-func New(deps *types.Dependencies) *PingModule {
-	return &PingModule{}
+func New(deps *types.Dependencies) *Module {
+	return &Module{}
 }
 
 // Register adds the ping command to the command map
-func (m *PingModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["ping"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "ping",
@@ -26,7 +26,7 @@ func (m *PingModule) Register(cmds map[string]*types.Command, deps *types.Depend
 }
 
 // handlePing handles the ping slash command
-func (m *PingModule) handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handlePing(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -36,6 +36,6 @@ func (m *PingModule) handlePing(s *discordgo.Session, i *discordgo.InteractionCr
 }
 
 // Service returns nil as this module has no services requiring initialization
-func (m *PingModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 return nil
 }

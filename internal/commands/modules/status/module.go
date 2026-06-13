@@ -7,16 +7,16 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// StatusModule provides the /status command to update the bot's presence text (intended for mods).
-type StatusModule struct {
+// Module provides the /status command to update the bot's presence text (intended for mods).
+type Module struct {
 	config *config.Config
 }
 
 // New creates a new status module
-func New(deps *types.Dependencies) *StatusModule { return &StatusModule{config: deps.Config} }
+func New(deps *types.Dependencies) *Module { return &Module{config: deps.Config} }
 
 // Register registers /status.
-func (m *StatusModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps.Config
 	var adminPerms int64 = discordgo.PermissionAdministrator
 
@@ -39,7 +39,7 @@ func (m *StatusModule) Register(cmds map[string]*types.Command, deps *types.Depe
 }
 
 // handleStatus updates the presence text.
-func (m *StatusModule) handleStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleStatus(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Extract text option
 	var text string
 	for _, opt := range i.ApplicationCommandData().Options {
@@ -81,4 +81,4 @@ func (m *StatusModule) handleStatus(s *discordgo.Session, i *discordgo.Interacti
 }
 
 // Service returns nil; this module has no background services
-func (m *StatusModule) Service() types.ModuleService { return nil }
+func (m *Module) Service() types.ModuleService { return nil }

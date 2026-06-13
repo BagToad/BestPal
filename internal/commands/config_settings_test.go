@@ -67,6 +67,10 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyCopilotAgentExcludeRoleID,
 		config.KeyCopilotAgentReplyAllowlist,
 		config.KeyCopilotAgentModel,
+		config.KeyCopilotAgentBrainChannelID,
+		config.KeyCopilotAgentBrainRefreshInterval,
+		config.KeyCopilotAgentBrainMaxItems,
+		config.KeyCopilotAgentBrainMaxChars,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

@@ -217,6 +217,25 @@ func (b *Bot) Start() error {
 		b.config.Logger.Errorf("Failed to register log rotation: %v", err)
 	}
 
+	// Periodically reload the agent's brain channel (best-effort; keeps the
+	// last known good guidance on error). Not part of a module, so registered
+	// here alongside log rotation. Errors are logged locally rather than
+	// returned, so a misconfiguration does not spam the mod log channel every
+	// interval.
+	if b.agent != nil {
+		brainSchedule := fmt.Sprintf("@every %s", b.config.GetCopilotAgentBrainRefreshInterval())
+		if err := b.scheduler.RegisterFunc(brainSchedule, "agent-brain-refresh", func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := b.agent.RefreshBrain(ctx); err != nil {
+				b.config.Logger.Warnf("agent brain refresh: %v", err)
+			}
+			return nil
+		}); err != nil {
+			b.config.Logger.Errorf("Failed to register brain refresh: %v", err)
+		}
+	}
+
 	b.scheduler.Start()
 	defer b.scheduler.Stop()
 
@@ -268,6 +287,20 @@ func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 			}
 		}
 	}()
+
+	// Best-effort initial load of the agent's brain channel so guidance is
+	// present shortly after startup without waiting a full refresh interval.
+	if b.agent != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := b.agent.RefreshBrain(ctx); err != nil {
+				b.config.Logger.Warnf("Agent brain initial load failed: %v", err)
+			} else {
+				b.config.Logger.Infof("Agent brain initial load complete")
+			}
+		}()
+	}
 
 	// Set bot status to something fresh every hour
 	c := time.NewTicker(time.Hour)

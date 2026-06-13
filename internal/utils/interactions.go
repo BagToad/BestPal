@@ -10,14 +10,6 @@ var standardEmbedFooter = &discordgo.MessageEmbedFooter{
 	Text: "Run /help for more options",
 }
 
-// NewEmbed creates a new embed with the standard footer and neutral color
-func NewEmbed() *discordgo.MessageEmbed {
-	return &discordgo.MessageEmbed{
-		Color:  Colors.Ok(),
-		Footer: standardEmbedFooter,
-	}
-}
-
 // NewOKEmbed creates a new OK embed with the given title and description
 func NewOKEmbed(title, description string) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{

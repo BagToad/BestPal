@@ -2,10 +2,8 @@ package utils
 
 import (
 	"errors"
-	"fmt"
 	"gamerpal/internal/config"
 	"io"
-	"os"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -24,40 +22,6 @@ func LogToChannel(cfg *config.Config, s *discordgo.Session, m string) error {
 		if err != nil {
 			return err
 		}
-	} else {
-		return errors.New("unable to log to channel: gamerpals_log_channel_id is not set")
-	}
-
-	return nil
-}
-
-func LogToChannelWithFile(cfg *config.Config, s *discordgo.Session, fileContent string) error {
-	// Create a file to upload based on string
-	file, err := os.CreateTemp("", "log-*.txt")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := os.Remove(file.Name()); err != nil {
-			cfg.Logger.Errorf("failed to remove temp log file: %v", err)
-		}
-	}()
-
-	if _, err := file.WriteString(fileContent); err != nil {
-		return err
-	}
-
-	// Rewind so the subsequent read for upload starts at beginning; otherwise empty file is sent.
-	if _, err := file.Seek(0, 0); err != nil {
-		return err
-	}
-
-	if id := cfg.GetGamerpalsLogChannelID(); id != "" {
-		_, err = s.ChannelFileSend(id, "log.txt", file)
-		if err != nil {
-			return fmt.Errorf("failed to send log file: %v", err)
-		}
-
 	} else {
 		return errors.New("unable to log to channel: gamerpals_log_channel_id is not set")
 	}

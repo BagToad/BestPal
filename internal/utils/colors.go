@@ -30,11 +30,6 @@ func (c colors) Fancy() int {
 	return c.c["Tea rose (red)"]
 }
 
-// Error returns the color code for error messages
-func (c colors) Error() int {
-	return c.c["Rusty red"]
-}
-
 // Warning returns the color code for warning messages
 func (c colors) Warning() int {
 	return c.c["UT orange"]

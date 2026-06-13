@@ -4,7 +4,7 @@ import "gamerpal/internal/config"
 
 // ConfigSettings declares the per-guild settings owned by the LFG module,
 // auto-collected into the config panel registry.
-func (m *LfgModule) ConfigSettings() []config.Setting {
+func (m *Module) ConfigSettings() []config.Setting {
 	return []config.Setting{
 		{
 			Key:         config.KeyLFGForumChannelID,

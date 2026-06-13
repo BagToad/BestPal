@@ -44,7 +44,7 @@ func editModalID(c string) string { return customIDPrefix + actModal + ":" + c }
 // per registered category. Built with Components V2 (a Container of TextDisplay
 // + button rows) so it stays consistent with the category panels, which need V2
 // to label each select.
-func (m *ConfigModule) renderHome(guildID string) *discordgo.InteractionResponseData {
+func (m *Module) renderHome(guildID string) *discordgo.InteractionResponseData {
 	reg := m.config.Registry()
 	cats := reg.Categories()
 	if len(cats) == 0 {
@@ -87,7 +87,7 @@ func (m *ConfigModule) renderHome(guildID string) *discordgo.InteractionResponse
 }
 
 // statusLine produces a one-line live-status summary for the home panel.
-func (m *ConfigModule) statusLine(gc *config.GuildConfig) string {
+func (m *Module) statusLine(gc *config.GuildConfig) string {
 	return fmt.Sprintf("**ScamGuard:** %s\u2002·\u2002**New Pals:** %s\u2002·\u2002**Agent:** %s",
 		onOff(effBool(gc, config.KeyScamGuardEnabled)),
 		onOff(effBool(gc, config.KeyNewPalsSystemEnabled)),
@@ -97,7 +97,7 @@ func (m *ConfigModule) statusLine(gc *config.GuildConfig) string {
 
 // agentStatus summarizes the agent gating in one line and flags the lockout
 // footgun (allowlist set with no role gate).
-func (m *ConfigModule) agentStatus(gc *config.GuildConfig) string {
+func (m *Module) agentStatus(gc *config.GuildConfig) string {
 	role := effRaw(gc, config.KeyCopilotAgentRoleID) != ""
 	exclude := effRaw(gc, config.KeyCopilotAgentExcludeRoleID) != ""
 	allowlist := effRaw(gc, config.KeyCopilotAgentReplyAllowlist) != ""
@@ -111,13 +111,13 @@ func (m *ConfigModule) agentStatus(gc *config.GuildConfig) string {
 }
 
 // updateToHome re-renders the home panel in place.
-func (m *ConfigModule) updateToHome(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) updateToHome(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := m.renderHome(i.GuildID)
 	m.updateMessage(s, i, data)
 }
 
 // updateToCategory renders a category panel in place.
-func (m *ConfigModule) updateToCategory(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
+func (m *Module) updateToCategory(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
 	data := m.renderCategory(i.GuildID, config.Category(catStr), "")
 	m.updateMessage(s, i, data)
 }
@@ -128,7 +128,7 @@ func (m *ConfigModule) updateToCategory(s *discordgo.Session, i *discordgo.Inter
 // nothing inline for modal-entered numeric/text settings (edited via the single
 // "Edit values…" button). An optional note shows save feedback. Built with
 // Components V2 because classic action rows have no per-select label.
-func (m *ConfigModule) renderCategory(guildID string, cat config.Category, note string) *discordgo.InteractionResponseData {
+func (m *Module) renderCategory(guildID string, cat config.Category, note string) *discordgo.InteractionResponseData {
 	reg := m.config.Registry()
 	settings := reg.ByCategory(cat)
 	gc := m.config.ForGuild(guildID)
@@ -204,7 +204,7 @@ func (m *ConfigModule) renderCategory(guildID string, cat config.Category, note 
 }
 
 // agentWarning returns the lockout-footgun warning text, or "" if safe.
-func (m *ConfigModule) agentWarning(gc *config.GuildConfig) string {
+func (m *Module) agentWarning(gc *config.GuildConfig) string {
 	role := effRaw(gc, config.KeyCopilotAgentRoleID) != ""
 	exclude := effRaw(gc, config.KeyCopilotAgentExcludeRoleID) != ""
 	allowlist := effRaw(gc, config.KeyCopilotAgentReplyAllowlist) != ""
@@ -215,7 +215,7 @@ func (m *ConfigModule) agentWarning(gc *config.GuildConfig) string {
 }
 
 // handlePick persists a select choice (or clears it when nothing is selected).
-func (m *ConfigModule) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
+func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
 	reg := m.config.Registry()
 	st, ok := reg.Get(key)
 	if !ok {
@@ -248,7 +248,7 @@ func (m *ConfigModule) handlePick(s *discordgo.Session, i *discordgo.Interaction
 }
 
 // handleToggle flips a boolean setting and saves it.
-func (m *ConfigModule) handleToggle(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
+func (m *Module) handleToggle(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
 	reg := m.config.Registry()
 	st, ok := reg.Get(key)
 	if !ok {
@@ -267,7 +267,7 @@ func (m *ConfigModule) handleToggle(s *discordgo.Session, i *discordgo.Interacti
 
 // handleOpenEditModal opens a modal holding every modal-entered setting in the
 // category (int/duration/string), prefilled with current values.
-func (m *ConfigModule) handleOpenEditModal(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
+func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
 	cat := config.Category(catStr)
 	reg := m.config.Registry()
 	gc := m.config.ForGuild(i.GuildID)
@@ -307,7 +307,7 @@ func (m *ConfigModule) handleOpenEditModal(s *discordgo.Session, i *discordgo.In
 // handleEditModalSubmit validates and persists modal values, then re-renders the
 // category. Blank inputs clear the override; invalid inputs are reported and the
 // previous value is kept for that field.
-func (m *ConfigModule) handleEditModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
+func (m *Module) handleEditModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
 	cat := config.Category(catStr)
 	reg := m.config.Registry()
 	gc := m.config.ForGuild(i.GuildID)
@@ -364,7 +364,7 @@ func (m *ConfigModule) handleEditModalSubmit(s *discordgo.Session, i *discordgo.
 }
 
 // updateMessage edits the originating panel message in place.
-func (m *ConfigModule) updateMessage(s *discordgo.Session, i *discordgo.InteractionCreate, data *discordgo.InteractionResponseData) {
+func (m *Module) updateMessage(s *discordgo.Session, i *discordgo.InteractionCreate, data *discordgo.InteractionResponseData) {
 	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: data,

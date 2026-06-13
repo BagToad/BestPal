@@ -76,19 +76,19 @@ func logToBestPal(cfg *config.Config, s *discordgo.Session, msg string) error {
 	return err
 }
 
-type BanModule struct {
+type Module struct {
 	config *config.Config
 	opts   banOpts
 }
 
 func New(deps *types.Dependencies) types.CommandModule {
-	return &BanModule{
+	return &Module{
 		config: deps.Config,
 		opts:   defaultBanOpts(),
 	}
 }
 
-func (m *BanModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var banPerms int64 = discordgo.PermissionBanMembers
 	guildOnly := &[]discordgo.InteractionContextType{
 		discordgo.InteractionContextGuild,
@@ -161,7 +161,7 @@ func (m *BanModule) Register(cmds map[string]*types.Command, deps *types.Depende
 	}
 }
 
-func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleBanSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
 	// Defer response immediately to avoid 3s timeout
@@ -212,7 +212,7 @@ func (m *BanModule) handleBanSlash(s *discordgo.Session, i *discordgo.Interactio
 	m.executeBan(s, i, targetUser, reason, messageToUser, days, "slash command")
 }
 
-func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleBanContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 
 	// Defer response immediately to avoid 3s timeout
@@ -243,7 +243,7 @@ func (m *BanModule) handleBanContext(s *discordgo.Session, i *discordgo.Interact
 	m.executeBan(s, i, targetUser, contextMenuReason, "", days, "context menu")
 }
 
-func (m *BanModule) validateTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetID string) error {
+func (m *Module) validateTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetID string) error {
 	if targetID == i.Member.User.ID {
 		return fmt.Errorf("❌ You cannot ban yourself.")
 	}
@@ -253,7 +253,7 @@ func (m *BanModule) validateTarget(s *discordgo.Session, i *discordgo.Interactio
 	return nil
 }
 
-func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
+func (m *Module) executeBan(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
 	guildID := i.GuildID
 
 	dmMessage := banDMMessage
@@ -282,7 +282,7 @@ func (m *BanModule) executeBan(s *discordgo.Session, i *discordgo.InteractionCre
 	m.editEphemeral(s, i, fmt.Sprintf("✅ Banned **%s** (%s). Reason: %s. Messages purged: %d day(s).", targetUser.Username, targetUser.ID, displayReason, days))
 }
 
-func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
+func (m *Module) logModAction(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, reason, messageToUser string, days int, source string) {
 	channelID := m.config.GetGamerPalsModActionLogChannelID()
 	if channelID == "" {
 		return
@@ -318,7 +318,7 @@ func (m *BanModule) logModAction(s *discordgo.Session, i *discordgo.InteractionC
 	_ = m.opts.LogToChannel(m.config, s, channelID, embed)
 }
 
-func (m *BanModule) deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) deferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	_ = m.opts.Respond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -327,12 +327,12 @@ func (m *BanModule) deferEphemeral(s *discordgo.Session, i *discordgo.Interactio
 	})
 }
 
-func (m *BanModule) editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+func (m *Module) editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	_ = m.opts.EditResponse(s, i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
 	})
 }
 
-func (m *BanModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return nil
 }

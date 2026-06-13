@@ -9,15 +9,15 @@ import (
 )
 
 // Module implements the CommandModule interface for prune commands
-type PruneModule struct {
+type Module struct {
 	config     *config.Config
 	forumCache *forumcache.Service
 	service    *Service
 }
 
 // New creates a new prune module
-func New(deps *types.Dependencies) *PruneModule {
-	return &PruneModule{
+func New(deps *types.Dependencies) *Module {
+	return &Module{
 		config:     deps.Config,
 		forumCache: deps.ForumCache,
 		service:    NewService(deps.Config, deps.ForumCache),
@@ -25,7 +25,7 @@ func New(deps *types.Dependencies) *PruneModule {
 }
 
 // Register adds prune commands to the command map
-func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 
 	var adminPerms int64 = discordgo.PermissionAdministrator
 	var modPerms int64 = discordgo.PermissionBanMembers
@@ -79,6 +79,6 @@ func (m *PruneModule) Register(cmds map[string]*types.Command, deps *types.Depen
 }
 
 // Service returns the prune service for scheduled intro pruning
-func (m *PruneModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return m.service
 }

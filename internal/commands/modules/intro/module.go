@@ -24,25 +24,25 @@ var (
 )
 
 // Module implements the CommandModule interface for the intro command
-type IntroModule struct {
+type Module struct {
 	config      *types.Dependencies
 	feedService *IntroFeedService
 }
 
 // New creates a new intro module
-func New(deps *types.Dependencies) *IntroModule {
-	return &IntroModule{
+func New(deps *types.Dependencies) *Module {
+	return &Module{
 		feedService: NewIntroFeedService(deps),
 	}
 }
 
 // GetFeedService returns the intro feed service for external access (e.g., event handlers)
-func (m *IntroModule) GetFeedService() *IntroFeedService {
+func (m *Module) GetFeedService() *IntroFeedService {
 	return m.feedService
 }
 
 // Register adds the intro command to the command map
-func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	m.config = deps
 
 	// Slash command version
@@ -106,7 +106,7 @@ func (m *IntroModule) Register(cmds map[string]*types.Command, deps *types.Depen
 
 // introLookup performs the introduction post lookup for the specified target user,
 // and responds to the interaction accordingly.
-func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, ephemeral bool) {
+func (m *Module) introLookup(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User, ephemeral bool) {
 	introsChannelID := m.config.Config.GetGamerPalsIntroductionsForumChannelID()
 
 	// Resolve actor (the user performing the lookup) for logging purposes.
@@ -302,7 +302,7 @@ func (m *IntroModule) introLookup(s *discordgo.Session, i *discordgo.Interaction
 }
 
 // Slash command handler – determines target from optional "user" option.
-func (m *IntroModule) handleIntroSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleIntroSlash(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	var targetUser *discordgo.User
 	options := i.ApplicationCommandData().Options
 	ephemeral := true // default
@@ -332,7 +332,7 @@ func (m *IntroModule) handleIntroSlash(s *discordgo.Session, i *discordgo.Intera
 }
 
 // User context command handler – target user resolved from interaction TargetID.
-func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleIntroUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	targetID := data.TargetID
 	var targetUser *discordgo.User
@@ -354,7 +354,7 @@ func (m *IntroModule) handleIntroUserContext(s *discordgo.Session, i *discordgo.
 }
 
 // handleBumpIntro handles the /bump-intro command to manually post an intro to the feed
-func (m *IntroModule) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Get the user who invoked the command
 	var user *discordgo.User
 	if i.Member != nil && i.Member.User != nil {
@@ -446,6 +446,6 @@ func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
 }
 
 // Service returns the feed service for session hydration and future scheduling
-func (m *IntroModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return m.feedService
 }

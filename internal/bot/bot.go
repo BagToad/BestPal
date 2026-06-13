@@ -129,7 +129,7 @@ func New(cfg *config.Config) (*Bot, error) {
 		handler.GetForumCache().OnThreadCreate(s, e)
 		// Forward new intro threads to the feed channel
 		if e.NewlyCreated {
-			if introMod, ok := handler.GetModule("intro").(*intro.IntroModule); ok {
+			if introMod, ok := handler.GetModule("intro").(*intro.Module); ok {
 				if feedService := introMod.GetFeedService(); feedService != nil {
 					feedService.HandleNewIntroThread(e.Channel)
 				}

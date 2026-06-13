@@ -23,7 +23,7 @@ type pendingLFGNow struct {
 }
 
 // Module implements the CommandModule interface for LFG commands
-type LfgModule struct {
+type Module struct {
 	config     *config.Config
 	igdbClient *igdb.Client
 	forumCache *forumcache.Service
@@ -36,8 +36,8 @@ type LfgModule struct {
 }
 
 // New creates a new LFG module
-func New(deps *types.Dependencies) *LfgModule {
-	return &LfgModule{
+func New(deps *types.Dependencies) *Module {
+	return &Module{
 		config:     deps.Config,
 		igdbClient: deps.IGDBClient,
 		forumCache: deps.ForumCache,
@@ -47,7 +47,7 @@ func New(deps *types.Dependencies) *LfgModule {
 }
 
 // Register adds LFG commands to the command map
-func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 
 	var modPerms int64 = discordgo.PermissionBanMembers
 
@@ -168,21 +168,21 @@ func (m *LfgModule) Register(cmds map[string]*types.Command, deps *types.Depende
 }
 
 // HandleComponent handles component interactions for LFG
-func (m *LfgModule) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGComponent(s, i)
 }
 
 // HandleModalSubmit handles modal submissions for LFG
-func (m *LfgModule) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleLFGModalSubmit(s, i)
 }
 
 // HandleAutocomplete handles autocomplete interactions for LFG commands
-func (m *LfgModule) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	m.handleGameThreadAutocomplete(s, i)
 }
 
 // Service returns the LFG service for scheduled task registration.
-func (m *LfgModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return m.service
 }

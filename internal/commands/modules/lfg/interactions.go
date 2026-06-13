@@ -13,7 +13,7 @@ import (
 )
 
 // Handle component interactions (button press -> show modal)
-func (m *LfgModule) handleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cid := i.MessageComponentData().CustomID
 	switch {
 	case cid == lfgPanelCustomID:
@@ -36,7 +36,7 @@ func (m *LfgModule) handleLFGComponent(s *discordgo.Session, i *discordgo.Intera
 }
 
 // Handle modal submission: look up / create thread then reply ephemerally with link.
-func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i.ModalSubmitData().CustomID != lfgModalCustomID {
 		return
 	}
@@ -197,7 +197,7 @@ func (m *LfgModule) handleLFGModalSubmit(s *discordgo.Session, i *discordgo.Inte
 }
 
 // handleMoreSuggestions builds an embed with up to 9 IGDB title suggestions and buttons (1-5) to create threads.
-func (m *LfgModule) handleMoreSuggestions(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleMoreSuggestions(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if m.igdbClient == nil {
 		return
 	}
@@ -298,7 +298,7 @@ func (m *LfgModule) handleMoreSuggestions(s *discordgo.Session, i *discordgo.Int
 }
 
 // handleCreateSuggestionThread creates a thread for selected suggestion and updates message with final embed.
-func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if m.igdbClient == nil {
 		return
 	}
@@ -348,14 +348,14 @@ func (m *LfgModule) handleCreateSuggestionThread(s *discordgo.Session, i *discor
 }
 
 // finalizeSuggestionThreadResponse sends the final response after thread creation
-func (m *LfgModule) finalizeSuggestionThreadResponse(i *discordgo.InteractionCreate, ch *discordgo.Channel, created bool) {
+func (m *Module) finalizeSuggestionThreadResponse(i *discordgo.InteractionCreate, ch *discordgo.Channel, created bool) {
 	embed := threadCreatedEmbed(ch, created)
 	embedSlice := []*discordgo.MessageEmbed{embed}
 	_ = m.session.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Embeds: embedSlice}})
 }
 
 // logThreadCreationOutcome logs when a user selects a game and the outcome
-func (m *LfgModule) logThreadCreationOutcome(i *discordgo.InteractionCreate, gameName string, ch *discordgo.Channel, created bool) {
+func (m *Module) logThreadCreationOutcome(i *discordgo.InteractionCreate, gameName string, ch *discordgo.Channel, created bool) {
 	userMention := "Member"
 	if i.Member != nil {
 		userMention = i.Member.Mention()

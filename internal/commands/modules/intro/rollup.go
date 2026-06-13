@@ -46,7 +46,7 @@ type introEntry struct {
 }
 
 // handleIntroductionRollup handles the /introduction-rollup slash command.
-func (m *IntroModule) handleIntroductionRollup(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleIntroductionRollup(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer – the AI call takes time
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,

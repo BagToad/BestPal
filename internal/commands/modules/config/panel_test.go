@@ -53,13 +53,13 @@ func productionLikeRegistry() *config.Registry {
 	})
 }
 
-func newTestModule() *ConfigModule {
+func newTestModule() *Module {
 	cfg := config.NewMockConfig(map[string]interface{}{
 		"gamerpals_server_id": "guild1",
 		"super_admins":        []string{"super1"},
 	})
 	cfg.ApplyRegistry(productionLikeRegistry())
-	return &ConfigModule{config: cfg}
+	return &Module{config: cfg}
 }
 
 // categoryInner unwraps the Components V2 container the panel renders and
@@ -200,7 +200,7 @@ func TestAgentLockoutWarning(t *testing.T) {
 		"copilot_agent_reply_channel_allowlist": "123",
 	})
 	cfg.ApplyRegistry(productionLikeRegistry())
-	m := &ConfigModule{config: cfg}
+	m := &Module{config: cfg}
 	if w := m.agentWarning(cfg.ForGuild("guild1")); w == "" {
 		t.Error("expected lockout warning when allowlist set with no role gate")
 	}
@@ -211,7 +211,7 @@ func TestAgentLockoutWarning(t *testing.T) {
 		"copilot_agent_reply_channel_allowlist": "123",
 		"copilot_agent_role_id":                 "role1",
 	})
-	m2 := &ConfigModule{config: cfg2}
+	m2 := &Module{config: cfg2}
 	if w := m2.agentWarning(cfg2.ForGuild("guild1")); w != "" {
 		t.Errorf("expected no warning with inclusion role set, got %q", w)
 	}

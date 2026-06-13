@@ -23,12 +23,12 @@ func realProviderHandler() *ModuleHandler {
 	return &ModuleHandler{
 		config: config.NewMockConfig(nil),
 		modules: map[string]types.CommandModule{
-			"intro":     &intro.IntroModule{},
-			"lfg":       &lfg.LfgModule{},
-			"welcome":   &welcome.WelcomeModule{},
+			"intro":     &intro.Module{},
+			"lfg":       &lfg.Module{},
+			"welcome":   &welcome.Module{},
 			"scamguard": &scamguard.Module{},
 			"1984":      &nineteeneightyfour.Module{},
-			"fun":       &fun.FunModule{},
+			"fun":       &fun.Module{},
 		},
 	}
 }

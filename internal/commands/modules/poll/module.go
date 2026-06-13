@@ -7,13 +7,13 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-type PollModule struct{}
+type Module struct{}
 
-func New(deps *types.Dependencies) *PollModule {
-	return &PollModule{}
+func New(deps *types.Dependencies) *Module {
+	return &Module{}
 }
 
-func (m *PollModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var min_options float64 = 2
 	var max_options float64 = 10
 
@@ -36,11 +36,11 @@ func (m *PollModule) Register(cmds map[string]*types.Command, deps *types.Depend
 	}
 }
 
-func (m *PollModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 	return nil
 }
 
-func (m *PollModule) handleQuickPoll(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleQuickPoll(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Obtaining and parsing through options
 	options := i.ApplicationCommandData().Options
 	if len(options) < 1 {

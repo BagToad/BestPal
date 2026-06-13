@@ -10,15 +10,15 @@ import (
 )
 
 // Module implements the CommandModule interface for the userstats command
-type UserstatsModule struct{}
+type Module struct{}
 
 // New creates a new userstats module
-func New(deps *types.Dependencies) *UserstatsModule {
-	return &UserstatsModule{}
+func New(deps *types.Dependencies) *Module {
+	return &Module{}
 }
 
 // Register adds the userstats command to the command map
-func (m *UserstatsModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var modPerms int64 = discordgo.PermissionBanMembers
 
 	cmds["userstats"] = &types.Command{
@@ -51,7 +51,7 @@ func (m *UserstatsModule) Register(cmds map[string]*types.Command, deps *types.D
 }
 
 // handleUserStats handles the usercount slash command
-func (m *UserstatsModule) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleUserStats(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Acknowledge the interaction immediately
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -81,7 +81,7 @@ func (m *UserstatsModule) handleUserStats(s *discordgo.Session, i *discordgo.Int
 }
 
 // handleOverviewStats handles the overview statistics display
-func (m *UserstatsModule) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (m *Module) handleOverviewStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Count user types
 	userCount := 0
 	botCount := 0
@@ -237,7 +237,7 @@ func (m *UserstatsModule) handleOverviewStats(s *discordgo.Session, i *discordgo
 }
 
 // handleDailyStats handles the daily statistics display for the last 7 days
-func (m *UserstatsModule) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
+func (m *Module) handleDailyStats(s *discordgo.Session, i *discordgo.InteractionCreate, members []*discordgo.Member) {
 	// Create a map to count joins by day for the last 7 days
 	dailyCounts := make(map[string]int)
 	now := time.Now()
@@ -331,6 +331,6 @@ func formatRegionCounts(regionCounts map[string]int) string {
 }
 
 // Service returns nil as this module has no services requiring initialization
-func (m *UserstatsModule) Service() types.ModuleService {
+func (m *Module) Service() types.ModuleService {
 return nil
 }

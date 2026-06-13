@@ -43,8 +43,8 @@ type snowfallState struct {
 	HitsOnUser   map[string]int
 }
 
-// SnowballModule implements the CommandModule interface for snowball commands
-type SnowballModule struct {
+// Module implements the CommandModule interface for snowball commands
+type Module struct {
 	config *config.Config
 	db     *database.DB
 
@@ -53,8 +53,8 @@ type SnowballModule struct {
 }
 
 // New creates a new snowball module
-func New(deps *types.Dependencies) *SnowballModule {
-	return &SnowballModule{
+func New(deps *types.Dependencies) *Module {
+	return &Module{
 		config: deps.Config,
 		db:     deps.DB,
 		state: snowfallState{
@@ -68,7 +68,7 @@ func New(deps *types.Dependencies) *SnowballModule {
 }
 
 // Register adds snowball commands to the command map
-func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	var adminPerms int64 = discordgo.PermissionAdministrator
 	var modPerms int64 = discordgo.PermissionBanMembers
 
@@ -205,9 +205,9 @@ func (m *SnowballModule) Register(cmds map[string]*types.Command, deps *types.De
 }
 
 // Service returns nil as snowball currently has no background service
-func (m *SnowballModule) Service() types.ModuleService { return nil }
+func (m *Module) Service() types.ModuleService { return nil }
 
-func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSnowfall(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
 	if len(options) == 0 {
 		return
@@ -222,7 +222,7 @@ func (m *SnowballModule) handleSnowfall(s *discordgo.Session, i *discordgo.Inter
 	}
 }
 
-func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
+func (m *Module) handleSnowfallStart(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	state := m.snowfallState()
 
 	if state.Active {
@@ -383,7 +383,7 @@ func (m *SnowballModule) handleSnowfallStart(s *discordgo.Session, i *discordgo.
 	}
 }
 
-func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
+func (m *Module) handleSnowfallStop(s *discordgo.Session, i *discordgo.InteractionCreate, sub *discordgo.ApplicationCommandInteractionDataOption) {
 	state := m.snowfallState()
 
 	if !state.Active {
@@ -451,7 +451,7 @@ func (m *SnowballModule) handleSnowfallStop(s *discordgo.Session, i *discordgo.I
 	}
 }
 
-func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
+func (m *Module) autoStopAfterDuration(s *discordgo.Session) {
 	for {
 		state := m.snowfallState()
 
@@ -466,7 +466,7 @@ func (m *SnowballModule) autoStopAfterDuration(s *discordgo.Session) {
 	}
 }
 
-func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSnowball(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	cmdData := i.ApplicationCommandData()
 	var targetUser *discordgo.User
 	for _, opt := range cmdData.Options {
@@ -491,7 +491,7 @@ func (m *SnowballModule) handleSnowball(s *discordgo.Session, i *discordgo.Inter
 // handleSnowballUserContext handles the user context (right-click) "Throw snowball" app.
 // It resolves the selected user as the target and then delegates to the same logic
 // as the slash command version, with the same rules and messages.
-func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSnowballUserContext(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	targetID := data.TargetID
 	var targetUser *discordgo.User
@@ -515,7 +515,7 @@ func (m *SnowballModule) handleSnowballUserContext(s *discordgo.Session, i *disc
 // throwSnowballAtTarget contains the shared logic for throwing a snowball from the
 // interaction's member at the given target user. It is used by both the /snowball
 // slash command and the "Throw snowball" user context command.
-func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
+func (m *Module) throwSnowballAtTarget(s *discordgo.Session, i *discordgo.InteractionCreate, targetUser *discordgo.User) {
 	state := m.snowfallState()
 
 	if !state.Active {
@@ -688,7 +688,7 @@ func (m *SnowballModule) throwSnowballAtTarget(s *discordgo.Session, i *discordg
 	}
 }
 
-func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSnowballScore(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Defer response immediately to avoid timeout
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -755,7 +755,7 @@ func (m *SnowballModule) handleSnowballScore(s *discordgo.Session, i *discordgo.
 	}
 }
 
-func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func (m *Module) handleSnowballReset(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Ideally restricted to admins/mods via Discord permissions on the command.
 	if err := m.db.ClearSnowballScores(i.GuildID); err != nil {
 		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -783,7 +783,7 @@ func (m *SnowballModule) handleSnowballReset(s *discordgo.Session, i *discordgo.
 	}
 }
 
-func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
+func (m *Module) postSummaryAndReset(s *discordgo.Session) {
 	// First take a write-lock to check and atomically mark inactive
 	// to prevent double-execution from concurrent calls.
 	m.stateMu.Lock()
@@ -931,7 +931,7 @@ func (m *SnowballModule) postSummaryAndReset(s *discordgo.Session) {
 	}
 }
 
-func (m *SnowballModule) snowfallState() snowfallState {
+func (m *Module) snowfallState() snowfallState {
 	m.stateMu.Lock()
 	defer m.stateMu.Unlock()
 

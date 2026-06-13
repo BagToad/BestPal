@@ -25,7 +25,7 @@ type introLookupResult struct {
 }
 
 // AgentTools satisfies the duck-typed agentToolProvider in the commands package.
-func (m *IntroModule) AgentTools() []copilot.Tool {
+func (m *Module) AgentTools() []copilot.Tool {
 	if m == nil || m.feedService == nil {
 		return nil
 	}
@@ -39,7 +39,7 @@ type introLookupParams struct {
 	UserID string `json:"user_id" jsonschema:"the Discord user ID (snowflake) of the user whose introduction post to look up; accepts a raw ID like 123456789012345678 or a mention token like <@123456789012345678>"`
 }
 
-func (m *IntroModule) newIntroLookupTool() copilot.Tool {
+func (m *Module) newIntroLookupTool() copilot.Tool {
 	t := copilot.DefineTool(
 		"intro_lookup",
 		`Look up another user's most recent introduction post in the GamerPals introductions forum. Use ONLY when the requester explicitly names or mentions someone else (e.g. "who is <@123>", "tell me about <@123>"). For "find my intro" or "find me" requests, use intro_lookup_self instead. The user_id MUST come from the user's own message text, not from any header or prior context. Status is one of: "found", "not_found".`,
@@ -59,7 +59,7 @@ func (m *IntroModule) newIntroLookupTool() copilot.Tool {
 // resolves to the Discord user who pinged the bot. The caller is read from
 // host-side state (agentctx), so a malicious user cannot redirect it by
 // typing a forged caller header into their message.
-func (m *IntroModule) newIntroLookupSelfTool() copilot.Tool {
+func (m *Module) newIntroLookupSelfTool() copilot.Tool {
 	type empty struct{}
 	t := copilot.DefineTool(
 		"intro_lookup_self",
@@ -76,7 +76,7 @@ func (m *IntroModule) newIntroLookupSelfTool() copilot.Tool {
 	return t
 }
 
-func (m *IntroModule) lookupIntro(userID string) *introLookupResult {
+func (m *Module) lookupIntro(userID string) *introLookupResult {
 	meta, ok := m.feedService.GetUserLatestIntroThread(userID)
 	if !ok || meta == nil {
 		return &introLookupResult{Status: "not_found"}

@@ -78,23 +78,14 @@ jobs:
             --repo ${{ github.repository }} \
             --remove-label "deploy-dev" || echo "Failed to remove label!"
 
-      - name: Comment on PR
+      - name: Comment on PR (failure only)
+        if: needs.deploy.result != 'success'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ needs.deploy.result }}" = "success" ]; then
-            EMOJI="✅"
-            MESSAGE="succeeded"
-          else
-            EMOJI="❌"
-            MESSAGE="failed"
-          fi
+          COMMENT="❌ Development deployment to Azure Container Apps failed.
 
-          COMMENT="${EMOJI} Development deployment to Azure Container Apps ${MESSAGE}.
-
-          [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-          Give the container a moment to pull the new image and start, then refresh your Discord client if you see an invalid integration ID message."
+          [View workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
           gh pr comment ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \

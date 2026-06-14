@@ -14,6 +14,7 @@ import (
 
 	"gamerpal/internal/agent"
 	"gamerpal/internal/commands"
+	"gamerpal/internal/commands/modules/copilotagent"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
@@ -49,24 +50,25 @@ func New(cfg *config.Config) (*Bot, error) {
 		commandModuleHandler: handler,
 	}
 
-	// LLM tool-calling agent. Feature modules contribute tools via the
-	// optional AgentTools() []copilot.Tool method on CommandModule. If the
-	// Copilot CLI fails to start later in Start(), the agent disables
-	// itself and the bot keeps running without it.
-	ag, err := agent.New(cfg, session)
-	if err != nil {
-		cfg.Logger.Warnf("agent: construction failed, continuing without it: %v", err)
-	} else {
-		bot.agent = ag
+	// The LLM tool-calling agent is a command module (copilotagent); grab the
+	// constructed instance for the cross-cutting wiring bot.go owns: injecting
+	// other modules' tools, @mention handling, and the Copilot CLI lifecycle.
+	// Feature modules contribute tools via the optional AgentTools() method on
+	// CommandModule. If the Copilot CLI fails to start later in Start(), the
+	// agent disables itself and the bot keeps running without it.
+	if am, ok := handler.GetModule("copilotagent").(*copilotagent.Module); ok {
+		bot.agent = am.Agent()
+	}
+	if bot.agent != nil {
 		bot.agent.AddTools(handler.CollectAgentTools()...)
 	}
 
-	// Collect module-declared config settings (plus the core provider and the
-	// agent's own settings) into a registry, then make it available for
-	// per-guild reads and the config panel. Done after modules and the agent
-	// exist; all per-guild reads happen later during event/interaction
-	// handling, so the registry is always populated before first use.
-	cfg.ApplyRegistry(handler.CollectConfigSettings(agent.ConfigProvider()))
+	// Collect module-declared config settings (plus the core provider) into a
+	// registry, then make it available for per-guild reads and the config panel.
+	// Done after modules exist; all per-guild reads happen later during
+	// event/interaction handling, so the registry is always populated before
+	// first use.
+	cfg.ApplyRegistry(handler.CollectConfigSettings())
 
 	// mark not ready yet (zero value false, explicit for clarity)
 	bot.ready.Store(false)
@@ -207,7 +209,8 @@ func (b *Bot) Start() error {
 	// Create and initialize scheduler
 	b.scheduler = scheduler.NewScheduler(b.session, b.config, b.commandModuleHandler.GetDB())
 
-	// Register module schedulers (modules declare their own recurring tasks)
+	// Register recurring tasks declared by modules (including the agent module's
+	// brain refresh) with the scheduler.
 	b.commandModuleHandler.RegisterModuleSchedulers(b.scheduler)
 
 	// Register config log rotation (not part of a module)
@@ -215,25 +218,6 @@ func (b *Bot) Start() error {
 		return b.config.RotateAndPruneLogs()
 	}); err != nil {
 		b.config.Logger.Errorf("Failed to register log rotation: %v", err)
-	}
-
-	// Periodically reload the agent's brain channel (best-effort; keeps the
-	// last known good guidance on error). Not part of a module, so registered
-	// here alongside log rotation. Errors are logged locally rather than
-	// returned, so a misconfiguration does not spam the mod log channel every
-	// interval.
-	if b.agent != nil {
-		brainSchedule := fmt.Sprintf("@every %s", b.config.GetCopilotAgentBrainRefreshInterval())
-		if err := b.scheduler.RegisterFunc(brainSchedule, "agent-brain-refresh", func() error {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := b.agent.RefreshBrain(ctx); err != nil {
-				b.config.Logger.Warnf("agent brain refresh: %v", err)
-			}
-			return nil
-		}); err != nil {
-			b.config.Logger.Errorf("Failed to register brain refresh: %v", err)
-		}
 	}
 
 	b.scheduler.Start()
@@ -287,20 +271,6 @@ func (b *Bot) onReady(s *discordgo.Session, r *discordgo.Ready) {
 			}
 		}
 	}()
-
-	// Best-effort initial load of the agent's brain channel so guidance is
-	// present shortly after startup without waiting a full refresh interval.
-	if b.agent != nil {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := b.agent.RefreshBrain(ctx); err != nil {
-				b.config.Logger.Warnf("Agent brain initial load failed: %v", err)
-			} else {
-				b.config.Logger.Infof("Agent brain initial load complete")
-			}
-		}()
-	}
 
 	// Set bot status to something fresh every hour
 	c := time.NewTicker(time.Hour)

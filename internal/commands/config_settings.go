@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"fmt"
 	"sort"
 
 	"gamerpal/internal/config"
@@ -9,15 +8,14 @@ import (
 
 // CollectConfigSettings returns a Registry built from the union of settings
 // declared by every module that implements config.ConfigProvider, plus a
-// built-in core provider (shared server channels) and any extra providers
-// passed in (e.g. the agent, which is not a command module).
+// built-in core provider for shared server channels.
 //
 // Mirrors CollectAgentTools: modules are visited in alphabetical order for
 // stable ordering, and duplicate keys are skipped with a warning so two
 // providers cannot silently fight over the same key.
-func (h *ModuleHandler) CollectConfigSettings(extra ...config.ConfigProvider) *config.Registry {
+func (h *ModuleHandler) CollectConfigSettings() *config.Registry {
 	// Core provider first so shared server channels lead their categories,
-	// then modules alphabetically, then extras (agent).
+	// then modules alphabetically.
 	providers := []namedProvider{{name: "core", provider: coreConfigProvider{}}}
 
 	names := make([]string, 0, len(h.modules))
@@ -29,12 +27,6 @@ func (h *ModuleHandler) CollectConfigSettings(extra ...config.ConfigProvider) *c
 		if cp, ok := h.modules[name].(config.ConfigProvider); ok {
 			providers = append(providers, namedProvider{name: name, provider: cp})
 		}
-	}
-	for i, cp := range extra {
-		if cp == nil {
-			continue
-		}
-		providers = append(providers, namedProvider{name: fmt.Sprintf("extra#%d", i), provider: cp})
 	}
 
 	var out []config.Setting

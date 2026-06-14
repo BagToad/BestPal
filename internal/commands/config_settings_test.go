@@ -3,7 +3,7 @@ package commands
 import (
 	"testing"
 
-	"gamerpal/internal/agent"
+	"gamerpal/internal/commands/modules/copilotagent"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
@@ -23,19 +23,20 @@ func realProviderHandler() *ModuleHandler {
 	return &ModuleHandler{
 		config: config.NewMockConfig(nil),
 		modules: map[string]types.CommandModule{
-			"intro":     &intro.Module{},
-			"lfg":       &lfg.Module{},
-			"welcome":   &welcome.Module{},
-			"scamguard": &scamguard.Module{},
-			"1984":      &nineteeneightyfour.Module{},
-			"fun":       &fun.Module{},
+			"intro":        &intro.Module{},
+			"lfg":          &lfg.Module{},
+			"welcome":      &welcome.Module{},
+			"scamguard":    &scamguard.Module{},
+			"1984":         &nineteeneightyfour.Module{},
+			"fun":          &fun.Module{},
+			"copilotagent": &copilotagent.Module{},
 		},
 	}
 }
 
 func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 	h := realProviderHandler()
-	reg := h.CollectConfigSettings(agent.ConfigProvider())
+	reg := h.CollectConfigSettings()
 
 	expected := []string{
 		config.KeyModActionLogChannelID,
@@ -89,9 +90,14 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 	}
 }
 
-type dupeProvider struct{}
+// dupeModule is a test-only command module that declares a config key already
+// owned by the core provider, to exercise the duplicate-skip path through the
+// normal module list (the only way settings are registered).
+type dupeModule struct{}
 
-func (dupeProvider) ConfigSettings() []config.Setting {
+func (dupeModule) Register(map[string]*types.Command, *types.Dependencies) {}
+func (dupeModule) Service() types.ModuleService                            { return nil }
+func (dupeModule) ConfigSettings() []config.Setting {
 	return []config.Setting{{
 		Key:      config.KeyModActionLogChannelID, // collides with the core provider
 		Category: config.CategoryChannels,
@@ -101,9 +107,11 @@ func (dupeProvider) ConfigSettings() []config.Setting {
 }
 
 func TestCollectConfigSettingsDedupesKeys(t *testing.T) {
-	h := realProviderHandler()
-	base := h.CollectConfigSettings(agent.ConfigProvider())
-	withDupe := h.CollectConfigSettings(agent.ConfigProvider(), dupeProvider{})
+	base := realProviderHandler()
 
-	require.Len(t, withDupe.All(), len(base.All()), "duplicate key should be skipped, not added")
+	withDupe := realProviderHandler()
+	withDupe.modules["dupe"] = dupeModule{}
+
+	require.Len(t, withDupe.CollectConfigSettings().All(), len(base.CollectConfigSettings().All()),
+		"duplicate key should be skipped, not added")
 }

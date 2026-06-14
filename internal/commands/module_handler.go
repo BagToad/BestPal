@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
+	"gamerpal/internal/commands/modules/copilotagent"
 	"gamerpal/internal/commands/modules/fetchintros"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/help"
@@ -104,6 +105,7 @@ func (h *ModuleHandler) registerModules() {
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
+		{"copilotagent", copilotagent.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -293,22 +295,21 @@ func (h *ModuleHandler) InitializeModuleServices(s *discordgo.Session) error {
 	return nil
 }
 
-// RegisterModuleSchedulers registers recurring tasks from all modules with the scheduler.
-// Called after services are initialized.
+// RegisterModuleSchedulers registers the recurring tasks declared by every
+// module's service with the scheduler. Called after services are initialized.
 func (h *ModuleHandler) RegisterModuleSchedulers(scheduler interface {
 	RegisterFunc(schedule, name string, fn func() error) error
 }) {
 	for _, module := range h.modules {
-		if service := module.Service(); service != nil {
-			// Register scheduled functions
-			if scheduledFuncs := service.ScheduledFuncs(); scheduledFuncs != nil {
-				for schedule, fn := range scheduledFuncs {
-					// Name is used for logging purposes only
-					name := fmt.Sprintf("%T", service)
-					if err := scheduler.RegisterFunc(schedule, name, fn); err != nil {
-						h.config.Logger.Errorf("Failed to register scheduled function: %v", err)
-					}
-				}
+		service := module.Service()
+		if service == nil {
+			continue
+		}
+		// Name is used for logging only; %T matches how modules are named.
+		name := fmt.Sprintf("%T", service)
+		for schedule, fn := range service.ScheduledFuncs() {
+			if err := scheduler.RegisterFunc(schedule, name, fn); err != nil {
+				h.config.Logger.Errorf("Failed to register scheduled function: %v", err)
 			}
 		}
 	}

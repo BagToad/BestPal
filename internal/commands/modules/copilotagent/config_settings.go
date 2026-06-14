@@ -1,16 +1,13 @@
-package agent
+package copilotagent
 
 import "gamerpal/internal/config"
 
-// agentConfigProvider exposes the agent's gating settings to the config panel
-// registry. The agent is not a command module, so bot.go passes this provider
-// to ModuleHandler.CollectConfigSettings explicitly.
-type agentConfigProvider struct{}
-
-// ConfigProvider returns a config.ConfigProvider for the agent's settings.
-func ConfigProvider() config.ConfigProvider { return agentConfigProvider{} }
-
-func (agentConfigProvider) ConfigSettings() []config.Setting {
+// ConfigSettings declares the agent's per-guild settings for the config panel
+// and the settings registry. It is static (reads no Module fields), so it works
+// on a zero-value Module and is independent of whether the agent runtime
+// started. This satisfies config.ConfigProvider, which ModuleHandler discovers
+// across the module list.
+func (m *Module) ConfigSettings() []config.Setting {
 	return []config.Setting{
 		{
 			Key:         config.KeyCopilotAgentRoleID,

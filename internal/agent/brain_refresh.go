@@ -58,6 +58,53 @@ func (a *Agent) RefreshBrain(ctx context.Context) error {
 	return nil
 }
 
+// brainRefreshTimeout bounds a single scheduled brain refresh so a slow or hung
+// Discord call cannot tie up the scheduler worker indefinitely.
+const brainRefreshTimeout = 30 * time.Second
+
+// ScheduledFuncs returns the agent's recurring tasks keyed by cron schedule, so
+// the agent module can register them through the standard module scheduler.
+//
+// The brain refresh warn-logs locally and returns nil on purpose: the scheduler
+// reports returned errors to the mod log channel, and a persistently
+// misconfigured channel would otherwise spam that channel every interval.
+func (a *Agent) ScheduledFuncs() map[string]func() error {
+	if a == nil {
+		return nil
+	}
+	schedule := fmt.Sprintf("@every %s", a.cfg.GetCopilotAgentBrainRefreshInterval())
+	return map[string]func() error{
+		schedule: func() error {
+			ctx, cancel := context.WithTimeout(context.Background(), brainRefreshTimeout)
+			defer cancel()
+			if err := a.RefreshBrain(ctx); err != nil {
+				a.cfg.Logger.Warnf("agent brain refresh: %v", err)
+			}
+			return nil
+		},
+	}
+}
+
+// PreloadBrain performs a best-effort initial brain load in the background so
+// guidance is present shortly after startup, without waiting for the first
+// scheduled refresh (which fires one interval later). It never blocks the
+// caller; on failure the next scheduled refresh recovers. Refreshes are
+// serialized in RefreshBrain, so this is safe alongside the scheduled job.
+func (a *Agent) PreloadBrain() {
+	if a == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), brainRefreshTimeout)
+		defer cancel()
+		if err := a.RefreshBrain(ctx); err != nil {
+			a.cfg.Logger.Warnf("agent brain initial load failed: %v", err)
+		} else {
+			a.cfg.Logger.Infof("agent brain initial load complete")
+		}
+	}()
+}
+
 // fetchBrainMessages pages through the brain channel newest-first, stopping once
 // it has enough messages to satisfy the guidance cap (with headroom for
 // filtered-out bot/empty messages) or the channel is exhausted.

@@ -12,9 +12,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 
-	"gamerpal/internal/agent"
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/commands"
-	"gamerpal/internal/commands/modules/copilotagent"
+	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
@@ -29,7 +29,7 @@ type Bot struct {
 	config               *config.Config
 	commandModuleHandler *commands.ModuleHandler
 	scheduler            *scheduler.Scheduler
-	agent                *agent.Agent
+	agent                *agentengine.Agent
 	ready                atomic.Bool // guards interaction handling until startup completes
 }
 
@@ -50,13 +50,13 @@ func New(cfg *config.Config) (*Bot, error) {
 		commandModuleHandler: handler,
 	}
 
-	// The LLM tool-calling agent is a command module (copilotagent); grab the
+	// The LLM tool-calling agent is a command module (agentadapter); grab the
 	// constructed instance for the cross-cutting wiring bot.go owns: injecting
 	// other modules' tools, @mention handling, and the Copilot CLI lifecycle.
 	// Feature modules contribute tools via the optional AgentTools() method on
 	// CommandModule. If the Copilot CLI fails to start later in Start(), the
 	// agent disables itself and the bot keeps running without it.
-	if am, ok := handler.GetModule("copilotagent").(*copilotagent.Module); ok {
+	if am, ok := handler.GetModule("agentadapter").(*agentadapter.Module); ok {
 		bot.agent = am.Agent()
 	}
 	if bot.agent != nil {

@@ -3,7 +3,7 @@ package commands
 import (
 	"testing"
 
-	"gamerpal/internal/commands/modules/copilotagent"
+	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
@@ -29,7 +29,7 @@ func realProviderHandler() *ModuleHandler {
 			"scamguard":    &scamguard.Module{},
 			"1984":         &nineteeneightyfour.Module{},
 			"fun":          &fun.Module{},
-			"copilotagent": &copilotagent.Module{},
+			"agentadapter": &agentadapter.Module{},
 		},
 	}
 }

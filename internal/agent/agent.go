@@ -18,7 +18,7 @@ import (
 	"github.com/github/copilot-sdk/go/rpc"
 )
 
-//go:embed prompt.md
+//go:embed prompts/sys_prompt.md
 var systemPromptRaw string
 
 var systemPrompt = strings.TrimSpace(systemPromptRaw)

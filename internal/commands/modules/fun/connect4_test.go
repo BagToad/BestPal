@@ -224,6 +224,34 @@ func TestC4FinishedEmbedHidesEmptyBoard(t *testing.T) {
 	}
 }
 
+func TestC4CursedModeRendersCursedPieces(t *testing.T) {
+	g := newTestGame()
+	g.Mode = c4ModeCursed
+	g.Board[c4Rows-1][0] = c4Player1
+	g.Board[c4Rows-1][1] = c4Player2
+
+	desc := c4BuildGameEmbed(g).Description
+	if !strings.Contains(desc, c4EmojiCursedPlayer1) || !strings.Contains(desc, c4EmojiCursedPlayer2) {
+		t.Fatalf("cursed game should render cursed pieces, got:\n%s", desc)
+	}
+	if strings.Contains(desc, c4EmojiPlayer1) || strings.Contains(desc, c4EmojiPlayer2) {
+		t.Fatalf("cursed game should not render normal pieces, got:\n%s", desc)
+	}
+}
+
+func TestC4DefaultModeRendersNormalPieces(t *testing.T) {
+	// An unset mode falls back to the normal theme.
+	g := newTestGame()
+	g.Board[c4Rows-1][0] = c4Player1
+	desc := c4BuildGameEmbed(g).Description
+	if !strings.Contains(desc, c4EmojiPlayer1) {
+		t.Fatalf("default mode should render normal pieces, got:\n%s", desc)
+	}
+	if strings.Contains(desc, c4EmojiCursedPlayer1) || strings.Contains(desc, c4EmojiCursedPlayer2) {
+		t.Fatalf("default mode should not render cursed pieces, got:\n%s", desc)
+	}
+}
+
 func TestC4NormalizeEmoji(t *testing.T) {
 	// Flag with and without the variation selector must compare equal.
 	withVS := "\U0001F3F3\uFE0F"

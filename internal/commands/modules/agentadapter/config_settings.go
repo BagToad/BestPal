@@ -1,4 +1,4 @@
-package copilotagent
+package agentadapter
 
 import "gamerpal/internal/config"
 

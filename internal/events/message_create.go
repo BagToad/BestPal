@@ -2,7 +2,7 @@ package events
 
 import (
 	"fmt"
-	"gamerpal/internal/agent"
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/config"
 	"gamerpal/internal/utils"
 	"strings"
@@ -14,7 +14,7 @@ import (
 // OnMessageCreate handles message events. When ag is non-nil and the message
 // author has the configured agent role, the message is routed to the LLM
 // tool-calling agent instead of the legacy emoji-reaction flow.
-func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *config.Config, ag *agent.Agent) {
+func OnMessageCreate(s *discordgo.Session, m *discordgo.MessageCreate, cfg *config.Config, ag *agentengine.Agent) {
 	// Ignore messages from bots (including ourselves)
 	if m.Author.Bot {
 		return

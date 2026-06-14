@@ -1,19 +1,19 @@
-package copilotagent
+package agentadapter
 
 import (
-	"gamerpal/internal/agent"
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/commands/types"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-// Module adapts the LLM tool-calling agent (internal/agent) to the command
+// Module adapts the LLM tool-calling agent (internal/agentengine) to the command
 // module system, so its recurring tasks and per-guild settings register through
 // the same scaffolding as every other module instead of being wired into bot.go
-// as special cases. The agent's runtime logic lives in internal/agent; this is a
-// thin adapter that owns construction and exposes the instance to the bot.
+// as special cases. The agent's runtime logic lives in internal/agentengine; this
+// is a thin adapter that owns construction and exposes the instance to the bot.
 type Module struct {
-	agent *agent.Agent
+	agent *agentengine.Agent
 }
 
 // New constructs the agent and wraps it as a module. Construction is
@@ -22,7 +22,7 @@ type Module struct {
 // still returned with a nil agent, so the bot keeps running without it, matching
 // the previous best-effort behavior.
 func New(deps *types.Dependencies) *Module {
-	ag, err := agent.New(deps.Config, deps.Session)
+	ag, err := agentengine.New(deps.Config, deps.Session)
 	if err != nil {
 		if deps.Config != nil && deps.Config.Logger != nil {
 			deps.Config.Logger.Warnf("agent: construction failed, continuing without it: %v", err)
@@ -48,13 +48,13 @@ func (m *Module) Service() types.ModuleService {
 // Agent exposes the constructed agent for the cross-cutting wiring that bot.go
 // still owns: injecting other modules' tools, @mention handling, and the Copilot
 // CLI lifecycle. Returns nil when the agent is disabled.
-func (m *Module) Agent() *agent.Agent { return m.agent }
+func (m *Module) Agent() *agentengine.Agent { return m.agent }
 
 // service adapts the agent to types.ModuleService. Hydration triggers the
 // one-time startup brain preload; the periodic brain refresh is contributed to
 // the scheduler via ScheduledFuncs.
 type service struct {
-	agent *agent.Agent
+	agent *agentengine.Agent
 }
 
 // HydrateServiceDiscordSession fires the agent's best-effort initial brain load

@@ -2,9 +2,9 @@ package commands
 
 import (
 	"fmt"
+	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
-	"gamerpal/internal/commands/modules/copilotagent"
 	"gamerpal/internal/commands/modules/fetchintros"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/help"
@@ -105,7 +105,7 @@ func (h *ModuleHandler) registerModules() {
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
-		{"copilotagent", copilotagent.New(h.deps)},
+		{"agentadapter", agentadapter.New(h.deps)},
 	}
 
 	for _, m := range modules {

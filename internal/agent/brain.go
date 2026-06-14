@@ -45,7 +45,7 @@ func (b *Brain) set(guidance string) {
 // to fit the caps, so the model knows the guidance is not exhaustive.
 const brainTruncationMarker = "(Older moderator guidance was omitted to stay within the size limit.)"
 
-//go:embed brain_guidance.md
+//go:embed prompts/brain_guidance.md
 var brainGuidanceRaw string
 
 // brainGuidance frames the appended block. It is intentionally explicit that the

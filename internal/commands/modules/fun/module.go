@@ -184,6 +184,22 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 					Description: "The player you want to challenge",
 					Required:    true,
 				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "mode",
+					Description: "Which piece set to play with",
+					Required:    false,
+					Choices: []*discordgo.ApplicationCommandOptionChoice{
+						{
+							Name:  "Normal",
+							Value: c4ModeNormal,
+						},
+						{
+							Name:  "Cursed",
+							Value: c4ModeCursed,
+						},
+					},
+				},
 			},
 		},
 		HandlerFunc: m.handleConnect4Challenge,

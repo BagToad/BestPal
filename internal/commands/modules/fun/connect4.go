@@ -30,12 +30,30 @@ const (
 	c4EmojiPlayer2 = "🟡"
 	c4EmojiForfeit = "🏳️"
 
+	// Cursed mode swaps the piece emoji for these.
+	c4EmojiCursedPlayer1 = "🫃"
+	c4EmojiCursedPlayer2 = "🫄"
+
+	c4ModeNormal = "normal"
+	c4ModeCursed = "cursed"
+
 	c4ColorRed    = 0xE74C3C
 	c4ColorYellow = 0xF1C40F
 	c4ColorGreen  = 0x2ECC71
 	c4ColorGray   = 0x95A5A6
 	c4ColorBlue   = 0x3498DB
 )
+
+// c4Theme holds the piece emoji used to render each player for a game mode.
+type c4Theme struct {
+	Player1 string
+	Player2 string
+}
+
+var c4Themes = map[string]c4Theme{
+	c4ModeNormal: {Player1: c4EmojiPlayer1, Player2: c4EmojiPlayer2},
+	c4ModeCursed: {Player1: c4EmojiCursedPlayer1, Player2: c4EmojiCursedPlayer2},
+}
 
 // Column reaction emoji - users react with these to pick a column.
 var c4ColumnEmoji = []string{"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣"}
@@ -55,6 +73,7 @@ type Connect4Game struct {
 	Board        [c4Rows][c4Cols]int
 	Player1      string // challenger (🔴)
 	Player2      string // challenged (🟡)
+	Mode         string // c4ModeNormal or c4ModeCursed
 	Turn         int    // c4Player1 or c4Player2
 	ChannelID    string
 	MessageID    string // the game board message
@@ -64,6 +83,28 @@ type Connect4Game struct {
 	Moves        int  // pieces dropped so far; used to decide whether to render the board
 	Accepted     bool // true once the challenge is accepted and play reactions are added
 	LastActivity time.Time
+}
+
+// theme resolves the piece emoji set for the game's mode, falling back to
+// normal for an empty or unknown mode.
+func (g *Connect4Game) theme() c4Theme {
+	if t, ok := c4Themes[g.Mode]; ok {
+		return t
+	}
+	return c4Themes[c4ModeNormal]
+}
+
+// pieceEmoji returns the emoji for a board cell value in this game's theme.
+func (g *Connect4Game) pieceEmoji(player int) string {
+	t := g.theme()
+	switch player {
+	case c4Player1:
+		return t.Player1
+	case c4Player2:
+		return t.Player2
+	default:
+		return c4EmojiEmpty
+	}
 }
 
 // --- Manager ---
@@ -100,7 +141,7 @@ func (mgr *connect4Manager) init(s *discordgo.Session, cfg *config.Config) {
 	})
 }
 
-func (mgr *connect4Manager) createChallenge(player1, player2, channelID string) *Connect4Game {
+func (mgr *connect4Manager) createChallenge(player1, player2, channelID, mode string) *Connect4Game {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
@@ -108,6 +149,7 @@ func (mgr *connect4Manager) createChallenge(player1, player2, channelID string) 
 		ID:           generateGameID(),
 		Player1:      player1,
 		Player2:      player2,
+		Mode:         mode,
 		Turn:         c4Player1,
 		ChannelID:    channelID,
 		Status:       c4Pending,
@@ -177,10 +219,10 @@ func (mgr *connect4Manager) collectExpired() ([]c4ExpiredGame, *discordgo.Sessio
 		} else {
 			if game.Turn == c4Player1 {
 				game.Winner = c4Player2
-				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player1, c4EmojiPlayer2, game.Player2)
+				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player1, game.theme().Player2, game.Player2)
 			} else {
 				game.Winner = c4Player1
-				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player2, c4EmojiPlayer1, game.Player1)
+				game.WinReason = fmt.Sprintf("⏰ <@%s> took too long - %s <@%s> wins!", game.Player2, game.theme().Player1, game.Player1)
 			}
 		}
 		expired = append(expired, c4ExpiredGame{
@@ -351,14 +393,7 @@ func c4RenderBoard(game *Connect4Game) string {
 	var sb strings.Builder
 	for row := range c4Rows {
 		for col := range c4Cols {
-			switch game.Board[row][col] {
-			case c4Player1:
-				sb.WriteString(c4EmojiPlayer1)
-			case c4Player2:
-				sb.WriteString(c4EmojiPlayer2)
-			default:
-				sb.WriteString(c4EmojiEmpty)
-			}
+			sb.WriteString(game.pieceEmoji(game.Board[row][col]))
 		}
 		sb.WriteString("\n")
 	}
@@ -372,31 +407,32 @@ func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 		Footer: &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Game %s • React with 1️⃣-7️⃣ to play, 🏳️ to forfeit", game.ID)},
 	}
 	var desc strings.Builder
+	theme := game.theme()
 
 	switch game.Status {
 	case c4Pending:
 		embed.Title = "⚔️ Connect 4 Challenge"
 		embed.Footer.Text = fmt.Sprintf("Game %s", game.ID)
-		desc.WriteString(fmt.Sprintf("%s <@%s> has challenged %s <@%s> to a game of Connect 4!\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
+		desc.WriteString(fmt.Sprintf("%s <@%s> has challenged %s <@%s> to a game of Connect 4!\n\n", theme.Player1, game.Player1, theme.Player2, game.Player2))
 		desc.WriteString(fmt.Sprintf("Waiting for <@%s> to respond...", game.Player2))
 		embed.Color = c4ColorBlue
 
 	case c4Active:
 		embed.Title = "🎮 Connect 4"
-		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
+		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", theme.Player1, game.Player1, theme.Player2, game.Player2))
 		desc.WriteString(c4RenderBoard(game))
 		if game.Turn == c4Player1 {
-			desc.WriteString(fmt.Sprintf("\n%s <@%s>'s turn", c4EmojiPlayer1, game.Player1))
+			desc.WriteString(fmt.Sprintf("\n%s <@%s>'s turn", theme.Player1, game.Player1))
 			embed.Color = c4ColorRed
 		} else {
-			desc.WriteString(fmt.Sprintf("\n%s <@%s>'s turn", c4EmojiPlayer2, game.Player2))
+			desc.WriteString(fmt.Sprintf("\n%s <@%s>'s turn", theme.Player2, game.Player2))
 			embed.Color = c4ColorYellow
 		}
 
 	case c4Finished:
 		embed.Title = "🎮 Connect 4"
 		embed.Footer.Text = fmt.Sprintf("Game %s • Game over", game.ID)
-		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", c4EmojiPlayer1, game.Player1, c4EmojiPlayer2, game.Player2))
+		desc.WriteString(fmt.Sprintf("%s <@%s>  vs  %s <@%s>\n\n", theme.Player1, game.Player1, theme.Player2, game.Player2))
 		// Only show the board if at least one piece was played; declined,
 		// cancelled, and pre-start timeouts shouldn't render an empty grid.
 		if game.Moves > 0 {
@@ -406,9 +442,9 @@ func c4BuildGameEmbed(game *Connect4Game) *discordgo.MessageEmbed {
 		if game.WinReason != "" {
 			desc.WriteString(game.WinReason)
 		} else if game.Winner == c4Player1 {
-			desc.WriteString(fmt.Sprintf("🎉 %s <@%s> wins!", c4EmojiPlayer1, game.Player1))
+			desc.WriteString(fmt.Sprintf("🎉 %s <@%s> wins!", theme.Player1, game.Player1))
 		} else if game.Winner == c4Player2 {
-			desc.WriteString(fmt.Sprintf("🎉 %s <@%s> wins!", c4EmojiPlayer2, game.Player2))
+			desc.WriteString(fmt.Sprintf("🎉 %s <@%s> wins!", theme.Player2, game.Player2))
 		} else {
 			desc.WriteString("🤝 It's a draw!")
 		}
@@ -463,9 +499,13 @@ func (m *Module) handleConnect4Challenge(s *discordgo.Session, i *discordgo.Inte
 	c4mgr.init(s, m.config)
 
 	var opponent *discordgo.User
+	mode := c4ModeNormal
 	for _, opt := range i.ApplicationCommandData().Options {
-		if opt.Name == "opponent" {
+		switch opt.Name {
+		case "opponent":
 			opponent = opt.UserValue(s)
+		case "mode":
+			mode = opt.StringValue()
 		}
 	}
 
@@ -484,7 +524,7 @@ func (m *Module) handleConnect4Challenge(s *discordgo.Session, i *discordgo.Inte
 		return
 	}
 
-	game := c4mgr.createChallenge(challenger.ID, opponent.ID, i.ChannelID)
+	game := c4mgr.createChallenge(challenger.ID, opponent.ID, i.ChannelID, mode)
 	embed := c4BuildGameEmbed(game)
 	components := c4BuildComponents(game)
 
@@ -736,10 +776,10 @@ func c4HandleReactionForfeit(s *discordgo.Session, game *Connect4Game, userID st
 	switch userID {
 	case game.Player1:
 		game.Winner = c4Player2
-		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player1, c4EmojiPlayer2, game.Player2)
+		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player1, game.theme().Player2, game.Player2)
 	case game.Player2:
 		game.Winner = c4Player1
-		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player2, c4EmojiPlayer1, game.Player1)
+		game.WinReason = fmt.Sprintf("%s <@%s> forfeited - %s <@%s> wins!", c4EmojiForfeit, game.Player2, game.theme().Player1, game.Player1)
 	default:
 		c4mgr.mu.Unlock()
 		return

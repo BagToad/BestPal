@@ -300,6 +300,29 @@ func (s *IntroFeedService) GetUserLatestIntroThread(userID string) (*forumcache.
 	return s.deps.ForumCache.GetLatestUserThread(introForumID, userID)
 }
 
+// GetUserLatestIntroContent returns the user's latest intro thread metadata along
+// with the text body of its starter message. For Discord forum posts the starter
+// message ID equals the thread ID, so the body is ChannelMessage(threadID, threadID).
+// Returns (nil, "", nil) when the user has no intro thread, and a non-nil error when
+// the thread exists but its starter message cannot be read.
+func (s *IntroFeedService) GetUserLatestIntroContent(userID string) (*forumcache.ThreadMeta, string, error) {
+	meta, ok := s.GetUserLatestIntroThread(userID)
+	if !ok || meta == nil {
+		return nil, "", nil
+	}
+	if s.deps.Session == nil {
+		return meta, "", fmt.Errorf("discord session not available")
+	}
+	msg, err := s.deps.Session.ChannelMessage(meta.ID, meta.ID)
+	if err != nil {
+		return meta, "", fmt.Errorf("failed to fetch intro starter message: %w", err)
+	}
+	if msg == nil {
+		return meta, "", fmt.Errorf("intro starter message not found")
+	}
+	return meta, msg.Content, nil
+}
+
 // formatDuration formats a duration in a human-readable way
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {

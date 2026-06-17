@@ -15,7 +15,7 @@ func Synthesize(text string) ([][]byte, error) {
 	return encodeOpusFrames(resampled)
 }
 
-// SynthesizePCM exposes the raw 11025 Hz mono PCM for tests and tooling.
+// SynthesizePCM exposes the raw 22050 Hz mono PCM for tests and tooling.
 func SynthesizePCM(text string) []int16 {
 	return synthesizePCM(text)
 }

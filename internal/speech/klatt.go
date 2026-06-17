@@ -8,6 +8,16 @@ const (
 	WaveTriangle
 	WaveSin
 	WaveSquare
+	WaveRosenberg
+)
+
+// Rosenberg glottal-pulse shape parameters. rosenRise is the fraction of the
+// open phase spent opening (rising to peak flow); the remainder is the steeper
+// closing phase whose abrupt end excites the vocal tract. rosenAmp scales the
+// pulse to roughly the same output level as the legacy square source.
+const (
+	rosenRise = 0.66
+	rosenAmp  = 11000.0
 )
 
 // klattFrame holds parameters for one synthesis frame.
@@ -192,7 +202,7 @@ func newKlatt() *klatt {
 		baseF0:          1330,
 		baseSpeed:       baseFrameMs,
 		baseDeclination: 0.5,
-		baseWaveform:    WaveSquare,
+		baseWaveform:    WaveRosenberg,
 		seed:            5,
 	}
 }
@@ -230,6 +240,19 @@ func (k *klatt) naturalSource(nPer int) float32 {
 			return 8192
 		}
 		return -8192
+	case WaveRosenberg:
+		// Rosenberg glottal flow pulse: a smooth cosine rise to peak flow, then
+		// a steeper cosine fall to a hard closure at nOpen. Unlike the square
+		// source, its harmonics roll off gently, which removes the buzz; the
+		// sharp slope at closure still gives a crisp excitation.
+		open := float32(k.nOpen)
+		tp := open * rosenRise
+		n := float32(nPer)
+		if n < tp {
+			return rosenAmp * 0.5 * (1 - float32(math.Cos(float64(math.Pi*n/tp))))
+		}
+		tn := open - tp
+		return rosenAmp * float32(math.Cos(float64(math.Pi*(n-tp)/(2*tn))))
 	default: // WaveSaw
 		return float32(abs((nPer%200)-100)-50) * 163.84
 	}

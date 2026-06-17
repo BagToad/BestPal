@@ -175,6 +175,11 @@ func clip(v float32) int16 {
 
 const ampAdj = 14
 
+// klattSampleRate is the synthesizer's internal output rate. 22050 Hz gives an
+// 11 kHz Nyquist so fricatives (s, sh, f, th) keep their high-frequency energy
+// instead of being dulled by an 11025 Hz / 5.5 kHz ceiling.
+const klattSampleRate = 22050
+
 func newKlatt() *klatt {
 	return &klatt{
 		baseF0:          1330,
@@ -186,7 +191,7 @@ func newKlatt() *klatt {
 }
 
 func (k *klatt) init() {
-	k.sampleRate = 11025
+	k.sampleRate = klattSampleRate
 	k.f0Flutter = 0
 	k.f0 = k.baseF0
 	k.frame = newKlattFrame()

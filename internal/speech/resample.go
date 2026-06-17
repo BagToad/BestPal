@@ -1,9 +1,12 @@
 package speech
 
-// resampleLinear converts PCM from inRate to outRate using linear
-// interpolation. The Klatt synthesizer runs at 11025 Hz; Discord voice needs
-// 48000 Hz, so we upsample before Opus encoding.
-func resampleLinear(in []int16, inRate, outRate int) []int16 {
+import "math"
+
+// resample converts PCM from inRate to outRate using a windowed-sinc (Lanczos)
+// kernel. The Klatt synthesizer runs at 22050 Hz; Discord voice needs 48000 Hz.
+// Sinc interpolation rejects the imaging artifacts that plain linear
+// interpolation leaves behind, so consonants stay clean after upsampling.
+func resample(in []int16, inRate, outRate int) []int16 {
 	if len(in) == 0 || inRate <= 0 || outRate <= 0 {
 		return nil
 	}
@@ -18,19 +21,46 @@ func resampleLinear(in []int16, inRate, outRate int) []int16 {
 		return nil
 	}
 	out := make([]int16, outLen)
+
+	// Input samples per output sample. For upsampling (ratio < 1) the kernel
+	// cutoff is the input Nyquist, so a fixed half-width in input samples works.
 	ratio := float64(inRate) / float64(outRate)
+	const halfWidth = 8 // Lanczos a: number of input samples each side
 
 	for i := range out {
-		srcPos := float64(i) * ratio
-		idx := int(srcPos)
-		frac := srcPos - float64(idx)
+		center := float64(i) * ratio
+		base := int(math.Floor(center))
 
-		s0 := float64(in[idx])
-		s1 := s0
-		if idx+1 < len(in) {
-			s1 = float64(in[idx+1])
+		var acc, wsum float64
+		for j := base - halfWidth + 1; j <= base+halfWidth; j++ {
+			if j < 0 || j >= len(in) {
+				continue
+			}
+			w := lanczos(center-float64(j), halfWidth)
+			acc += float64(in[j]) * w
+			wsum += w
 		}
-		out[i] = int16(s0 + (s1-s0)*frac)
+		if wsum != 0 {
+			acc /= wsum
+		}
+		out[i] = clip(float32(acc))
 	}
 	return out
+}
+
+// lanczos evaluates the Lanczos kernel of order a at x.
+func lanczos(x float64, a int) float64 {
+	if x == 0 {
+		return 1
+	}
+	af := float64(a)
+	if x <= -af || x >= af {
+		return 0
+	}
+	return sinc(x) * sinc(x/af)
+}
+
+func sinc(x float64) float64 {
+	px := math.Pi * x
+	return math.Sin(px) / px
 }

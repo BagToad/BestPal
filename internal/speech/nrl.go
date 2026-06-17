@@ -335,7 +335,9 @@ func xlateWord(out *phonemeBuf, word []byte) {
 			spellOut(out, word)
 			return
 		}
-		nrl(out, word)
+		var tmp phonemeBuf
+		nrl(&tmp, word)
+		out.b = append(out.b, assignStress(tmp.b, lowerWord(word))...)
 	} else {
 		body := word[1:]
 		if len(body) > 0 && body[len(body)-1] == ']' {
@@ -488,6 +490,7 @@ func xlateString(s string, out *phonemeBuf) {
 			case '!', '?', '.':
 				i++
 				out.put('.')
+				out.put(' ') // trailing pause for a clearer sentence break
 			case '"', ':', '-', ';', ',', '(', ')':
 				i++
 				out.put(' ')

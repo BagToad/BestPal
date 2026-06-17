@@ -14,12 +14,12 @@ func TestG2P(t *testing.T) {
 		text string
 		want string
 	}{
-		{"hello", "hel@U  "},
-		{"world", "w3ld  "},
-		{"the quick brown fox", "D@  kwIk  br@Un  f0ks  "},
-		{"one two three", "wVn  tu  Tri  "},
-		{"42", "fOrti  tu  "},
-		{"3.5", "Tri  poInt  faIv  "},
+		{"hello", "hel'@U  "},
+		{"world", "w'3ld  "},
+		{"the quick brown fox", "D@  kw'Ik  br'@Un  f'0ks  "},
+		{"one two three", "w'Vn  t'u  Tr'i  "},
+		{"42", "f'Orti  t'u  "},
+		{"3.5", "Tr'i  p'oInt  f'aIv  "},
 	}
 	for _, c := range cases {
 		var p phonemeBuf
@@ -126,7 +126,7 @@ func TestWriteWAVArtifact(t *testing.T) {
 	if text == "" {
 		text = "Hello, this is your bot speaking, fully offline."
 	}
-	pcm := resampleLinear(SynthesizePCM(text), nativeSampleRate, discordSampleRate)
+	pcm := resample(SynthesizePCM(text), nativeSampleRate, discordSampleRate)
 	if err := writeWAV(out, pcm, discordSampleRate); err != nil {
 		t.Fatal(err)
 	}

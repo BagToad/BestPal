@@ -1,7 +1,7 @@
 package speech
 
 // nativeSampleRate is the Klatt synthesizer's output rate.
-const nativeSampleRate = 11025
+const nativeSampleRate = klattSampleRate
 
 // Synthesize converts English text into a sequence of 20 ms Opus packets at
 // 48 kHz mono, ready to stream over Discord voice. It returns nil frames for
@@ -11,7 +11,7 @@ func Synthesize(text string) ([][]byte, error) {
 	if len(pcm) == 0 {
 		return nil, nil
 	}
-	resampled := resampleLinear(pcm, nativeSampleRate, discordSampleRate)
+	resampled := resample(pcm, nativeSampleRate, discordSampleRate)
 	return encodeOpusFrames(resampled)
 }
 

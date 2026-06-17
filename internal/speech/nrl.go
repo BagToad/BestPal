@@ -335,9 +335,14 @@ func xlateWord(out *phonemeBuf, word []byte) {
 			spellOut(out, word)
 			return
 		}
-		var tmp phonemeBuf
-		nrl(&tmp, word)
-		out.b = append(out.b, assignStress(tmp.b, lowerWord(word))...)
+		if ph, ok := pronunciationDict[lowerWord(word)]; ok {
+			out.b = append(out.b, ph...)
+			out.put(' ') // match the trailing pause the NRL rules emit
+		} else {
+			var tmp phonemeBuf
+			nrl(&tmp, word)
+			out.b = append(out.b, assignStress(tmp.b, lowerWord(word))...)
+		}
 	} else {
 		body := word[1:]
 		if len(body) > 0 && body[len(body)-1] == ']' {

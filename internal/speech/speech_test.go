@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus"
@@ -30,13 +31,37 @@ func TestG2P(t *testing.T) {
 	}
 }
 
+func TestPronunciationDict(t *testing.T) {
+	// Words the letter-to-sound rules mispronounce; the dictionary must override
+	// them. Each value carries its own stress mark and bypasses assignStress.
+	cases := []struct {
+		text string
+		want string
+	}{
+		{"everyone", "'evriwVn"},
+		{"offline", "'OflaIn"},
+		{"rhythm", "'rID@m"},
+		{"completely", "k@mpl'itli"},
+		{"external", "Ikst'3n@l"},
+		{"before", "bIf'Or"},
+		{"are", "Ar"},
+	}
+	for _, c := range cases {
+		var p phonemeBuf
+		xlateString(c.text, &p)
+		if got := strings.TrimRight(string(p.b), " "); got != c.want {
+			t.Errorf("xlateString(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
 func TestSynthesizeProducesAudio(t *testing.T) {
 	pcm := SynthesizePCM("hello world")
 	if len(pcm) == 0 {
 		t.Fatal("expected non-empty PCM")
 	}
-	// Roughly a second of speech at 11025 Hz; just sanity-check the range.
-	if len(pcm) < 4000 || len(pcm) > 11025*5 {
+	// Roughly a second of speech at 22050 Hz; just sanity-check the range.
+	if len(pcm) < 4000 || len(pcm) > 22050*5 {
 		t.Fatalf("unexpected PCM length %d", len(pcm))
 	}
 

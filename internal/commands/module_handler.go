@@ -18,6 +18,7 @@ import (
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/status"
+	"gamerpal/internal/commands/modules/tts"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -106,6 +107,7 @@ func (h *ModuleHandler) registerModules() {
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
+		{"tts", tts.New(h.deps)},
 	}
 
 	for _, m := range modules {

@@ -18,6 +18,7 @@ import (
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/tts"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -74,7 +75,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	bot.ready.Store(false)
 
 	// Set intents - we need guild, member, message, message content, direct message, message reaction, and guild scheduled event intents
-	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildScheduledEvents
+	session.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages | discordgo.IntentMessageContent | discordgo.IntentDirectMessages | discordgo.IntentsGuildMessageReactions | discordgo.IntentsGuildScheduledEvents | discordgo.IntentsGuildVoiceStates
 
 	// Enable per-channel message caching so the 1984 module can show the
 	// "before" version of edited and deleted messages. discordgo populates
@@ -112,6 +113,13 @@ func New(cfg *config.Config) (*Bot, error) {
 	// scamguard module - perceptual-hash scam image detection.
 	if mod, ok := handler.GetModule("scamguard").(*scamguard.Module); ok {
 		session.AddHandler(mod.OnMessageCreate)
+	}
+
+	// tts module - drives the voice handshake from the main gateway's voice
+	// server / state updates (discordgo's own voice path is unusable).
+	if mod, ok := handler.GetModule("tts").(*tts.Module); ok {
+		session.AddHandler(mod.OnVoiceServerUpdate)
+		session.AddHandler(mod.OnVoiceStateUpdate)
 	}
 	session.AddHandler(func(s *discordgo.Session, c *discordgo.ChannelUpdate) {
 		events.OnChannelUpdate(s, c, cfg)

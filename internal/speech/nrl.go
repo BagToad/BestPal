@@ -499,8 +499,13 @@ func xlateString(s string, out *phonemeBuf) {
 			case '!', '?', '.':
 				i++
 				out.put('.')
-				out.put(' ') // trailing pause for a clearer sentence break
-			case '"', ':', '-', ';', ',', '(', ')':
+				out.put(' ')
+				out.put(' ') // longer stop so sentence breaks read clearly
+			case ',', ';', ':':
+				i++
+				out.put(' ')
+				out.put(' ') // clause pause, clearer than a plain word gap
+			case '"', '-', '(', ')':
 				i++
 				out.put(' ')
 			case '[':

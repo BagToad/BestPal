@@ -180,10 +180,17 @@ const ampAdj = 14
 // instead of being dulled by an 11025 Hz / 5.5 kHz ceiling.
 const klattSampleRate = 22050
 
+// baseFrameMs is the synthesizer frame length in milliseconds and doubles as the
+// master tempo control (nspFr = sampleRate*baseFrameMs/1000). Larger values
+// stretch every phoneme and pause without changing pitch or the intonation
+// contour. 10.0 is the classic Klatt frame; 11.0 slows delivery ~10% for clearer,
+// more deliberate articulation.
+const baseFrameMs = 11.0
+
 func newKlatt() *klatt {
 	return &klatt{
 		baseF0:          1330,
-		baseSpeed:       10.0,
+		baseSpeed:       baseFrameMs,
 		baseDeclination: 0.5,
 		baseWaveform:    WaveSquare,
 		seed:            5,

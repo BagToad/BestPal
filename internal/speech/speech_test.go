@@ -15,9 +15,9 @@ func TestG2P(t *testing.T) {
 		text string
 		want string
 	}{
-		{"hello", "hel'@U  "},
+		{"hello", "h@l'@U  "},
 		{"world", "w'3ld  "},
-		{"the quick brown fox", "D@  kw'Ik  br'@Un  f'0ks  "},
+		{"the quick brown fox", "D@  kw'Ik  br'aUn  f'Aks  "},
 		{"one two three", "w'Vn  t'u  Tr'i  "},
 		{"42", "f'Orti  t'u  "},
 		{"3.5", "Tr'i  p'oInt  f'aIv  "},
@@ -31,19 +31,87 @@ func TestG2P(t *testing.T) {
 	}
 }
 
-func TestPronunciationDict(t *testing.T) {
-	// Words the letter-to-sound rules mispronounce; the dictionary must override
-	// them. Each value carries its own stress mark and bypasses assignStress.
+func TestManualDict(t *testing.T) {
+	// The manual override map is the top layer: project/brand names and slang
+	// CMUdict does not list. These must resolve from dict.go, not the rules.
 	cases := []struct {
 		text string
 		want string
 	}{
-		{"everyone", "'evriwVn"},
-		{"offline", "'OflaIn"},
-		{"rhythm", "'rID@m"},
+		{"bagtoad", "b'&gt,@Ud"},
+		{"bestpal", "b'estp,&l"},
+		{"gamerpal", "g'eIm3p,&l"},
+		{"emoji", "Im'@UdZi"},
+		{"esports", "'isp,Orts"},
+		{"poggers", "p'0g3z"},
+		{"noob", "n'ub"},
+	}
+	for _, c := range cases {
+		var p phonemeBuf
+		xlateString(c.text, &p)
+		if got := strings.TrimRight(string(p.b), " "); got != c.want {
+			t.Errorf("xlateString(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
+func TestCMUDict(t *testing.T) {
+	// Words the letter-to-sound rules mispronounce; CMUdict, the comprehensive
+	// base lexicon, must resolve them correctly (with secondary stress where the
+	// dictionary marks it).
+	cases := []struct {
+		text string
+		want string
+	}{
+		{"everyone", "'evriw,Vn"},
+		{"offline", "'Ofl,aIn"},
+		{"rhythm", "r'ID@m"},
 		{"completely", "k@mpl'itli"},
 		{"external", "Ikst'3n@l"},
 		{"before", "bIf'Or"},
+		{"character", "k'erIkt3"},
+		{"computer", "k@mpj'ut3"},
+	}
+	for _, c := range cases {
+		var p phonemeBuf
+		xlateString(c.text, &p)
+		if got := strings.TrimRight(string(p.b), " "); got != c.want {
+			t.Errorf("xlateString(%q) = %q, want %q", c.text, got, c.want)
+		}
+	}
+}
+
+func TestConvertARPABET(t *testing.T) {
+	cases := []struct {
+		tokens []string
+		want   string
+	}{
+		{[]string{"HH", "AH0", "L", "OW1"}, "h@l'@U"},                         // hello, AH0 -> schwa
+		{[]string{"K", "AH0", "M", "P", "Y", "UW1", "T", "ER0"}, "k@mpj'ut3"}, // computer
+		{[]string{"AO1", "F", "L", "AY2", "N"}, "'Ofl,aIn"},                   // offline, secondary stress
+		{[]string{"W", "AH1", "N"}, "w'Vn"},                                   // one, stressed AH -> wedge
+	}
+	for _, c := range cases {
+		got, ok := convertARPABET(c.tokens)
+		if !ok {
+			t.Errorf("convertARPABET(%v) returned ok=false", c.tokens)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("convertARPABET(%v) = %q, want %q", c.tokens, got, c.want)
+		}
+	}
+}
+
+func TestFunctionWordReduction(t *testing.T) {
+	// Function words must lose their stress marks so the sentence keeps its
+	// rhythm, even though CMUdict lists them stressed.
+	cases := []struct {
+		text string
+		want string
+	}{
+		{"to", "tu"},
+		{"with", "wID"},
 		{"are", "Ar"},
 	}
 	for _, c := range cases {

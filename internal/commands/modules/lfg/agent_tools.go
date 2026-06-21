@@ -31,12 +31,23 @@ type searchResult struct {
 	Note    string       `json:"note,omitempty"`
 }
 
+type gameThreadResult struct {
+	GameName string      `json:"game_name"`
+	Thread   *threadInfo `json:"thread,omitempty"`
+}
+
+type batchSearchResult struct {
+	Games        []gameThreadResult `json:"games"`
+	MissingGames []string           `json:"missing_games"`
+	Note         string             `json:"note,omitempty"`
+}
+
 // AgentTools satisfies the duck-typed agentToolProvider in the commands package.
 func (m *Module) AgentTools() []copilot.Tool {
 	if m == nil || m.session == nil {
 		return nil
 	}
-	return []copilot.Tool{m.newLFGSearchTool(), m.newLFGFindOrCreateTool()}
+	return []copilot.Tool{m.newLFGSearchTool(), m.newLFGFindOrCreateTool(), m.newLFGBatchSearchTool()}
 }
 
 type lfgSearchParams struct {
@@ -115,6 +126,54 @@ func (m *Module) newLFGFindOrCreateTool() copilot.Tool {
 			default:
 				return &findOrCreateResult{Status: "no_matches"}, nil
 			}
+		},
+	)
+	t.SkipPermission = true
+	return t
+}
+
+type lfgBatchSearchParams struct {
+	GameNames []string `json:"game_names" jsonschema:"list of game names to search for in the LFG forum"`
+}
+
+func (m *Module) newLFGBatchSearchTool() copilot.Tool {
+	t := copilot.DefineTool(
+		"lfg_batch_search",
+		"Search the GamerPals LFG forum for existing game threads by multiple game names. Returns found threads grouped by game name, and a list of games that weren't found. Use this to look up threads for multiple games from an introduction post.",
+		func(p lfgBatchSearchParams, _ copilot.ToolInvocation) (*batchSearchResult, error) {
+			forumID := m.config.GetGamerPalsLFGForumChannelID()
+			if forumID == "" {
+				return &batchSearchResult{Note: "lfg forum not configured"}, nil
+			}
+
+			if len(p.GameNames) == 0 {
+				return &batchSearchResult{Note: "no games to search"}, nil
+			}
+
+			result := &batchSearchResult{
+				Games:        make([]gameThreadResult, 0),
+				MissingGames: make([]string, 0),
+			}
+
+			for _, gameName := range p.GameNames {
+				if gameName == "" {
+					continue
+				}
+				// Search for the game with a limit of 1 (we just want the first/best match)
+				hits := m.searchForumThreads(forumID, gameName, 1)
+				if len(hits) > 0 && hits[0] != nil {
+					// Found a thread for this game
+					result.Games = append(result.Games, gameThreadResult{
+						GameName: gameName,
+						Thread:   channelToThreadInfo(hits[0], false),
+					})
+				} else {
+					// No thread found for this game
+					result.MissingGames = append(result.MissingGames, gameName)
+				}
+			}
+
+			return result, nil
 		},
 	)
 	t.SkipPermission = true

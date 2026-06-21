@@ -196,6 +196,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
+	case strings.HasPrefix(cid, "intro_lookup_games::"):
+		if introMod, ok := h.GetModule("intro").(*intro.Module); ok {
+			introMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Intro lookup games interaction received but intro module not available")
+		}
 	default:
 		// LFG module handles all other component interactions
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {

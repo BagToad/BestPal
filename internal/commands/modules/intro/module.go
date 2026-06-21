@@ -445,6 +445,24 @@ func chooseEphemeralFlag(ephemeral bool) discordgo.MessageFlags {
 	return 0
 }
 
+// HandleComponent handles component interactions (buttons) for the intro module
+func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	cid := i.MessageComponentData().CustomID
+	if cid != "intro:lookup-games" {
+		return
+	}
+
+	// Handle lookup-games button
+	// For now, respond with a placeholder since game-thread lookup logic is deferred
+	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "🎮 Game thread lookup coming soon! For now, use `/lfg` to create or search for game threads.",
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
 // Service returns the feed service for session hydration and future scheduling
 func (m *Module) Service() types.ModuleService {
 	return m.feedService

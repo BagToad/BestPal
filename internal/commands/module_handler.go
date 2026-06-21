@@ -196,7 +196,7 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
-	case strings.HasPrefix(cid, "intro_lookup_games::"):
+	case strings.HasPrefix(cid, "intro:lookup-games"):
 		if introMod, ok := h.GetModule("intro").(*intro.Module); ok {
 			introMod.HandleComponent(s, i)
 		} else {

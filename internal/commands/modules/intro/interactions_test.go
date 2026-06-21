@@ -23,11 +23,12 @@ type hookCaptureInteraction struct {
 func buildComponentInteraction(guildID, threadID, userID string) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{
 		Interaction: &discordgo.Interaction{
-			Type:    discordgo.InteractionMessageComponent,
-			GuildID: guildID,
-			Member:  &discordgo.Member{User: &discordgo.User{ID: userID, Username: "user"}},
+			Type:      discordgo.InteractionMessageComponent,
+			GuildID:   guildID,
+			ChannelID: threadID,
+			Member:    &discordgo.Member{User: &discordgo.User{ID: userID, Username: "user"}},
 			Data: discordgo.MessageComponentInteractionData{
-				CustomID: "intro_lookup_games::" + threadID + "::" + userID,
+				CustomID: "intro:lookup-games",
 			},
 		},
 	}
@@ -77,7 +78,7 @@ func TestHandleComponentValidButtonClick(t *testing.T) {
 	assert.Contains(t, cap.lastEdit, "Looking up game threads")
 }
 
-func TestHandleComponentInvalidCustomID(t *testing.T) {
+func TestHandleComponentMissingThreadID(t *testing.T) {
 	cfg, fc := forumcache.NewTestForumCache(map[string]any{})
 	deps := &types.Dependencies{Config: cfg, ForumCache: fc}
 	m := New(deps)
@@ -88,9 +89,10 @@ func TestHandleComponentInvalidCustomID(t *testing.T) {
 			Interaction: &discordgo.Interaction{
 				Type:    discordgo.InteractionMessageComponent,
 				GuildID: "guild1",
-				Member:  &discordgo.Member{User: &discordgo.User{ID: "user1"}},
+				// ChannelID is empty - should cause error
+				Member: &discordgo.Member{User: &discordgo.User{ID: "user1"}},
 				Data: discordgo.MessageComponentInteractionData{
-					CustomID: "intro_lookup_games::onlythread", // Invalid format
+					CustomID: "intro:lookup-games",
 				},
 			},
 		}
@@ -99,7 +101,7 @@ func TestHandleComponentInvalidCustomID(t *testing.T) {
 
 	// Should respond with error
 	require.Equal(t, 1, cap.responds)
-	assert.Contains(t, cap.lastEdit, "Invalid button data")
+	assert.Contains(t, cap.lastEdit, "Could not determine thread ID")
 }
 
 func TestHandleComponentNilData(t *testing.T) {

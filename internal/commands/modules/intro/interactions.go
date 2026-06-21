@@ -14,28 +14,44 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	cid := i.MessageComponentData().CustomID
-	if strings.HasPrefix(cid, "intro_lookup_games::") {
+	if strings.HasPrefix(cid, "intro:lookup-games") {
 		m.handleLookupGamesComponent(s, i)
 	}
 }
 
 // handleLookupGamesComponent handles the "Lookup Game Threads" button click
 func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	cid := i.MessageComponentData().CustomID
-	parts := strings.SplitN(cid, "::", 3)
-	if len(parts) != 3 {
+	// Extract context from interaction metadata (not custom ID)
+	threadID := i.ChannelID
+	if threadID == "" {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Invalid button data",
+				Content: "❌ Could not determine thread ID",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 
-	threadID := parts[1]
-	userID := parts[2]
+	// Determine user ID: prefer Member context, fall back to User
+	userID := ""
+	if i.Member != nil && i.Member.User != nil {
+		userID = i.Member.User.ID
+	} else if i.User != nil {
+		userID = i.User.ID
+	}
+
+	if userID == "" {
+		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Could not determine user ID",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
 
 	// Defer the response while we prepare to send to the agent
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

@@ -2,6 +2,7 @@ package agentengine
 
 import (
 	"context"
+	"encoding/json"
 	_ "embed"
 	"fmt"
 	"slices"
@@ -27,6 +28,21 @@ const (
 	defaultSessionTimeout = 60 * time.Second
 	maxDiscordReplyLen    = 1900
 )
+
+const componentJSONSystemPrompt = `You are serving an internal bot component request.
+Return ONLY a valid JSON object and no extra text.
+Do not wrap JSON in markdown code fences.
+Schema:
+{
+  "games": [{"game_name":"string","thread":{"name":"string","url":"string"}}],
+  "missing_games": ["string"],
+  "note": "string"
+}
+Rules:
+- Always return a JSON object at the top level.
+- "games" and "missing_games" must always be present (empty arrays when none).
+- Include "note" only when missing games exist; otherwise omit or use empty string.
+- Never include prose outside JSON.`
 
 // Agent is the role-gated LLM tool-calling surface. One Agent per process,
 // one Copilot SDK session per @mention. Standalone: tools are registered via
@@ -179,10 +195,48 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	return true
 }
 
+// HandleComponent runs the agent for an internal component request and returns
+// a normalized top-level JSON object string.
+func (a *Agent) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate, prompt string) (string, error) {
+	a.clientMu.Lock()
+	client := a.client
+	a.clientMu.Unlock()
+	if client == nil {
+		return "", fmt.Errorf("agent client not started")
+	}
+	if s == nil || i == nil || i.Interaction == nil {
+		return "", fmt.Errorf("missing interaction context")
+	}
+
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return "", fmt.Errorf("empty prompt")
+	}
+
+	caller := callerFromInteraction(i, a.cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
+	defer cancel()
+
+	reply, err := a.runWithExtraSystemPrompt(ctx, client, prompt, caller, componentJSONSystemPrompt)
+	if err != nil {
+		return "", err
+	}
+	return normalizeJSONObjectReply(reply)
+}
+
 func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller) (string, error) {
+	return a.runWithExtraSystemPrompt(ctx, client, prompt, caller, "")
+}
+
+func (a *Agent) runWithExtraSystemPrompt(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller, extraSystemPrompt string) (string, error) {
 	a.toolsMu.Lock()
 	tools := append([]copilot.Tool(nil), a.tools...)
 	a.toolsMu.Unlock()
+
+	fullSystemPrompt := assembleSystemPrompt(systemPrompt, a.brain.Guidance())
+	if strings.TrimSpace(extraSystemPrompt) != "" {
+		fullSystemPrompt = strings.TrimSpace(fullSystemPrompt + "\n\n" + strings.TrimSpace(extraSystemPrompt))
+	}
 
 	sessionCfg := &copilot.SessionConfig{
 		ClientName: "bestpal-agent",
@@ -190,7 +244,7 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		Tools:      tools,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode:    "append",
-			Content: assembleSystemPrompt(systemPrompt, a.brain.Guidance()),
+			Content: fullSystemPrompt,
 		},
 		// Defense in depth: SkipPermission=true on tools + AvailableTools
 		// allowlist below should mean we never reach this handler, but if
@@ -227,6 +281,63 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		return "", fmt.Errorf("unexpected event data type %T", event.Data)
 	}
 	return strings.TrimSpace(data.Content), nil
+}
+
+func callerFromInteraction(i *discordgo.InteractionCreate, cfg *config.Config) agentctx.Caller {
+	caller := agentctx.Caller{
+		GuildID:   i.GuildID,
+		ChannelID: i.ChannelID,
+	}
+	if i.Member != nil && i.Member.User != nil {
+		caller.UserID = i.Member.User.ID
+		caller.IsAdmin = utils.IsSuperAdmin(caller.UserID, cfg)
+		return caller
+	}
+	if i.User != nil {
+		caller.UserID = i.User.ID
+		caller.IsAdmin = utils.IsSuperAdmin(caller.UserID, cfg)
+	}
+	return caller
+}
+
+func normalizeJSONObjectReply(reply string) (string, error) {
+	trimmed := strings.TrimSpace(reply)
+	trimmed = stripReplyCodeFence(trimmed)
+	trimmed = strings.TrimSpace(trimmed)
+
+	if !strings.HasPrefix(trimmed, "{") {
+		return "", fmt.Errorf("agent reply must be a top-level JSON object")
+	}
+	if !json.Valid([]byte(trimmed)) {
+		return "", fmt.Errorf("agent reply is not valid JSON")
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &obj); err != nil {
+		return "", fmt.Errorf("agent reply must decode as JSON object: %w", err)
+	}
+
+	normalized, err := json.Marshal(obj)
+	if err != nil {
+		return "", fmt.Errorf("failed to normalize JSON reply: %w", err)
+	}
+	return string(normalized), nil
+}
+
+func stripReplyCodeFence(s string) string {
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) < 3 {
+		return s
+	}
+	if strings.TrimSpace(lines[0]) == "```" || strings.HasPrefix(strings.TrimSpace(lines[0]), "```json") {
+		if strings.TrimSpace(lines[len(lines)-1]) == "```" {
+			return strings.Join(lines[1:len(lines)-1], "\n")
+		}
+	}
+	return s
 }
 
 // stripMention removes <@id> and <@!id> tokens for botID and trims

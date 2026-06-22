@@ -2,6 +2,9 @@ package lfg
 
 import (
 	"fmt"
+	"strings"
+
+	"gamerpal/internal/agentctx"
 
 	"github.com/bwmarrin/discordgo"
 	copilot "github.com/github/copilot-sdk/go"
@@ -47,7 +50,11 @@ func (m *Module) AgentTools() []copilot.Tool {
 	if m == nil || m.session == nil {
 		return nil
 	}
-	return []copilot.Tool{m.newLFGSearchTool(), m.newLFGFindOrCreateTool(), m.newLFGBatchSearchTool()}
+	return []copilot.Tool{
+		m.newLFGSearchTool(),
+		m.newLFGBatchSearchTool(),
+		m.newLFGFindOrCreateTool(),
+	}
 }
 
 type lfgSearchParams struct {
@@ -77,6 +84,22 @@ func (m *Module) newLFGSearchTool() copilot.Tool {
 				out.Threads = append(out.Threads, *channelToThreadInfo(ch, false))
 			}
 			return out, nil
+		},
+	)
+	t.SkipPermission = true
+	return t
+}
+
+type lfgBatchSearchParams struct {
+	GameNames []string `json:"game_names" jsonschema:"list of game names to search for in the LFG forum"`
+}
+
+func (m *Module) newLFGBatchSearchTool() copilot.Tool {
+	t := copilot.DefineTool(
+		"lfg_batch_search",
+		"Search the GamerPals LFG forum for multiple game names and return found thread links plus missing games.",
+		func(p lfgBatchSearchParams, inv copilot.ToolInvocation) (*batchSearchResult, error) {
+			return m.batchSearchGameThreads(p.GameNames, inv.SessionID), nil
 		},
 	)
 	t.SkipPermission = true
@@ -132,54 +155,6 @@ func (m *Module) newLFGFindOrCreateTool() copilot.Tool {
 	return t
 }
 
-type lfgBatchSearchParams struct {
-	GameNames []string `json:"game_names" jsonschema:"list of game names to search for in the LFG forum"`
-}
-
-func (m *Module) newLFGBatchSearchTool() copilot.Tool {
-	t := copilot.DefineTool(
-		"lfg_batch_search",
-		"Search the GamerPals LFG forum for existing game threads by multiple game names. Returns found threads grouped by game name, and a list of games that weren't found. Use this to look up threads for multiple games from an introduction post.",
-		func(p lfgBatchSearchParams, _ copilot.ToolInvocation) (*batchSearchResult, error) {
-			forumID := m.config.GetGamerPalsLFGForumChannelID()
-			if forumID == "" {
-				return &batchSearchResult{Note: "lfg forum not configured"}, nil
-			}
-
-			if len(p.GameNames) == 0 {
-				return &batchSearchResult{Note: "no games to search"}, nil
-			}
-
-			result := &batchSearchResult{
-				Games:        make([]gameThreadResult, 0),
-				MissingGames: make([]string, 0),
-			}
-
-			for _, gameName := range p.GameNames {
-				if gameName == "" {
-					continue
-				}
-				// Search for the game with a limit of 1 (we just want the first/best match)
-				hits := m.searchForumThreads(forumID, gameName, 1)
-				if len(hits) > 0 && hits[0] != nil {
-					// Found a thread for this game
-					result.Games = append(result.Games, gameThreadResult{
-						GameName: gameName,
-						Thread:   channelToThreadInfo(hits[0], false),
-					})
-				} else {
-					// No thread found for this game
-					result.MissingGames = append(result.MissingGames, gameName)
-				}
-			}
-
-			return result, nil
-		},
-	)
-	t.SkipPermission = true
-	return t
-}
-
 func channelToThreadInfo(ch *discordgo.Channel, created bool) *threadInfo {
 	if ch == nil {
 		return nil
@@ -189,4 +164,66 @@ func channelToThreadInfo(ch *discordgo.Channel, created bool) *threadInfo {
 		URL:     threadLink(ch),
 		Created: created,
 	}
+}
+
+func (m *Module) batchSearchGameThreads(gameNames []string, sessionID string) *batchSearchResult {
+	out := &batchSearchResult{
+		Games:        make([]gameThreadResult, 0, len(gameNames)),
+		MissingGames: make([]string, 0, len(gameNames)),
+	}
+
+	forumID := m.config.GetGamerPalsLFGForumChannelID()
+	if forumID == "" {
+		out.Note = "lfg forum not configured"
+		return out
+	}
+
+	for _, rawName := range gameNames {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+
+		hits := m.searchForumThreads(forumID, name, 1)
+		if len(hits) == 0 {
+			out.MissingGames = append(out.MissingGames, name)
+			continue
+		}
+		out.Games = append(out.Games, gameThreadResult{
+			GameName: name,
+			Thread:   channelToThreadInfo(hits[0], false),
+		})
+	}
+
+	if len(out.MissingGames) > 0 {
+		out.Note = m.missingThreadNoteForSession(sessionID)
+	}
+	return out
+}
+
+func (m *Module) missingThreadNoteForSession(sessionID string) string {
+	const fallback = "ℹ️ Missing a thread? Create one in #create-a-thread."
+
+	if m.session == nil || m.session.State == nil {
+		return fallback
+	}
+	caller, ok := agentctx.CallerForSession(sessionID)
+	if !ok || caller.GuildID == "" {
+		return fallback
+	}
+
+	guild, err := m.session.State.Guild(caller.GuildID)
+	if err != nil || guild == nil {
+		return fallback
+	}
+
+	for _, ch := range guild.Channels {
+		if ch == nil {
+			continue
+		}
+		if strings.EqualFold(ch.Name, "create-a-thread") {
+			return fmt.Sprintf("ℹ️ Missing a thread? Create one in <#%s>.", ch.ID)
+		}
+	}
+	return fallback
 }

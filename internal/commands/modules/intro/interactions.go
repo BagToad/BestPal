@@ -1,94 +1,136 @@
 package intro
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-// HandleComponent routes component interactions for the intro module
+const lookupGameThreadsCustomID = "intro:lookup-games"
+
+type lookupGameThreadsAgentResult struct {
+	Games []lookupGameThreadResult `json:"games"`
+
+	MissingGames []string `json:"missing_games"`
+	Note         string   `json:"note,omitempty"`
+}
+
+type lookupGameThreadResult struct {
+	GameName string `json:"game_name"`
+	Thread   struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"thread"`
+}
+
+// HandleComponent routes component interactions for the intro module.
 func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if i == nil || i.MessageComponentData() == nil {
 		return
 	}
 
 	cid := i.MessageComponentData().CustomID
-	if strings.HasPrefix(cid, "intro:lookup-games") {
+	if strings.HasPrefix(cid, lookupGameThreadsCustomID) {
 		m.handleLookupGamesComponent(s, i)
 	}
 }
 
-// handleLookupGamesComponent handles the "Lookup Game Threads" button click
 func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Extract context from interaction metadata (not custom ID)
-	threadID := i.ChannelID
-	if threadID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Could not determine thread ID",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		return
-	}
-
-	// Determine user ID: prefer Member context, fall back to User
 	userID := ""
 	if i.Member != nil && i.Member.User != nil {
 		userID = i.Member.User.ID
 	} else if i.User != nil {
 		userID = i.User.ID
 	}
-
 	if userID == "" {
-		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Could not determine user ID",
+				Content: "❌ Could not determine user identity for this lookup.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+	if i.ChannelID == "" {
+		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ Could not determine the intro thread channel.",
 				Flags:   discordgo.MessageFlagsEphemeral,
 			},
 		})
 		return
 	}
 
-	// Defer the response while we prepare to send to the agent
-	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Flags: 0, // Not ephemeral; will post to the thread
+			Flags: 0,
 		},
 	})
 
-	// Dispatch to agent
-	m.handleLookupGameThreads(s, i, threadID, userID, i.GuildID)
-}
-
-// handleLookupGameThreads triggers the agent to find game threads for the intro user
-func (m *Module) handleLookupGameThreads(s *discordgo.Session, i *discordgo.InteractionCreate, threadID, userID, guildID string) {
-	if m.config == nil {
+	if m.config == nil || m.config.Agent == nil {
+		msg := "❌ Lookup agent is unavailable."
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
 		return
 	}
 
-	// Log the button click
-	userMention := "Member"
-	if i.Member != nil && i.Member.User != nil {
-		userMention = i.Member.User.Mention()
+	prompt := fmt.Sprintf("Find the game threads for the games <@%s> plays.", userID)
+	jsonReply, err := m.config.Agent.HandleComponent(s, i, prompt)
+	if err != nil {
+		msg := "❌ Failed to look up game threads right now. Please try again."
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		return
 	}
 
-	logMsg := fmt.Sprintf("%s clicked 'Lookup Game Threads' for intro thread by <@%s>", userMention, userID)
-	if err := introLog(m.config, s, logMsg); err != nil {
-		m.config.Config.Logger.Warnf("failed to log lookup game threads action: %v", err)
+	var result lookupGameThreadsAgentResult
+	if err := json.Unmarshal([]byte(jsonReply), &result); err != nil {
+		msg := "❌ The lookup response was not valid JSON."
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		return
 	}
 
-	// TODO: In a real implementation, this would trigger the Copilot agent
-	// with a message like: "Find the game threads for the games <@{userID}> plays and post the results to thread <#{threadID}>"
-	// For now, we respond with a message
-	threadMention := fmt.Sprintf("<#%s>", threadID)
-	responseMsg := fmt.Sprintf("🎮 Looking up game threads for <@%s>...\n\nAgent would search for games in the intro post and post results to %s", userID, threadMention)
+	markdown := buildLookupGameThreadsMarkdown(result)
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &markdown})
+}
 
-	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-		Content: &responseMsg,
-	})
+func buildLookupGameThreadsMarkdown(result lookupGameThreadsAgentResult) string {
+	var b strings.Builder
+	b.WriteString("**Game Threads:**")
+
+	if len(result.Games) == 0 {
+		b.WriteString("\n- No matching game threads found.")
+	} else {
+		for _, g := range result.Games {
+			name := strings.TrimSpace(g.GameName)
+			url := strings.TrimSpace(g.Thread.URL)
+			threadName := strings.TrimSpace(g.Thread.Name)
+			if name == "" {
+				name = "Unknown game"
+			}
+			if url == "" {
+				b.WriteString(fmt.Sprintf("\n- **%s**", name))
+				continue
+			}
+			if threadName == "" {
+				b.WriteString(fmt.Sprintf("\n- **%s**: %s", name, url))
+				continue
+			}
+			b.WriteString(fmt.Sprintf("\n- **%s**: [%s](%s)", name, threadName, url))
+		}
+	}
+
+	if len(result.MissingGames) > 0 {
+		note := strings.TrimSpace(result.Note)
+		if note == "" {
+			note = "ℹ️ Missing a thread? Create one in #create-a-thread."
+		}
+		b.WriteString("\n\n")
+		b.WriteString(note)
+	}
+
+	return b.String()
 }

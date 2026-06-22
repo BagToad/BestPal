@@ -24,6 +24,23 @@ var systemPromptRaw string
 
 var systemPrompt = strings.TrimSpace(systemPromptRaw)
 
+//go:embed prompts/internal_request_mode.md
+var internalRequestModePromptRaw string
+
+var internalRequestModePrompt = strings.TrimSpace(internalRequestModePromptRaw)
+
+func composeStaticSystemPrompt(base, internalMode string) string {
+	base = strings.TrimSpace(base)
+	internalMode = strings.TrimSpace(internalMode)
+	if base == "" {
+		return internalMode
+	}
+	if internalMode == "" {
+		return base
+	}
+	return base + "\n\n" + internalMode
+}
+
 const (
 	defaultSessionTimeout = 60 * time.Second
 	maxDiscordReplyLen    = 1900
@@ -233,7 +250,8 @@ func (a *Agent) runWithExtraSystemPrompt(ctx context.Context, client *copilot.Cl
 	tools := append([]copilot.Tool(nil), a.tools...)
 	a.toolsMu.Unlock()
 
-	fullSystemPrompt := assembleSystemPrompt(systemPrompt, a.brain.Guidance())
+	baseSystemPrompt := composeStaticSystemPrompt(systemPrompt, internalRequestModePrompt)
+	fullSystemPrompt := assembleSystemPrompt(baseSystemPrompt, a.brain.Guidance())
 	if strings.TrimSpace(extraSystemPrompt) != "" {
 		fullSystemPrompt = strings.TrimSpace(fullSystemPrompt + "\n\n" + strings.TrimSpace(extraSystemPrompt))
 	}

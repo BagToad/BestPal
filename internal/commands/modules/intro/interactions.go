@@ -23,7 +23,7 @@ type lookupGameThreadResult struct {
 
 // HandleComponent routes component interactions for the intro module.
 func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if i == nil || i.MessageComponentData() == nil {
+	if i == nil {
 		return
 	}
 

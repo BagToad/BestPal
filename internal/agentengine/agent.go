@@ -29,18 +29,6 @@ var internalRequestModePromptRaw string
 
 var internalRequestModePrompt = strings.TrimSpace(internalRequestModePromptRaw)
 
-func composeStaticSystemPrompt(base, internalMode string) string {
-	base = strings.TrimSpace(base)
-	internalMode = strings.TrimSpace(internalMode)
-	if base == "" {
-		return internalMode
-	}
-	if internalMode == "" {
-		return base
-	}
-	return base + "\n\n" + internalMode
-}
-
 const (
 	defaultSessionTimeout = 60 * time.Second
 	maxDiscordReplyLen    = 1900

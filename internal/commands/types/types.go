@@ -58,7 +58,7 @@ type CommandModule interface {
 // ComponentAgent defines the agent entrypoint used by component handlers that
 // need machine-readable results for deterministic UI responses.
 type ComponentAgent interface {
-	HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate, prompt string) (string, error)
+	HandleInternal(s *discordgo.Session, prompt string) string
 }
 
 // Dependencies contains shared dependencies that command modules may need

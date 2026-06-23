@@ -1,7 +1,6 @@
 package intro
 
 import (
-	"errors"
 	"testing"
 
 	"gamerpal/internal/commands/types"
@@ -14,20 +13,12 @@ import (
 
 type mockComponentAgent struct {
 	reply      string
-	err        error
 	gotPrompt  string
-	gotChannel string
 }
 
-func (m *mockComponentAgent) HandleComponent(_ *discordgo.Session, i *discordgo.InteractionCreate, prompt string) (string, error) {
+func (m *mockComponentAgent) HandleInternal(_ *discordgo.Session, prompt string) string {
 	m.gotPrompt = prompt
-	if i != nil {
-		m.gotChannel = i.ChannelID
-	}
-	if m.err != nil {
-		return "", m.err
-	}
-	return m.reply, nil
+	return m.reply
 }
 
 type componentHookCapture struct {
@@ -87,7 +78,7 @@ func newIntroModuleForComponents(t *testing.T, agent types.ComponentAgent) *Modu
 
 func TestHandleLookupGamesComponentBuildsDeterministicMarkdown(t *testing.T) {
 	agent := &mockComponentAgent{
-		reply: `{"games":[{"game_name":"Destiny 2","thread":{"name":"destiny-2","url":"https://discord.com/channels/guild/100"}}],"missing_games":["Warframe"],"note":"ℹ️ Missing a thread? Create one in <#create-thread-id>."}`,
+		reply: `{"game-threads":[{"name":"Destiny 2","url":"https://discord.com/channels/guild/100","status":"found"},{"name":"Warframe","url":"","status":"not found"}],"note":"ℹ️ Missing a thread? Create one in <#create-thread-id>."}`,
 	}
 	m := newIntroModuleForComponents(t, agent)
 	cap := &componentHookCapture{}
@@ -100,9 +91,9 @@ func TestHandleLookupGamesComponentBuildsDeterministicMarkdown(t *testing.T) {
 	require.Equal(t, 1, cap.responds)
 	require.Equal(t, 1, cap.edits)
 	assert.Equal(t, "Find the game threads for the games <@user42> plays.", agent.gotPrompt)
-	assert.Equal(t, "thread1", agent.gotChannel)
 	assert.Contains(t, cap.lastEdit, "**Game Threads:**")
-	assert.Contains(t, cap.lastEdit, "- **Destiny 2**: [destiny-2](https://discord.com/channels/guild/100)")
+	assert.Contains(t, cap.lastEdit, "- **Destiny 2**: https://discord.com/channels/guild/100")
+	assert.Contains(t, cap.lastEdit, "- **Warframe**: _not found_")
 	assert.Contains(t, cap.lastEdit, "Create one in <#create-thread-id>.")
 }
 
@@ -142,8 +133,8 @@ func TestHandleLookupGamesComponentHandlesInvalidJSON(t *testing.T) {
 	assert.Contains(t, cap.lastEdit, "not valid JSON")
 }
 
-func TestHandleLookupGamesComponentHandlesAgentError(t *testing.T) {
-	m := newIntroModuleForComponents(t, &mockComponentAgent{err: errors.New("boom")})
+func TestHandleLookupGamesComponentHandlesEmptyAgentResponse(t *testing.T) {
+	m := newIntroModuleForComponents(t, &mockComponentAgent{reply: " "})
 	cap := &componentHookCapture{}
 
 	withComponentHooks(t, cap, func() {

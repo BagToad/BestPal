@@ -34,7 +34,6 @@ const (
 	maxDiscordReplyLen    = 1900
 	modeBase              = "base"
 	modeInternal          = "internal"
-	internalRequestMarker = "[[BESTPAL_INTERNAL_REQUEST]]"
 )
 
 // Agent is the role-gated LLM tool-calling surface. One Agent per process,
@@ -169,7 +168,7 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 		}
 	}()
 
-	reply, err := a.run(ctx, client, prompt, caller, systemPrompt, modeBase)
+	reply, err := a.run(ctx, client, prompt, caller, modeBase)
 	close(typingDone)
 
 	if err != nil {
@@ -203,9 +202,6 @@ func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
 	if prompt == "" {
 		return ""
 	}
-	if !strings.HasPrefix(prompt, internalRequestMarker) {
-		prompt = internalRequestMarker + " " + prompt
-	}
 
 	caller := agentctx.Caller{
 		UserID:  firstMentionUserID(prompt),
@@ -215,7 +211,7 @@ func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
 	defer cancel()
 
-	reply, err := a.run(ctx, client, prompt, caller, internalRequestModePrompt, modeInternal)
+	reply, err := a.run(ctx, client, prompt, caller, modeInternal)
 	if err != nil {
 		a.cfg.Logger.Warnf("agent: internal run failed: %v", err)
 		return ""
@@ -223,17 +219,16 @@ func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
 	return strings.TrimSpace(reply)
 }
 
-func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller, staticSystemPrompt, mode string) (string, error) {
+func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller, mode string) (string, error) {
 	a.toolsMu.Lock()
 	tools := append([]copilot.Tool(nil), a.tools...)
 	a.toolsMu.Unlock()
 
-	staticSystemPrompt = strings.TrimSpace(staticSystemPrompt)
-	var fullSystemPrompt string
+	var finalSystemPrompt string
 	if mode == modeInternal {
-		fullSystemPrompt = staticSystemPrompt
+		finalSystemPrompt = internalRequestModePrompt
 	} else {
-		fullSystemPrompt = assembleSystemPrompt(staticSystemPrompt, a.brain.Guidance())
+		finalSystemPrompt = assembleSystemPrompt(systemPrompt, a.brain.Guidance())
 	}
 
 	sessionCfg := &copilot.SessionConfig{
@@ -242,7 +237,7 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		Tools:      tools,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode:    "append",
-			Content: fullSystemPrompt,
+			Content: finalSystemPrompt,
 		},
 		// Defense in depth: SkipPermission=true on tools + AvailableTools
 		// allowlist below should mean we never reach this handler, but if

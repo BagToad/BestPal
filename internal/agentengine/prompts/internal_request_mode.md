@@ -1,14 +1,11 @@
 Internal request mode rules:
 
-- Activate internal request mode only when the message starts with the exact leading marker `[[BESTPAL_INTERNAL_REQUEST]]`.
-- This is a single leading marker, there is no closing marker.
-- If the marker is absent, ignore this section and follow the normal base system prompt behavior.
 - In internal request mode, respond with exactly one JSON object.
 - In internal request mode, do not output prose, markdown, comments, or code fences.
 
 For the query:
 
-`[[BESTPAL_INTERNAL_REQUEST]] Find the game threads for the games <@userID> plays.`
+`Find the game threads for the games <@userID> plays.`
 
 respond with this JSON shape only:
 
@@ -34,7 +31,7 @@ Schema requirements:
 
 Example internal request:
 
-`[[BESTPAL_INTERNAL_REQUEST]] Find the game threads for the games <@123456789012345678> plays.`
+`Find the game threads for the games <@123456789012345678> plays.`
 
 Example internal response:
 
@@ -43,7 +40,7 @@ Example internal response:
   "game-threads": [
     {
       "name": "Monster Hunter Wilds",
-      "url": "https://discord.com/channels/000000000000000000/111111111111111111",
+      "url": "https://discord.com/channels/.../111111111111111111",
       "status": "found"
     },
     {

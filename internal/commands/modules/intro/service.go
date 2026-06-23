@@ -200,71 +200,6 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	return msg.ID, nil
 }
 
-// PostAutoMessageToThread posts a welcome/info message inside a newly created intro thread.
-// It includes feed channel link, command help, and a button to lookup game threads.
-func (s *IntroFeedService) PostAutoMessageToThread(guildID, threadID string) error {
-	if s.deps.Session == nil {
-		return fmt.Errorf("discord session not available")
-	}
-
-	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
-	if feedChannelID == "" {
-		return fmt.Errorf("intro feed channel not configured")
-	}
-
-	// Build the feed channel link/mention
-	feedChannelMention := fmt.Sprintf("<#%s>", feedChannelID)
-
-	// Create the auto-post embed
-	embed := &discordgo.MessageEmbed{
-		Title:       "📋 Introduction Info",
-		Description: "Here's some helpful info about introductions and next steps!",
-		Color:       utils.Colors.Fancy(),
-		Fields: []*discordgo.MessageEmbedField{
-			{
-				Name:   "📢 Your intro was announced in",
-				Value:  feedChannelMention,
-				Inline: false,
-			},
-			{
-				Name:   "📖 Get more info with",
-				Value:  "`/intro` - Look up a user's latest introduction",
-				Inline: false,
-			},
-			{
-				Name:   "🔄 Repost your intro with",
-				Value:  "`/bump-intro` - Post your introduction to the feed channel",
-				Inline: false,
-			},
-		},
-		Footer: &discordgo.MessageEmbedFooter{
-			Text: "Use the button below to explore game threads!",
-		},
-	}
-
-	// Create action row with button
-	button := &discordgo.Button{
-		Label:    "🎮 Lookup Game Threads",
-		Style:    discordgo.PrimaryButton,
-		CustomID: "intro:lookup-games",
-	}
-
-	actionRow := &discordgo.ActionsRow{
-		Components: []discordgo.MessageComponent{button},
-	}
-
-	// Send message with embed and button
-	_, err := s.deps.Session.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{
-		Embeds: []*discordgo.MessageEmbed{embed},
-		Components: []discordgo.MessageComponent{actionRow},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to send auto-message to intro thread: %w", err)
-	}
-
-	return nil
-}
-
 // HandleNewIntroThread is called when a new thread is created in the intro forum.
 // It checks eligibility and forwards to the feed if appropriate.
 // Silently skips if user is on cooldown (for automatic forwarding).
@@ -320,12 +255,6 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
-
-	// Post auto-message in the intro thread
-	if err := s.PostAutoMessageToThread(thread.GuildID, thread.ID); err != nil {
-		s.deps.Config.Logger.Warnf("Failed to post auto-message to intro thread %s: %v", thread.ID, err)
-		// Don't fail the overall function; feed post was successful
-	}
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.

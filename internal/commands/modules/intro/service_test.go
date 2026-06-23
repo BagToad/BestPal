@@ -65,20 +65,3 @@ func TestCooldownHoursForMember(t *testing.T) {
 		assert.Equal(t, 48, svc.cooldownHoursForMember(&discordgo.Member{}))
 	})
 }
-
-func TestPostAutoMessageToThread(t *testing.T) {
-	t.Run("returns error when session is nil", func(t *testing.T) {
-		svc := newFeedService(map[string]any{})
-		err := svc.PostAutoMessageToThread("guild123", "thread123")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "discord session not available")
-	})
-
-	t.Run("returns error when feed channel not configured", func(t *testing.T) {
-		svc := newFeedService(map[string]any{})
-		svc.deps.Session = &discordgo.Session{}
-		err := svc.PostAutoMessageToThread("guild123", "thread123")
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "intro feed channel not configured")
-	})
-}

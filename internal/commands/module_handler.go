@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
@@ -41,7 +42,7 @@ type ModuleHandler struct {
 }
 
 // NewModuleHandler creates a new module-based command handler
-func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *ModuleHandler {
+func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session, agent *agentengine.Agent) *ModuleHandler {
 	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
 
 	db, err := database.NewDB(cfg.GetDatabasePath())
@@ -73,6 +74,7 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 			IGDBClient: igdbClient,
 			Session:    session,
 			ForumCache: fc,
+			Agent:      agent,
 		},
 	}
 

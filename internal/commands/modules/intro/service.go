@@ -200,6 +200,48 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	return msg.ID, nil
 }
 
+// PostAutoMessageToThread posts a welcome/info message inside a newly created intro thread.
+func (s *IntroFeedService) PostAutoMessageToThread(guildID, threadID string) error {
+	if s.deps.Session == nil {
+		return fmt.Errorf("discord session not available")
+	}
+
+	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
+	if feedChannelID == "" {
+		return fmt.Errorf("intro feed channel not configured")
+	}
+
+	content := buildAutoIntroMessage(guildID, feedChannelID)
+
+	button := &discordgo.Button{
+		Label:    "🎮 Lookup Game Threads",
+		Style:    discordgo.PrimaryButton,
+		CustomID: "intro:lookup-games",
+	}
+
+	actionRow := &discordgo.ActionsRow{
+		Components: []discordgo.MessageComponent{button},
+	}
+
+	_, err := s.deps.Session.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{
+		Content:    content,
+		Components: []discordgo.MessageComponent{actionRow},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send auto-message to intro thread: %w", err)
+	}
+
+	return nil
+}
+
+func buildAutoIntroMessage(guildID, feedChannelID string) string {
+	return fmt.Sprintf(
+		"💥 Your intro is up on [the feed](https://discord.com/channels/%s/%s)\n\n`/intro` - find yours or another's intro again\n`/bump-intro` - repost to the feed",
+		guildID,
+		feedChannelID,
+	)
+}
+
 // HandleNewIntroThread is called when a new thread is created in the intro forum.
 // It checks eligibility and forwards to the feed if appropriate.
 // Silently skips if user is on cooldown (for automatic forwarding).
@@ -255,6 +297,12 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
+
+	// Post auto-message in the intro thread
+	if err := s.PostAutoMessageToThread(thread.GuildID, thread.ID); err != nil {
+		s.deps.Config.Logger.Warnf("Failed to post auto-message to intro thread %s: %v", thread.ID, err)
+		// Don't fail the overall function; feed post was successful
+	}
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.

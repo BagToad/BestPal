@@ -14,6 +14,7 @@ import (
 
 	"gamerpal/internal/agentengine"
 	"gamerpal/internal/commands"
+	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
@@ -40,13 +41,8 @@ func New(cfg *config.Config) (*Bot, error) {
 		return nil, fmt.Errorf("error creating Discord session: %w", err)
 	}
 
-	agent, err := agentengine.New(cfg, session)
-	if err != nil {
-		return nil, fmt.Errorf("error creating agent: %w", err)
-	}
-
 	// Create modular command handler
-	handler := commands.NewModuleHandler(cfg, session, agent)
+	handler := commands.NewModuleHandler(cfg, session)
 
 	bot := &Bot{
 		session:              session,
@@ -54,9 +50,15 @@ func New(cfg *config.Config) (*Bot, error) {
 		commandModuleHandler: handler,
 	}
 
-	// The single agent instance is created here and passed down into the
-	// module handler for shared access from command modules.
-	bot.agent = agent
+	// The LLM tool-calling agent is a command module (agentadapter); grab the
+	// constructed instance for the cross-cutting wiring bot.go owns: injecting
+	// other modules' tools, @mention handling, and the Copilot CLI lifecycle.
+	// Feature modules contribute tools via the optional AgentTools() method on
+	// CommandModule. If the Copilot CLI fails to start later in Start(), the
+	// agent disables itself and the bot keeps running without it.
+	if am, ok := handler.GetModule("agentadapter").(*agentadapter.Module); ok {
+		bot.agent = am.Agent()
+	}
 	if bot.agent != nil {
 		bot.agent.AddTools(handler.CollectAgentTools()...)
 	}

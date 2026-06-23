@@ -16,20 +16,18 @@ type Module struct {
 	agent *agentengine.Agent
 }
 
-// New constructs the agent and wraps it as a module. Construction is
-// side-effect-free (the Copilot CLI starts later, in Agent.Start), so it is safe
-// to run here during module registration. If construction fails the module is
-// still returned with a nil agent, so the bot keeps running without it, matching
-// the previous best-effort behavior.
+// New wraps the agent provided by the parent bot wiring as a module.
+// The adapter no longer constructs its own Agent.
 func New(deps *types.Dependencies) *Module {
-	ag, err := agentengine.New(deps.Config, deps.Session)
-	if err != nil {
-		if deps.Config != nil && deps.Config.Logger != nil {
-			deps.Config.Logger.Warnf("agent: construction failed, continuing without it: %v", err)
+	if deps != nil && deps.Agent != nil {
+		if ag, ok := deps.Agent.(*agentengine.Agent); ok {
+			return &Module{agent: ag}
 		}
-		return &Module{}
+		if deps.Config != nil && deps.Config.Logger != nil {
+			deps.Config.Logger.Warn("agentadapter: deps.Agent is not *agentengine.Agent; agent disabled")
+		}
 	}
-	return &Module{agent: ag}
+	return &Module{}
 }
 
 // Register adds no slash commands. The agent is invoked by @mention, handled in

@@ -62,15 +62,13 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 	}
 
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Flags: 0,
-		},
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
 	})
 
+	clearComponents := []discordgo.MessageComponent{}
 	if m.config == nil || m.config.Agent == nil {
 		msg := "❌ Lookup agent is unavailable."
-		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
 
@@ -78,14 +76,14 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 	jsonReply := m.config.Agent.HandleInternal(s, prompt)
 	if strings.TrimSpace(jsonReply) == "" {
 		msg := "❌ Failed to look up game threads right now. Please try again."
-		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
 
 	var result lookupGameThreadsAgentResult
 	if err := json.Unmarshal([]byte(jsonReply), &result); err != nil {
 		msg := "❌ The lookup response was not valid JSON."
-		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
 
@@ -120,5 +118,5 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 	}
 
 	msg := b.String()
-	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg})
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 }

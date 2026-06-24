@@ -22,11 +22,14 @@ func (m *mockComponentAgent) HandleInternal(_ *discordgo.Session, prompt string)
 }
 
 type componentHookCapture struct {
-	responds     int
-	edits        int
-	lastEdit     string
-	lastResponse string
-	lastFlags    discordgo.MessageFlags
+	responds         int
+	edits            int
+	lastEdit         string
+	lastResponse     string
+	lastFlags        discordgo.MessageFlags
+	lastResponseType discordgo.InteractionResponseType
+	lastComponents   []discordgo.MessageComponent
+	componentsSet    bool
 }
 
 func withComponentHooks(t *testing.T, cap *componentHookCapture, fn func()) {
@@ -34,6 +37,9 @@ func withComponentHooks(t *testing.T, cap *componentHookCapture, fn func()) {
 	origRespond, origEdit := introRespond, introEdit
 	introRespond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 		cap.responds++
+		if resp != nil {
+			cap.lastResponseType = resp.Type
+		}
 		if resp != nil && resp.Data != nil {
 			cap.lastFlags = resp.Data.Flags
 			cap.lastResponse = resp.Data.Content
@@ -44,6 +50,10 @@ func withComponentHooks(t *testing.T, cap *componentHookCapture, fn func()) {
 		cap.edits++
 		if edit != nil && edit.Content != nil {
 			cap.lastEdit = *edit.Content
+		}
+		if edit != nil && edit.Components != nil {
+			cap.componentsSet = true
+			cap.lastComponents = *edit.Components
 		}
 		return nil, nil
 	}
@@ -90,7 +100,10 @@ func TestHandleLookupGamesComponentBuildsDeterministicMarkdown(t *testing.T) {
 
 	require.Equal(t, 1, cap.responds)
 	require.Equal(t, 1, cap.edits)
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, cap.lastResponseType)
 	assert.Equal(t, "Find the game threads for the games <@user42> plays.", agent.gotPrompt)
+	assert.True(t, cap.componentsSet)
+	assert.Len(t, cap.lastComponents, 0)
 	assert.Contains(t, cap.lastEdit, "**Game Threads:**")
 	assert.Contains(t, cap.lastEdit, "- **Destiny 2**: https://discord.com/channels/guild/100")
 	assert.Contains(t, cap.lastEdit, "- **Warframe**: _not found_")
@@ -130,6 +143,9 @@ func TestHandleLookupGamesComponentHandlesInvalidJSON(t *testing.T) {
 
 	require.Equal(t, 1, cap.responds)
 	require.Equal(t, 1, cap.edits)
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, cap.lastResponseType)
+	assert.True(t, cap.componentsSet)
+	assert.Len(t, cap.lastComponents, 0)
 	assert.Contains(t, cap.lastEdit, "not valid JSON")
 }
 
@@ -144,6 +160,9 @@ func TestHandleLookupGamesComponentHandlesEmptyAgentResponse(t *testing.T) {
 
 	require.Equal(t, 1, cap.responds)
 	require.Equal(t, 1, cap.edits)
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, cap.lastResponseType)
+	assert.True(t, cap.componentsSet)
+	assert.Len(t, cap.lastComponents, 0)
 	assert.Contains(t, cap.lastEdit, "Failed to look up game threads")
 }
 

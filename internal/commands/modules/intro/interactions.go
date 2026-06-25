@@ -10,15 +10,71 @@ import (
 
 const lookupGameThreadsCustomID = "intro:lookup-games"
 
-type lookupGameThreadsAgentResult struct {
-	GameThreads []lookupGameThreadResult `json:"game-threads"`
-	Note        string                   `json:"note,omitempty"`
+type gameThreadsAgentResult struct {
+	GameThreads []gameThread `json:"game-threads"`
 }
 
-type lookupGameThreadResult struct {
+type gameThread struct {
 	Name   string `json:"name"`
 	URL    string `json:"url"`
 	Status string `json:"status"`
+}
+
+type gameThreadsMessage struct {
+	Preamble string
+	Result   []gameThread
+	Note     string
+}
+
+func (m gameThreadsMessage) String() string {
+	var b strings.Builder
+	b.WriteString("**Game Threads:**")
+	if len(m.Result) == 0 {
+		b.WriteString("\n- No matching game threads found.")
+	} else {
+		missing := false
+		for _, thread := range m.Result {
+			name := strings.TrimSpace(thread.Name)
+			url := strings.TrimSpace(thread.URL)
+			status := strings.TrimSpace(strings.ToLower(thread.Status))
+			if name == "" {
+				continue
+			}
+			if status == "not found" || url == "" {
+				missing = true
+				b.WriteString(fmt.Sprintf("\n- **%s**: _not found_", name))
+				continue
+			}
+			b.WriteString(fmt.Sprintf("\n- **%s**: %s", name, url))
+		}
+		if missing {
+			note := strings.TrimSpace(m.Note)
+			if note == "" {
+				note = "ℹ️ Missing a thread? Create one in #create-a-thread."
+			}
+			b.WriteString("\n\n")
+			b.WriteString(note)
+		}
+	}
+
+	section := b.String()
+	trimmedPreamble := strings.TrimSpace(m.Preamble)
+	if trimmedPreamble == "" {
+		return section
+	}
+	return trimmedPreamble + "\n\n---\n\n" + section
+}
+
+func (m gameThreadsMessage) BuildWithError(errMsg string) string {
+	trimmedPreamble := strings.TrimSpace(m.Preamble)
+	trimmedErr := strings.TrimSpace(errMsg)
+	if trimmedPreamble == "" {
+		return trimmedErr
+	}
+	if trimmedErr == "" {
+		return trimmedPreamble
+	}
+	return trimmedPreamble + "\n\n---\n\n" + trimmedErr
 }
 
 // HandleComponent routes component interactions for the intro module.
@@ -65,9 +121,14 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 		Type: discordgo.InteractionResponseDeferredMessageUpdate,
 	})
 
+	msgObj := gameThreadsMessage{}
+	if i.Message != nil {
+		msgObj.Preamble = i.Message.Content
+	}
+
 	clearComponents := []discordgo.MessageComponent{}
 	if m.config == nil || m.config.Agent == nil {
-		msg := "❌ Lookup agent is unavailable."
+		msg := msgObj.BuildWithError("❌ Lookup agent is unavailable.")
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
@@ -75,48 +136,19 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 	prompt := fmt.Sprintf("Find the game threads for the games <@%s> plays.", userID)
 	jsonReply := m.config.Agent.HandleInternal(s, prompt)
 	if strings.TrimSpace(jsonReply) == "" {
-		msg := "❌ Failed to look up game threads right now. Please try again."
+		msg := msgObj.BuildWithError("❌ Failed to look up game threads right now. Please try again.")
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
 
-	var result lookupGameThreadsAgentResult
-	if err := json.Unmarshal([]byte(jsonReply), &result); err != nil {
-		msg := "❌ The lookup response was not valid JSON."
+	var agentResult gameThreadsAgentResult
+	if err := json.Unmarshal([]byte(jsonReply), &agentResult); err != nil {
+		msg := msgObj.BuildWithError("❌ The lookup response was not valid JSON.")
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 		return
 	}
 
-	var b strings.Builder
-	b.WriteString("**Game Threads:**")
-	if len(result.GameThreads) == 0 {
-		b.WriteString("\n- No matching game threads found.")
-	} else {
-		missing := false
-		for _, thread := range result.GameThreads {
-			name := strings.TrimSpace(thread.Name)
-			url := strings.TrimSpace(thread.URL)
-			status := strings.TrimSpace(strings.ToLower(thread.Status))
-			if name == "" {
-				continue
-			}
-			if status == "not found" || url == "" {
-				missing = true
-				b.WriteString(fmt.Sprintf("\n- **%s**: _not found_", name))
-				continue
-			}
-			b.WriteString(fmt.Sprintf("\n- **%s**: %s", name, url))
-		}
-		if missing {
-			note := strings.TrimSpace(result.Note)
-			if note == "" {
-				note = "ℹ️ Missing a thread? Create one in #create-a-thread."
-			}
-			b.WriteString("\n\n")
-			b.WriteString(note)
-		}
-	}
-
-	msg := b.String()
+	msgObj.Result = agentResult.GameThreads
+	msg := msgObj.String()
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &msg, Components: &clearComponents})
 }

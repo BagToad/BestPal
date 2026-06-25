@@ -63,13 +63,14 @@ func withComponentHooks(t *testing.T, cap *componentHookCapture, fn func()) {
 	fn()
 }
 
-func buildLookupInteraction(customID, guildID, channelID, userID string) *discordgo.InteractionCreate {
+func buildLookupInteraction(customID, guildID, channelID, userID, originalContent string) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{
 		Interaction: &discordgo.Interaction{
 			Type:      discordgo.InteractionMessageComponent,
 			GuildID:   guildID,
 			ChannelID: channelID,
 			Member:    &discordgo.Member{User: &discordgo.User{ID: userID}},
+			Message:   &discordgo.Message{Content: originalContent},
 			Data: discordgo.MessageComponentInteractionData{
 				CustomID: customID,
 			},
@@ -88,13 +89,13 @@ func newIntroModuleForComponents(t *testing.T, agent types.ComponentAgent) *Modu
 
 func TestHandleLookupGamesComponentBuildsDeterministicMarkdown(t *testing.T) {
 	agent := &mockComponentAgent{
-		reply: `{"game-threads":[{"name":"Destiny 2","url":"https://discord.com/channels/guild/100","status":"found"},{"name":"Warframe","url":"","status":"not found"}],"note":"ℹ️ Missing a thread? Create one in <#create-thread-id>."}`,
+		reply: `{"game-threads":[{"name":"Destiny 2","url":"https://discord.com/channels/guild/100","status":"found"},{"name":"Warframe","url":"","status":"not found"}]}`,
 	}
 	m := newIntroModuleForComponents(t, agent)
 	cap := &componentHookCapture{}
 
 	withComponentHooks(t, cap, func() {
-		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42")
+		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42", "💥 Intro text here")
 		m.HandleComponent(&discordgo.Session{}, i)
 	})
 
@@ -104,10 +105,11 @@ func TestHandleLookupGamesComponentBuildsDeterministicMarkdown(t *testing.T) {
 	assert.Equal(t, "Find the game threads for the games <@user42> plays.", agent.gotPrompt)
 	assert.True(t, cap.componentsSet)
 	assert.Len(t, cap.lastComponents, 0)
+	assert.Contains(t, cap.lastEdit, "💥 Intro text here")
+	assert.Contains(t, cap.lastEdit, "\n\n---\n\n")
 	assert.Contains(t, cap.lastEdit, "**Game Threads:**")
 	assert.Contains(t, cap.lastEdit, "- **Destiny 2**: https://discord.com/channels/guild/100")
 	assert.Contains(t, cap.lastEdit, "- **Warframe**: _not found_")
-	assert.Contains(t, cap.lastEdit, "Create one in <#create-thread-id>.")
 }
 
 func TestHandleLookupGamesComponentRejectsMissingUser(t *testing.T) {
@@ -137,7 +139,7 @@ func TestHandleLookupGamesComponentHandlesInvalidJSON(t *testing.T) {
 	cap := &componentHookCapture{}
 
 	withComponentHooks(t, cap, func() {
-		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42")
+		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42", "💥 Intro text here")
 		m.HandleComponent(&discordgo.Session{}, i)
 	})
 
@@ -146,6 +148,8 @@ func TestHandleLookupGamesComponentHandlesInvalidJSON(t *testing.T) {
 	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, cap.lastResponseType)
 	assert.True(t, cap.componentsSet)
 	assert.Len(t, cap.lastComponents, 0)
+	assert.Contains(t, cap.lastEdit, "💥 Intro text here")
+	assert.Contains(t, cap.lastEdit, "\n\n---\n\n")
 	assert.Contains(t, cap.lastEdit, "not valid JSON")
 }
 
@@ -154,7 +158,7 @@ func TestHandleLookupGamesComponentHandlesEmptyAgentResponse(t *testing.T) {
 	cap := &componentHookCapture{}
 
 	withComponentHooks(t, cap, func() {
-		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42")
+		i := buildLookupInteraction(lookupGameThreadsCustomID, "guild1", "thread1", "user42", "💥 Intro text here")
 		m.HandleComponent(&discordgo.Session{}, i)
 	})
 
@@ -163,6 +167,8 @@ func TestHandleLookupGamesComponentHandlesEmptyAgentResponse(t *testing.T) {
 	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, cap.lastResponseType)
 	assert.True(t, cap.componentsSet)
 	assert.Len(t, cap.lastComponents, 0)
+	assert.Contains(t, cap.lastEdit, "💥 Intro text here")
+	assert.Contains(t, cap.lastEdit, "\n\n---\n\n")
 	assert.Contains(t, cap.lastEdit, "Failed to look up game threads")
 }
 
@@ -171,10 +177,38 @@ func TestHandleComponentIgnoresOtherButtons(t *testing.T) {
 	cap := &componentHookCapture{}
 
 	withComponentHooks(t, cap, func() {
-		i := buildLookupInteraction("intro:other-button", "guild1", "thread1", "user42")
+		i := buildLookupInteraction("intro:other-button", "guild1", "thread1", "user42", "💥 Intro text here")
 		m.HandleComponent(&discordgo.Session{}, i)
 	})
 
 	assert.Equal(t, 0, cap.responds)
 	assert.Equal(t, 0, cap.edits)
+}
+
+func TestLookupGameThreadsMessageStringIncludesPreambleAndMarkdown(t *testing.T) {
+	msg := gameThreadsMessage{
+		Preamble: "💥 Intro text here",
+		Result: []gameThread{
+				{Name: "Destiny 2", URL: "https://discord.com/channels/guild/100", Status: "found"},
+				{Name: "Warframe", URL: "", Status: "not found"},
+		},
+	}
+
+	got := msg.String()
+
+	assert.Contains(t, got, "💥 Intro text here")
+	assert.Contains(t, got, "\n\n---\n\n")
+	assert.Contains(t, got, "**Game Threads:**")
+	assert.Contains(t, got, "- **Destiny 2**: https://discord.com/channels/guild/100")
+	assert.Contains(t, got, "- **Warframe**: _not found_")
+}
+
+func TestLookupGameThreadsMessageBuildWithError(t *testing.T) {
+	msg := gameThreadsMessage{
+		Preamble: "💥 Intro text here",
+	}
+
+	got := msg.BuildWithError("❌ Lookup agent is unavailable.")
+
+	assert.Equal(t, "💥 Intro text here\n\n---\n\n❌ Lookup agent is unavailable.", got)
 }

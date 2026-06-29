@@ -83,7 +83,15 @@ func TestPostAutoMessageToThread(t *testing.T) {
 	})
 
 	t.Run("builds the expected message text", func(t *testing.T) {
-		got := buildAutoIntroMessage("guild123", "feed456")
-		assert.Equal(t, "💥 Your intro is up on [the feed](https://discord.com/channels/guild123/feed456)\n\n`/intro` - find yours or another's intro again\n`/bump-intro` - repost to the feed", got)
+		autoMessage := AutoMessage{
+			guildId:       "guild123",
+			feedChannelId: "feed456",
+		}
+		components := autoMessage.Components()
+		container, ok := components[0].(discordgo.Container)
+		assert.True(t, ok)
+		text, ok := container.Components[0].(discordgo.TextDisplay)
+		assert.True(t, ok)
+		assert.Equal(t, "💥 your intro is up on [the feed](https://discord.com/channels/guild123/feed456)\n\n`/intro` - find yours or another's intro again\n`/bump-intro` - repost to the feed", text.Content)
 	})
 }

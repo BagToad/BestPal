@@ -85,6 +85,11 @@ func (db *DB) initTables() error {
 	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_user_id ON intro_feed_posts(user_id);
 	CREATE INDEX IF NOT EXISTS idx_intro_feed_posts_posted_at ON intro_feed_posts(posted_at);
 
+	CREATE TABLE IF NOT EXISTS GameThreadsLookupExecutionTracker (
+		intro_thread_id TEXT PRIMARY KEY,
+		last_executed_at DATETIME NOT NULL
+	);
+
 	CREATE TABLE IF NOT EXISTS introduction_threads (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		thread_id TEXT NOT NULL UNIQUE,
@@ -307,6 +312,64 @@ func (db *DB) GetRecentIntroFeedPosts(since time.Time) ([]IntroFeedPost, error) 
 		return nil, fmt.Errorf("failed to iterate intro feed posts: %w", err)
 	}
 	return posts, nil
+}
+
+// IsIntroEligibleForGameThreadsLookup reports whether an intro thread can run
+// the lookup action again based on the last successful execution timestamp and
+// the intro post's edited timestamp. The lookup is eligible when there is no
+// previous execution, or when the latest execution is strictly before the most
+// recent edit timestamp.
+func (db *DB) IsIntroEligibleForGameThreadsLookup(introID string, introEditedAt time.Time) (bool, time.Duration, error) {
+	if strings.TrimSpace(introID) == "" {
+		return false, 0, fmt.Errorf("intro id is required")
+	}
+
+	var lastExecutedAt time.Time
+	err := db.conn.QueryRow(`
+		SELECT last_executed_at
+		FROM GameThreadsLookupExecutionTracker
+		WHERE intro_thread_id = ?
+	`, introID).Scan(&lastExecutedAt)
+
+	// If no record exists, this means the lookup has never been executed for this intro thread, so it's eligible.
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, 0, nil
+	}
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to read game threads lookup execution tracker: %w", err)
+	}
+
+	if introEditedAt.IsZero() {
+		return false, 0, nil
+	}
+	if lastExecutedAt.Before(introEditedAt) {
+		return true, 0, nil
+	}
+
+	pending := lastExecutedAt.Sub(introEditedAt)
+	if pending < 0 {
+		pending = 0
+	}
+	return false, pending, nil
+}
+
+// UpsertGameThreadsLookupExecution records the latest successful lookup
+// execution for an intro thread.
+func (db *DB) UpsertGameThreadsLookupExecution(introThreadID string) error {
+	if strings.TrimSpace(introThreadID) == "" {
+		return fmt.Errorf("intro thread id is required")
+	}
+
+	_, err := db.conn.Exec(`
+		INSERT INTO GameThreadsLookupExecutionTracker (intro_thread_id, last_executed_at)
+		VALUES (?, CURRENT_TIMESTAMP)
+		ON CONFLICT(intro_thread_id) DO UPDATE SET
+			last_executed_at = CURRENT_TIMESTAMP
+	`, introThreadID)
+	if err != nil {
+		return fmt.Errorf("failed to upsert game threads lookup execution tracker: %w", err)
+	}
+	return nil
 }
 
 // IntroductionThread stores full thread content for analysis

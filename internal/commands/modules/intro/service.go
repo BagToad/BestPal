@@ -203,43 +203,32 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 // PostAutoMessageToThread posts a welcome/info message inside a newly created intro thread.
 func (s *IntroFeedService) PostAutoMessageToThread(guildID, threadID string) error {
 	if s.deps.Session == nil {
+		s.deps.Config.Logger.Warnf("failed to post intro auto-message: discord session not available (thread=%s)", threadID)
 		return fmt.Errorf("discord session not available")
 	}
 
 	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
 	if feedChannelID == "" {
+		s.deps.Config.Logger.Warnf("failed to post intro auto-message: intro feed channel not configured (thread=%s)", threadID)
 		return fmt.Errorf("intro feed channel not configured")
 	}
 
-	content := buildAutoIntroMessage(guildID, feedChannelID)
-
-	button := &discordgo.Button{
-		Label:    "🎮 Lookup Game Threads",
-		Style:    discordgo.PrimaryButton,
-		CustomID: "intro:lookup-games",
-	}
-
-	actionRow := &discordgo.ActionsRow{
-		Components: []discordgo.MessageComponent{button},
+	autoMessage := AutoMessage{
+		guildId:       guildID,
+		feedChannelId: feedChannelID,
 	}
 
 	_, err := s.deps.Session.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{
-		Content:    content,
-		Components: []discordgo.MessageComponent{actionRow},
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: autoMessage.Components(),
 	})
 	if err != nil {
+		s.deps.Config.Logger.Warnf("failed to send intro auto-message (thread=%s err=%v)", threadID, err)
 		return fmt.Errorf("failed to send auto-message to intro thread: %w", err)
 	}
+	s.deps.Config.Logger.Infof("posted intro auto-message (thread=%s)", threadID)
 
 	return nil
-}
-
-func buildAutoIntroMessage(guildID, feedChannelID string) string {
-	return fmt.Sprintf(
-		"💥 Your intro is up on [the feed](https://discord.com/channels/%s/%s)\n\n`/intro` - find yours or another's intro again\n`/bump-intro` - repost to the feed",
-		guildID,
-		feedChannelID,
-	)
 }
 
 // HandleNewIntroThread is called when a new thread is created in the intro forum.

@@ -32,8 +32,6 @@ var internalRequestModePrompt = strings.TrimSpace(internalRequestModePromptRaw)
 const (
 	defaultSessionTimeout = 60 * time.Second
 	maxDiscordReplyLen    = 1900
-	modeBase              = "base"
-	modeInternal          = "internal"
 )
 
 // Agent is the role-gated LLM tool-calling surface. One Agent per process,
@@ -168,7 +166,8 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 		}
 	}()
 
-	reply, err := a.run(ctx, client, prompt, caller, modeBase)
+	systemPrompt := assembleSystemPrompt(systemPrompt, a.brain.Guidance())
+	reply, err := a.run(ctx, client, prompt, systemPrompt, caller)
 	close(typingDone)
 
 	if err != nil {
@@ -211,25 +210,18 @@ func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
 	defer cancel()
 
-	reply, err := a.run(ctx, client, prompt, caller, modeInternal)
+	reply, err := a.run(ctx, client, prompt, internalRequestModePrompt, caller)
 	if err != nil {
 		a.cfg.Logger.Warnf("agent: internal run failed: %v", err)
 		return ""
 	}
-	return strings.TrimSpace(reply)
+	return stripJSONFence(reply)
 }
 
-func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller, mode string) (string, error) {
+func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt, systemPrompt string, caller agentctx.Caller) (string, error) {
 	a.toolsMu.Lock()
 	tools := append([]copilot.Tool(nil), a.tools...)
 	a.toolsMu.Unlock()
-
-	var finalSystemPrompt string
-	if mode == modeInternal {
-		finalSystemPrompt = internalRequestModePrompt
-	} else {
-		finalSystemPrompt = assembleSystemPrompt(systemPrompt, a.brain.Guidance())
-	}
 
 	sessionCfg := &copilot.SessionConfig{
 		ClientName: "bestpal-agent",
@@ -237,7 +229,7 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		Tools:      tools,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode:    "append",
-			Content: finalSystemPrompt,
+			Content: systemPrompt,
 		},
 		// Defense in depth: SkipPermission=true on tools + AvailableTools
 		// allowlist below should mean we never reach this handler, but if
@@ -274,6 +266,25 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		return "", fmt.Errorf("unexpected event data type %T", event.Data)
 	}
 	return strings.TrimSpace(data.Content), nil
+}
+
+// stripJSONFence removes a markdown fenced code block wrapper (e.g. ```json ... ```)
+// from s so callers expecting JSON can unmarshal directly. Returns s unchanged
+// when no leading fence is present.
+func stripJSONFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	nl := strings.IndexByte(s, '\n')
+	if nl < 0 {
+		return s
+	}
+	s = s[nl+1:]
+	if idx := strings.LastIndex(s, "```"); idx >= 0 {
+		s = strings.TrimSpace(s[:idx])
+	}
+	return s
 }
 
 // stripMention removes <@id> and <@!id> tokens for botID and trims

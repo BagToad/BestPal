@@ -201,32 +201,24 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 }
 
 // PostAutoMessageToThread posts a welcome/info message inside a newly created intro thread.
-func (s *IntroFeedService) PostAutoMessageToThread(guildID, threadID string) error {
+func (s *IntroFeedService) PostAutoMessageToThread(threadID string, p AutoPost) error {
 	if s.deps.Session == nil {
-		s.deps.Config.Logger.Warnf("failed to post intro auto-message: discord session not available (thread=%s)", threadID)
 		return fmt.Errorf("discord session not available")
 	}
 
-	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
-	if feedChannelID == "" {
-		s.deps.Config.Logger.Warnf("failed to post intro auto-message: intro feed channel not configured (thread=%s)", threadID)
-		return fmt.Errorf("intro feed channel not configured")
+	if strings.TrimSpace(p.preamble) == "" {
+		p.preamble = preambleBuilder(DefaultState, "", "", 0)
 	}
 
-	autoMessage := AutoMessage{
-		guildId:       guildID,
-		feedChannelId: feedChannelID,
-	}
+	components := p.components()
 
 	_, err := s.deps.Session.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{
 		Flags:      discordgo.MessageFlagsIsComponentsV2,
-		Components: autoMessage.Components(),
+		Components: components,
 	})
 	if err != nil {
-		s.deps.Config.Logger.Warnf("failed to send intro auto-message (thread=%s err=%v)", threadID, err)
-		return fmt.Errorf("failed to send auto-message to intro thread: %w", err)
+		return fmt.Errorf("failed to send auto-post to intro thread: %w", err)
 	}
-	s.deps.Config.Logger.Infof("posted intro auto-message (thread=%s)", threadID)
 
 	return nil
 }
@@ -264,6 +256,14 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		if err := s.deps.DB.RecordIntroFeedPost(thread.OwnerID, thread.ID, "", false); err != nil {
 			s.deps.Config.Logger.Warnf("Failed to record skipped intro feed post: %v", err)
 		}
+
+		// Post an auto-post in the thread (with cooldown information)
+		p := AutoPost{
+			preamble: preambleBuilder(CooldownSkipState, "", "", eligibility.TimeRemaining),
+		}
+		if err := s.PostAutoMessageToThread(thread.ID, p); err != nil {
+			s.deps.Config.Logger.Warnf("Failed to post auto-post to cooldown-skipped intro thread %s: %v", thread.ID, err)
+		}
 		return
 	}
 
@@ -287,9 +287,12 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
 
-	// Post auto-message in the intro thread
-	if err := s.PostAutoMessageToThread(thread.GuildID, thread.ID); err != nil {
-		s.deps.Config.Logger.Warnf("Failed to post auto-message to intro thread %s: %v", thread.ID, err)
+	// Post auto-post in the intro thread
+	p := AutoPost{
+		preamble: preambleBuilder(FeedForwardedState, thread.GuildID, feedChannelID, 0),
+	}
+	if err := s.PostAutoMessageToThread(thread.ID, p); err != nil {
+		s.deps.Config.Logger.Warnf("Failed to post auto-post to intro thread %s: %v", thread.ID, err)
 		// Don't fail the overall function; feed post was successful
 	}
 }

@@ -33,7 +33,6 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 }
 
 func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
-
 	if m.config == nil || m.config.Config == nil || m.config.DB == nil || m.config.Agent == nil {
 		if m.config != nil && m.config.Config != nil {
 			m.config.Config.Logger.Warnf("game threads lookup unavailable: missing dependency (channel=%s)", i.ChannelID)
@@ -137,70 +136,63 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 		return
 	}
 
+	// Attempt to parse the auto-post from the intro post's components
+	// This is to preserve the preamble and any existing game threads in the message
+	var autoPost AutoPost
+	if i.Message != nil {
+		autoPost, err = parseAutoPostFromComponents(i.Message.Components)
+	}
+	if err != nil || strings.TrimSpace(autoPost.preamble) == "" {
+		autoPost = AutoPost{preamble: preambleBuilder(DefaultState, "", "", 0)}
+	}
+
 	// Update the message to show that the lookup is in progress
 	// Button label is updated and the button is disabled
-	autoMessage := AutoMessage{}
-	autoMessage.guildId = i.GuildID
-	autoMessage.feedChannelId = m.config.Config.GetIntroFeedChannelID()
-	autoMessage.FindingState = true
+	autoPost.loadingState = true
 	_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
 			Flags:      discordgo.MessageFlagsIsComponentsV2,
-			Components: autoMessage.Components(),
+			Components: autoPost.components(),
 		},
 	})
 
 	// Call the agent to find the game threads for the user
 	// If the agent reponds with an empty string,
-	// 1. reset the auto message to the original state, and
+	// 1. reset the auto post to the original state, and
 	// 2. inform the user of the failure ephemerally
 	prompt := fmt.Sprintf("Find the game threads for the games <@%s> plays.", userID)
 	jsonReply := m.config.Agent.HandleInternal(s, prompt)
 	if strings.TrimSpace(jsonReply) == "" {
 		m.config.Config.Logger.Warnf("game threads lookup failed: agent returned empty response (thread=%s user=%s)", i.ChannelID, userID)
-		autoMessage.FindingState = false
-		components := autoMessage.Components()
-		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Components: &components})
-		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Failed to look up game threads right now. Please try again.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		autoPost.loadingState = false
+		resetComponents := autoPost.components()
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Components: &resetComponents})
 		return
 	}
 
 	// Parse the agent's JSON response into a structured result.
 	// If failed to parse,
-	// 1. reset the auto message to the original state, and
+	// 1. reset the auto post to the original state, and
 	// 2. inform the user of the failure ephemerally
 	var agentResult GameThreadsAgentResult
 	if err := json.Unmarshal([]byte(jsonReply), &agentResult); err != nil {
 		m.config.Config.Logger.Warnf("game threads lookup failed: invalid agent response json (thread=%s user=%s err=%v)", i.ChannelID, userID, err)
-		autoMessage.FindingState = false
-		components := autoMessage.Components()
-		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Components: &components})
-		_ = introRespond(s, i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "❌ Failed to look up game threads right now. Please try again.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
+		autoPost.loadingState = false
+		resetComponents := autoPost.components()
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Components: &resetComponents})
 		return
 	}
 
-	// Finding game threads succeeded, update the auto message to show the results.
-	autoMessage.FindingState = false
-	autoMessage.GameThreads = agentResult.GameThreads
-	finalComponents := autoMessage.Components()
+	// Finding game threads succeeded, update the auto post to show the results.
+	autoPost.loadingState = false
+	autoPost.gameThreadsText = gameThreadsBuilder(agentResult.GameThreads)
+	finalComponents := autoPost.components()
 	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Components: &finalComponents})
 	m.config.Config.Logger.Infof("game threads lookup completed (thread=%s user=%s results=%d)", i.ChannelID, userID, len(agentResult.GameThreads))
 
-	// Track the execution timestamp of the game threads lookup for this intro thread in the database
-	if err := m.config.DB.UpsertGameThreadsLookupExecution(i.ChannelID); err != nil && m.config.Config != nil {
+	// Track the execution timestamp of the game threads lookup for this intro thread in the database.
+	if err := m.config.DB.UpsertGameThreadsLookupExecution(i.ChannelID); err != nil {
 		m.config.Config.Logger.Warnf("failed to update game threads lookup execution tracker for intro thread %s: %v", i.ChannelID, err)
 	}
 }

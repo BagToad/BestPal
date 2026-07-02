@@ -74,11 +74,8 @@ runs:
         push: true
         tags: ${{ steps.img.outputs.name }}:${{ inputs.image-tag }}
         cache-from: type=gha
-        # mode=min only exports the final image layers (not every
-        # intermediate build stage), which keeps this well under the 10 GB
-        # Actions Cache quota. ignore-error=true means a cache-export hiccup
-        # (e.g. "failed to reserve cache") won't fail the deploy: the image is
-        # already built and pushed by this point, so caching is best-effort.
+        # mode=min keeps cache small (under the 10 GB quota); ignore-error
+        # makes cache export best-effort so it can't fail an already-pushed build.
         cache-to: type=gha,mode=min,ignore-error=true
 
     - name: Log in to Azure (OIDC)

@@ -200,6 +200,29 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 	return msg.ID, nil
 }
 
+// PostAutoMessageToThread posts a welcome/info message inside a newly created intro thread.
+func (s *IntroFeedService) PostAutoMessageToThread(threadID string, p AutoPost) error {
+	if s.deps.Session == nil {
+		return fmt.Errorf("discord session not available")
+	}
+
+	if strings.TrimSpace(p.preamble) == "" {
+		p.preamble = preambleBuilder(DefaultState, "", "", 0)
+	}
+
+	components := p.components()
+
+	_, err := s.deps.Session.ChannelMessageSendComplex(threadID, &discordgo.MessageSend{
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: components,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send auto-post to intro thread: %w", err)
+	}
+
+	return nil
+}
+
 // HandleNewIntroThread is called when a new thread is created in the intro forum.
 // It checks eligibility and forwards to the feed if appropriate.
 // Silently skips if user is on cooldown (for automatic forwarding).
@@ -233,6 +256,14 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		if err := s.deps.DB.RecordIntroFeedPost(thread.OwnerID, thread.ID, "", false); err != nil {
 			s.deps.Config.Logger.Warnf("Failed to record skipped intro feed post: %v", err)
 		}
+
+		// Post an auto-post in the thread (with cooldown information)
+		p := AutoPost{
+			preamble: preambleBuilder(CooldownSkipState, "", "", eligibility.TimeRemaining),
+		}
+		if err := s.PostAutoMessageToThread(thread.ID, p); err != nil {
+			s.deps.Config.Logger.Warnf("Failed to post auto-post to cooldown-skipped intro thread %s: %v", thread.ID, err)
+		}
 		return
 	}
 
@@ -255,6 +286,15 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
+
+	// Post auto-post in the intro thread
+	p := AutoPost{
+		preamble: preambleBuilder(FeedForwardedState, thread.GuildID, feedChannelID, 0),
+	}
+	if err := s.PostAutoMessageToThread(thread.ID, p); err != nil {
+		s.deps.Config.Logger.Warnf("Failed to post auto-post to intro thread %s: %v", thread.ID, err)
+		// Don't fail the overall function; feed post was successful
+	}
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.

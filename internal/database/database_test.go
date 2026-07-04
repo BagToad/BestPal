@@ -3,6 +3,7 @@ package database
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -63,4 +64,29 @@ func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	removed, err = db.RemoveScamImageHash("p:ff00ff00ff00ff00")
 	require.NoError(t, err)
 	require.False(t, removed)
+}
+
+func TestIntroGameThreadsLookupEligibility(t *testing.T) {
+	db := newTestDB(t)
+
+	introID := "intro-thread-1"
+	editedAt := time.Now().UTC().Add(-1 * time.Hour)
+
+	eligible, pending, err := db.IsIntroEligibleForGameThreadsLookup(introID, editedAt)
+	require.NoError(t, err)
+	require.True(t, eligible)
+	require.Zero(t, pending)
+
+	err = db.UpsertGameThreadsLookupExecution(introID)
+	require.NoError(t, err)
+
+	eligible, pending, err = db.IsIntroEligibleForGameThreadsLookup(introID, editedAt)
+	require.NoError(t, err)
+	require.False(t, eligible)
+	require.Greater(t, pending, time.Duration(0))
+
+	eligible, pending, err = db.IsIntroEligibleForGameThreadsLookup(introID, time.Now().UTC().Add(1*time.Hour))
+	require.NoError(t, err)
+	require.True(t, eligible)
+	require.Zero(t, pending)
 }

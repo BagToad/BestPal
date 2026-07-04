@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"slices"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,11 @@ import (
 var systemPromptRaw string
 
 var systemPrompt = strings.TrimSpace(systemPromptRaw)
+
+//go:embed prompts/internal_request_mode.md
+var internalRequestModePromptRaw string
+
+var internalRequestModePrompt = strings.TrimSpace(internalRequestModePromptRaw)
 
 const (
 	defaultSessionTimeout = 60 * time.Second
@@ -160,7 +166,8 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 		}
 	}()
 
-	reply, err := a.run(ctx, client, prompt, caller)
+	systemPrompt := assembleSystemPrompt(systemPrompt, a.brain.Guidance())
+	reply, err := a.run(ctx, client, prompt, systemPrompt, caller)
 	close(typingDone)
 
 	if err != nil {
@@ -179,7 +186,39 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	return true
 }
 
-func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, caller agentctx.Caller) (string, error) {
+// HandleInternal runs an internal query and returns the raw agent response text.
+// Internal requests run with the internal-only system prompt, separate from the
+// base chat system prompt.
+func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
+	a.clientMu.Lock()
+	client := a.client
+	a.clientMu.Unlock()
+	if client == nil || s == nil {
+		return ""
+	}
+
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return ""
+	}
+
+	caller := agentctx.Caller{
+		UserID:  firstMentionUserID(prompt),
+		GuildID: a.cfg.GetGamerPalsServerID(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
+	defer cancel()
+
+	reply, err := a.run(ctx, client, prompt, internalRequestModePrompt, caller)
+	if err != nil {
+		a.cfg.Logger.Warnf("agent: internal run failed: %v", err)
+		return ""
+	}
+	return stripJSONFence(reply)
+}
+
+func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt, systemPrompt string, caller agentctx.Caller) (string, error) {
 	a.toolsMu.Lock()
 	tools := append([]copilot.Tool(nil), a.tools...)
 	a.toolsMu.Unlock()
@@ -190,7 +229,7 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 		Tools:      tools,
 		SystemMessage: &copilot.SystemMessageConfig{
 			Mode:    "append",
-			Content: assembleSystemPrompt(systemPrompt, a.brain.Guidance()),
+			Content: systemPrompt,
 		},
 		// Defense in depth: SkipPermission=true on tools + AvailableTools
 		// allowlist below should mean we never reach this handler, but if
@@ -229,6 +268,25 @@ func (a *Agent) run(ctx context.Context, client *copilot.Client, prompt string, 
 	return strings.TrimSpace(data.Content), nil
 }
 
+// stripJSONFence removes a markdown fenced code block wrapper (e.g. ```json ... ```)
+// from s so callers expecting JSON can unmarshal directly. Returns s unchanged
+// when no leading fence is present.
+func stripJSONFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	nl := strings.IndexByte(s, '\n')
+	if nl < 0 {
+		return s
+	}
+	s = s[nl+1:]
+	if idx := strings.LastIndex(s, "```"); idx >= 0 {
+		s = strings.TrimSpace(s[:idx])
+	}
+	return s
+}
+
 // stripMention removes <@id> and <@!id> tokens for botID and trims
 // whitespace. Mentions of other users are left intact.
 func stripMention(content, botID string) string {
@@ -238,6 +296,15 @@ func stripMention(content, botID string) string {
 	out := strings.ReplaceAll(content, fmt.Sprintf("<@%s>", botID), "")
 	out = strings.ReplaceAll(out, fmt.Sprintf("<@!%s>", botID), "")
 	return strings.TrimSpace(out)
+}
+
+func firstMentionUserID(prompt string) string {
+	re := regexp.MustCompile(`<@!?(\d+)>`)
+	m := re.FindStringSubmatch(prompt)
+	if len(m) != 2 {
+		return ""
+	}
+	return m[1]
 }
 
 // userHasAgentRole reports whether the message author is allowed to invoke

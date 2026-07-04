@@ -65,3 +65,31 @@ func TestCooldownHoursForMember(t *testing.T) {
 		assert.Equal(t, 48, svc.cooldownHoursForMember(&discordgo.Member{}))
 	})
 }
+
+func TestPostAutoMessageToThread(t *testing.T) {
+	t.Run("returns error when session is nil", func(t *testing.T) {
+		svc := newFeedService(map[string]any{})
+		err := svc.PostAutoMessageToThread("thread123", AutoPost{})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "discord session not available")
+	})
+}
+
+func TestPreambleBuilder(t *testing.T) {
+	t.Run("builds feed-forwarded preamble with link", func(t *testing.T) {
+		got := preambleBuilder(FeedForwardedState, "guild123", "feed456", 0)
+		assert.Equal(t, "💥 Your intro is up on [the feed](https://discord.com/channels/guild123/feed456)\n\n`/intro` - find yours or another's intro again\n`/bump-intro` - repost to the feed", got)
+	})
+
+	t.Run("builds cooldown-skip preamble with remaining time", func(t *testing.T) {
+		got := preambleBuilder(CooldownSkipState, "", "", 2*time.Hour+30*time.Minute)
+		assert.Contains(t, got, "because you're still on cooldown (2h 30m remaining)")
+		assert.Contains(t, got, "`/intro` - find yours or another's intro again")
+		assert.Contains(t, got, "`/bump-intro` - repost to the feed when ready")
+	})
+
+	t.Run("uses default fallback preamble", func(t *testing.T) {
+		got := preambleBuilder(DefaultState, "", "", 0)
+		assert.Equal(t, autoPostDefaultPreamble, got)
+	})
+}

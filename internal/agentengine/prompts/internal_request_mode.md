@@ -14,8 +14,7 @@ respond with this JSON shape only:
   "game-threads": [
     {
       "name": "string",
-      "url": "string",
-      "status": "found | not found"
+      "url": "string"
     }
   ]
 }
@@ -24,10 +23,10 @@ respond with this JSON shape only:
 Schema requirements:
 
 - `game-threads` is required and must be an array.
-- Every item must include `name`, `url`, and `status`.
-- `status` must be exactly `found` or `not found`.
+- Every item must include `name` and `url`.
 - `name` must not be empty.
-- Only `url` is allowed to be empty.
+- `url` must not be empty.
+- Only include game threads that are found.
 
 Example internal request:
 
@@ -40,13 +39,7 @@ Example internal response:
   "game-threads": [
     {
       "name": "Monster Hunter Wilds",
-      "url": "https://discord.com/channels/.../111111111111111111",
-      "status": "found"
-    },
-    {
-      "name": "Deep Rock Galactic",
-      "url": "",
-      "status": "not found"
+      "url": "https://discord.com/channels/.../111111111111111111"
     }
   ]
 }

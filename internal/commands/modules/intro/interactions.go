@@ -15,9 +15,8 @@ type GameThreadsAgentResult struct {
 }
 
 type GameThreads struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
-	Status string `json:"status"`
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
 
 // HandleComponent routes component interactions for the intro module.

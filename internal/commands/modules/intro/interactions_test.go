@@ -47,8 +47,8 @@ func TestParseAutoPostFromComponentsRoundTrip(t *testing.T) {
 	original := AutoPost{
 		preamble: preambleBuilder(CooldownSkipState, "", "", 0),
 		gameThreadsText: gameThreadsBuilder([]GameThreads{
-			{Name: "Destiny 2", URL: "https://discord.com/channels/guild/100", Status: "found"},
-			{Name: "Warframe", Status: "not found"},
+			{Name: "Destiny 2", URL: "https://discord.com/channels/guild/100"},
+			{Name: "Warframe"},
 		}),
 	}
 
@@ -79,10 +79,11 @@ func TestParseAutoPostFromComponentsRejectsInvalidShapes(t *testing.T) {
 
 func TestGameThreadsBuilder(t *testing.T) {
 	got := gameThreadsBuilder([]GameThreads{
-		{Name: "Destiny 2", URL: "https://discord.com/channels/guild/100", Status: "found"},
-		{Name: "Warframe", Status: "not found"},
+		{Name: "Destiny 2", URL: "https://discord.com/channels/guild/100"},
+		{Name: "Warframe"},
 	})
 	assert.Contains(t, got, gameThreadsHeader)
-	assert.Contains(t, got, "- **Destiny 2**: https://discord.com/channels/guild/100")
-	assert.Contains(t, got, "- **Warframe**: _not found_")
+	assert.Contains(t, got, "- [Destiny 2](https://discord.com/channels/guild/100)")
+	assert.NotContains(t, got, "Warframe")
+	assert.Contains(t, got, "ℹ️ Missing a thread? Ask me to create new threads.")
 }

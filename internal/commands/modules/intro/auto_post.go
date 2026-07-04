@@ -93,28 +93,20 @@ func (m AutoPost) components() []discordgo.MessageComponent {
 func gameThreadsBuilder(threads []GameThreads) string {
 	var b strings.Builder
 	b.WriteString(gameThreadsHeader)
-	if len(threads) == 0 {
-		b.WriteString("\n- No matching game threads found.")
-	} else {
-		missing := false
-		for _, thread := range threads {
-			name := strings.TrimSpace(thread.Name)
-			url := strings.TrimSpace(thread.URL)
-			status := strings.TrimSpace(strings.ToLower(thread.Status))
-			if name == "" {
-				continue
-			}
-			if status == "not found" || url == "" {
-				missing = true
-				b.WriteString(fmt.Sprintf("\n- **%s**: _not found_", name))
-				continue
-			}
-			b.WriteString(fmt.Sprintf("\n- **%s**: %s", name, url))
+	found := 0
+	for _, thread := range threads {
+		name := strings.TrimSpace(thread.Name)
+		url := strings.TrimSpace(thread.URL)
+		if name == "" || url == "" {
+			continue
 		}
-		if missing {
-			b.WriteString("\n\nℹ️ Missing a thread? Create one in #create-a-thread.")
-		}
+		b.WriteString(fmt.Sprintf("\n- [%s](%s)", name, url))
+		found++
 	}
+	if found == 0 {
+		b.WriteString("\n- No matching game threads found.")
+	}
+	b.WriteString("\n\nℹ️ Missing a thread? Ask me to create new threads.")
 	return b.String()
 }
 

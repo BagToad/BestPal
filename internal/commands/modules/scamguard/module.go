@@ -11,6 +11,7 @@
 package scamguard
 
 import (
+	"bytes"
 	"sync"
 	"time"
 
@@ -60,7 +61,7 @@ type Module struct {
 	deleteMessage     func(s *discordgo.Session, channelID, messageID string) error
 	timeoutMember     func(s *discordgo.Session, guildID, userID string, until *time.Time) error
 	sendLogEmbed      func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed) error
-	sendLogMessage    func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error
+	sendLogMessage    func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename string) error
 	authorIsModerator func(s *discordgo.Session, e *discordgo.MessageCreate) bool
 	hasBanPermissions func(i *discordgo.InteractionCreate) bool
 	createBan         func(s *discordgo.Session, guildID, userID, reason string, days int) error
@@ -140,8 +141,16 @@ func (m *Module) setDefaultSeams() {
 		}
 	}
 	if m.sendLogMessage == nil {
-		m.sendLogMessage = func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
-			_, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Embed: embed, Components: components})
+		m.sendLogMessage = func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename string) error {
+			msg := &discordgo.MessageSend{Embed: embed, Components: components}
+			if len(imageData) > 0 && imageFilename != "" {
+				msg.Files = []*discordgo.File{{
+					Name:        imageFilename,
+					ContentType: "image/png",
+					Reader:      bytes.NewReader(imageData),
+				}}
+			}
+			_, err := s.ChannelMessageSendComplex(channelID, msg)
 			return err
 		}
 	}

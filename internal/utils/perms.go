@@ -17,7 +17,7 @@ func CreateBan(s *discordgo.Session, guildID, userID, reason string, days int) e
 // i.Member.Permissions (supplied by Discord in the interaction payload) avoids
 // a channel-permission lookup that can be masked by channel overwrites and
 // diverge from actual moderation authority.
-func HasBanPermissions(_ *discordgo.Session, i *discordgo.InteractionCreate) bool {
+func HasBanPermissions(i *discordgo.InteractionCreate) bool {
 	if i == nil || i.Member == nil {
 		return false
 	}

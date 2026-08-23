@@ -26,7 +26,7 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		})
 	}
 
-	if !m.hasBanPermissions(s, i) {
+	if !m.hasBanPermissions(i) {
 		respond("❌ You need the Ban Members permission to use this button.")
 		return
 	}

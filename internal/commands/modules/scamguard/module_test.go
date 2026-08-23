@@ -715,7 +715,7 @@ func componentInteraction(customID string) *discordgo.InteractionCreate {
 func TestHandleComponent_BanRequiresPermission(t *testing.T) {
 	m, _, _ := newTestModule(t, nil)
 	called := false
-	m.hasBanPermissions = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) bool { return false }
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return false }
 	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { called = true; return nil }
 	var response string
 	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
@@ -733,7 +733,7 @@ func TestHandleComponent_BansDetectedUserWithSharedOperation(t *testing.T) {
 	m, _, _ := newTestModule(t, nil)
 	var gotGuild, gotUser, gotReason string
 	var gotDays int
-	m.hasBanPermissions = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) bool { return true }
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return true }
 	m.createBan = func(_ *discordgo.Session, guildID, userID, reason string, days int) error {
 		gotGuild, gotUser, gotReason, gotDays = guildID, userID, reason, days
 		return nil

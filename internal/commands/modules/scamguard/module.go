@@ -62,7 +62,7 @@ type Module struct {
 	sendLogEmbed      func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed) error
 	sendLogMessage    func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error
 	authorIsModerator func(s *discordgo.Session, e *discordgo.MessageCreate) bool
-	hasBanPermissions func(s *discordgo.Session, i *discordgo.InteractionCreate) bool
+	hasBanPermissions func(i *discordgo.InteractionCreate) bool
 	createBan         func(s *discordgo.Session, guildID, userID, reason string, days int) error
 	respond           func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
 }

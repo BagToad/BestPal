@@ -76,11 +76,12 @@ type timeoutCall struct {
 }
 
 type enforceRec struct {
-	mu       sync.Mutex
-	deleted  []string
-	timeouts []timeoutCall
-	logs     []*discordgo.MessageEmbed
-	isMod    bool
+	mu         sync.Mutex
+	deleted    []string
+	timeouts   []timeoutCall
+	logs       []*discordgo.MessageEmbed
+	components [][]discordgo.MessageComponent
+	isMod      bool
 }
 
 // newTestModule builds a module with recording seams and an injectable image
@@ -115,6 +116,13 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *enforceRec, map[s
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.logs = append(rec.logs, embed)
+		return nil
+	}
+	m.sendLogMessage = func(_ *discordgo.Session, _ string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		rec.logs = append(rec.logs, embed)
+		rec.components = append(rec.components, components)
 		return nil
 	}
 	m.authorIsModerator = func(_ *discordgo.Session, _ *discordgo.MessageCreate) bool {
@@ -319,6 +327,15 @@ func TestOnMessageCreate_MatchTimesOut(t *testing.T) {
 	require.NotNil(t, rec.timeouts[0].until)
 	require.True(t, rec.timeouts[0].until.After(time.Now()))
 	require.Len(t, rec.logs, 1)
+	require.Len(t, rec.components, 1)
+	require.Len(t, rec.components[0], 1)
+	row, ok := rec.components[0][0].(discordgo.ActionsRow)
+	require.True(t, ok)
+	require.Len(t, row.Components, 1)
+	button, ok := row.Components[0].(discordgo.Button)
+	require.True(t, ok)
+	require.Equal(t, "Ban", button.Label)
+	require.Equal(t, banScamButtonPrefix+"U1", button.CustomID)
 }
 
 func TestOnMessageCreate_ActionDelete_NoTimeout(t *testing.T) {
@@ -683,4 +700,55 @@ func TestModule_DBPersistsAndReloads(t *testing.T) {
 
 	m3 := New(&types.Dependencies{Config: cfg, DB: db})
 	require.Equal(t, 0, m3.hashCount())
+}
+
+func componentInteraction(customID string) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		Type:      discordgo.InteractionMessageComponent,
+		GuildID:   "G1",
+		ChannelID: "C1",
+		Member:    &discordgo.Member{User: &discordgo.User{ID: "MOD1"}},
+		Data:      discordgo.MessageComponentInteractionData{CustomID: customID},
+	}}
+}
+
+func TestHandleComponent_BanRequiresPermission(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	called := false
+	m.hasBanPermissions = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) bool { return false }
+	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { called = true; return nil }
+	var response string
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		response = resp.Data.Content
+		return nil
+	}
+
+	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+
+	require.False(t, called)
+	require.Equal(t, "❌ You need the Ban Members permission to use this button.", response)
+}
+
+func TestHandleComponent_BansDetectedUserWithSharedOperation(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	var gotGuild, gotUser, gotReason string
+	var gotDays int
+	m.hasBanPermissions = func(_ *discordgo.Session, _ *discordgo.InteractionCreate) bool { return true }
+	m.createBan = func(_ *discordgo.Session, guildID, userID, reason string, days int) error {
+		gotGuild, gotUser, gotReason, gotDays = guildID, userID, reason, days
+		return nil
+	}
+	var response string
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		response = resp.Data.Content
+		return nil
+	}
+
+	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+
+	require.Equal(t, "G1", gotGuild)
+	require.Equal(t, "U1", gotUser)
+	require.Equal(t, "Scam image detected", gotReason)
+	require.Equal(t, 0, gotDays)
+	require.Equal(t, "✅ Banned <@U1>.", response)
 }

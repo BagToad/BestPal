@@ -11,6 +11,8 @@ import (
 // maxTimeout is Discord's hard cap on member timeout duration.
 const maxTimeout = 28 * 24 * time.Hour
 
+const banScamButtonPrefix = "scamguard:ban:"
+
 // enforce applies the configured action for a detected scam image and logs it.
 // Actions are cumulative: "log" only logs; "delete" also deletes the message;
 // "timeout" also times the author out.
@@ -76,7 +78,10 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, mat
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
-	if err := m.sendLogEmbed(s, channelID, embed); err != nil {
+	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{Label: "Ban", Style: discordgo.DangerButton, CustomID: banScamButtonPrefix + e.Author.ID},
+	}}}
+	if err := m.sendLogMessage(s, channelID, embed, components); err != nil {
 		m.config.Logger.Warnf("scamguard: failed to send log embed: %v", err)
 	}
 }

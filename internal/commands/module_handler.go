@@ -196,6 +196,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
+	case strings.HasPrefix(cid, "scamguard:"):
+		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
+			scamMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Scamguard interaction received but scamguard module not available")
+		}
 	default:
 		// LFG module handles all other component interactions
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {

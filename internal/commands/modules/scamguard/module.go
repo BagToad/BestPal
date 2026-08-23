@@ -17,6 +17,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -59,7 +60,11 @@ type Module struct {
 	deleteMessage     func(s *discordgo.Session, channelID, messageID string) error
 	timeoutMember     func(s *discordgo.Session, guildID, userID string, until *time.Time) error
 	sendLogEmbed      func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed) error
+	sendLogMessage    func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error
 	authorIsModerator func(s *discordgo.Session, e *discordgo.MessageCreate) bool
+	hasBanPermissions func(s *discordgo.Session, i *discordgo.InteractionCreate) bool
+	createBan         func(s *discordgo.Session, guildID, userID, reason string, days int) error
+	respond           func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
 }
 
 // New creates a new scamguard module and loads the known-bad hash list.
@@ -133,7 +138,24 @@ func (m *Module) setDefaultSeams() {
 			return err
 		}
 	}
+	if m.sendLogMessage == nil {
+		m.sendLogMessage = func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
+			_, err := s.ChannelMessageSendComplex(channelID, &discordgo.MessageSend{Embed: embed, Components: components})
+			return err
+		}
+	}
 	if m.authorIsModerator == nil {
 		m.authorIsModerator = defaultAuthorIsModerator
+	}
+	if m.hasBanPermissions == nil {
+		m.hasBanPermissions = utils.HasBanPermissions
+	}
+	if m.createBan == nil {
+		m.createBan = utils.CreateBan
+	}
+	if m.respond == nil {
+		m.respond = func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+			return s.InteractionRespond(i, resp)
+		}
 	}
 }

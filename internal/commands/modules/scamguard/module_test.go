@@ -703,11 +703,16 @@ func TestModule_DBPersistsAndReloads(t *testing.T) {
 }
 
 func componentInteraction(customID string) *discordgo.InteractionCreate {
+	return componentInteractionWithMessage(customID, nil)
+}
+
+func componentInteractionWithMessage(customID string, msg *discordgo.Message) *discordgo.InteractionCreate {
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		Type:      discordgo.InteractionMessageComponent,
 		GuildID:   "G1",
 		ChannelID: "C1",
 		Member:    &discordgo.Member{User: &discordgo.User{ID: "MOD1"}},
+		Message:   msg,
 		Data:      discordgo.MessageComponentInteractionData{CustomID: customID},
 	}}
 }
@@ -729,7 +734,7 @@ func TestHandleComponent_BanRequiresPermission(t *testing.T) {
 	require.Equal(t, "❌ You need the Ban Members permission to use this button.", response)
 }
 
-func TestHandleComponent_BansDetectedUserWithSharedOperation(t *testing.T) {
+func TestHandleComponent_BansAndUpdatesEmbed(t *testing.T) {
 	m, _, _ := newTestModule(t, nil)
 	var gotGuild, gotUser, gotReason string
 	var gotDays int
@@ -738,17 +743,53 @@ func TestHandleComponent_BansDetectedUserWithSharedOperation(t *testing.T) {
 		gotGuild, gotUser, gotReason, gotDays = guildID, userID, reason, days
 		return nil
 	}
-	var response string
+	var gotResp *discordgo.InteractionResponse
 	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
-		response = resp.Data.Content
+		gotResp = resp
 		return nil
 	}
 
-	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+	msg := &discordgo.Message{
+		Embeds: []*discordgo.MessageEmbed{
+			{Title: "🛡️ Scam Image Detected", Fields: []*discordgo.MessageEmbedField{
+				{Name: "User", Value: "<@U1>"},
+			}},
+		},
+	}
+	m.HandleComponent(nil, componentInteractionWithMessage(banScamButtonPrefix+"U1", msg))
 
 	require.Equal(t, "G1", gotGuild)
 	require.Equal(t, "U1", gotUser)
 	require.Equal(t, "Scam image detected", gotReason)
 	require.Equal(t, 0, gotDays)
-	require.Equal(t, "✅ Banned <@U1>.", response)
+
+	// Response should update the original message, not send an ephemeral.
+	require.NotNil(t, gotResp)
+	require.Equal(t, discordgo.InteractionResponseUpdateMessage, gotResp.Type)
+	require.Empty(t, gotResp.Data.Components)
+	require.Len(t, gotResp.Data.Embeds, 1)
+
+	// Last field should be "Banned by" with the mod's mention.
+	fields := gotResp.Data.Embeds[0].Fields
+	last := fields[len(fields)-1]
+	require.Equal(t, "Banned by", last.Name)
+	require.Equal(t, "<@MOD1>", last.Value)
+}
+
+func TestHandleComponent_BansWithNoEmbed_FallsBackToEphemeral(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return true }
+	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { return nil }
+	var gotResp *discordgo.InteractionResponse
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		gotResp = resp
+		return nil
+	}
+
+	// No message attached to interaction.
+	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+
+	require.NotNil(t, gotResp)
+	require.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, gotResp.Type)
+	require.Equal(t, "✅ Banned <@U1>.", gotResp.Data.Content)
 }

@@ -41,5 +41,31 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		respond(fmt.Sprintf("❌ Failed to ban user: %v", err))
 		return
 	}
-	respond(fmt.Sprintf("✅ Banned <@%s>.", targetID))
+
+	// Edit the original log embed to reflect the ban and remove the button.
+	modID := i.Member.User.ID
+	var updatedEmbed *discordgo.MessageEmbed
+	if i.Message != nil && len(i.Message.Embeds) > 0 {
+		embedCopy := *i.Message.Embeds[0]
+		embedCopy.Fields = append(embedCopy.Fields, &discordgo.MessageEmbedField{
+			Name:   "Banned by",
+			Value:  fmt.Sprintf("<@%s>", modID),
+			Inline: true,
+		})
+		embedCopy.Color = 0x36393f // muted/resolved
+		updatedEmbed = &embedCopy
+	}
+
+	if updatedEmbed == nil {
+		respond(fmt.Sprintf("✅ Banned <@%s>.", targetID))
+		return
+	}
+
+	_ = m.respond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Embeds:     []*discordgo.MessageEmbed{updatedEmbed},
+			Components: []discordgo.MessageComponent{}, // remove button
+		},
+	})
 }

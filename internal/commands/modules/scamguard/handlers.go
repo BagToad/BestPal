@@ -8,8 +8,8 @@ import (
 )
 
 // HandleComponent handles moderation controls attached to scam detections.
-// Permission is checked at click time as well as when the message is created;
-// Discord component custom IDs are not an authorization mechanism.
+// Permission is enforced at click time; Discord component custom IDs are not
+// an authorization mechanism.
 func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	customID := i.MessageComponentData().CustomID
 	if !strings.HasPrefix(customID, banScamButtonPrefix) {

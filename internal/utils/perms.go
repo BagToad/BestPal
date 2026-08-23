@@ -12,18 +12,17 @@ func CreateBan(s *discordgo.Session, guildID, userID, reason string, days int) e
 	return s.GuildBanCreateWithReason(guildID, userID, reason, days)
 }
 
-// HasBanPermissions checks whether the interaction user can ban members in the
-// current channel. Administrators are included because Discord treats that
-// permission as implying Ban Members.
-func HasBanPermissions(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
-	if s == nil || i == nil || i.Member == nil || i.Member.User == nil {
+// HasBanPermissions reports whether the interaction user holds guild-level ban
+// permissions. Ban Members and Administrator are guild-wide bits; using
+// i.Member.Permissions (supplied by Discord in the interaction payload) avoids
+// a channel-permission lookup that can be masked by channel overwrites and
+// diverge from actual moderation authority.
+func HasBanPermissions(_ *discordgo.Session, i *discordgo.InteractionCreate) bool {
+	if i == nil || i.Member == nil {
 		return false
 	}
-	permissions, err := s.UserChannelPermissions(i.Member.User.ID, i.ChannelID)
-	if err != nil {
-		return false
-	}
-	return permissions&(discordgo.PermissionBanMembers|discordgo.PermissionAdministrator) != 0
+	const banBits = discordgo.PermissionBanMembers | discordgo.PermissionAdministrator
+	return i.Member.Permissions&banBits != 0
 }
 
 // HasAdminPermissions checks if the user has administrator permissions

@@ -26,7 +26,7 @@ import (
 	"gamerpal/internal/forumcache"
 	"strings"
 
-	"github.com/Henry-Sarabia/igdb/v2"
+	"gamerpal/internal/igdbclient"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -37,12 +37,12 @@ type ModuleHandler struct {
 	config     *internalConfig.Config
 	db         *database.DB
 	deps       *types.Dependencies
-	igdbClient *igdb.Client
+	igdbClient *igdbclient.Client
 }
 
 // NewModuleHandler creates a new module-based command handler
 func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *ModuleHandler {
-	igdbClient := igdb.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientToken(), nil)
+	igdbClient := igdbclient.NewClient(cfg.GetIGDBClientID(), cfg.GetIGDBClientSecret())
 
 	db, err := database.NewDB(cfg.GetDatabasePath())
 	if err != nil {
@@ -109,13 +109,6 @@ func (h *ModuleHandler) registerModules() {
 	}
 
 	for _, m := range modules {
-		// Special handling for refreshigdb module to update IGDB client
-		if m.name == "refreshigdb" {
-			if rm, ok := m.module.(*refreshigdb.Module); ok {
-				rm.SetIGDBClientRef(&h.igdbClient)
-			}
-		}
-
 		m.module.Register(h.commands, h.deps)
 		h.modules[m.name] = m.module
 	}

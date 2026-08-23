@@ -341,7 +341,15 @@ func (m *Module) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game)
 	}
 
 	if len(exact.Websites) > 0 {
-		if sites, err := m.igdbClient.Websites.List(exact.Websites, igdb.SetFields("url", "category")); err == nil {
+		err := m.igdbClient.Retry(func() error {
+			websitesSvc, err := m.igdbClient.Websites()
+			if err != nil {
+				return err
+			}
+			sites, err := websitesSvc.List(exact.Websites, igdb.SetFields("url", "category"))
+			if err != nil {
+				return err
+			}
 			var parts []string
 			addSite := func(label, url string) {
 				if url != "" {
@@ -374,6 +382,10 @@ func (m *Module) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game)
 			if len(parts) > 0 {
 				linksLine = strings.Join(parts, " | ")
 			}
+			return nil
+		})
+		if err != nil {
+			m.config.Logger.Debugf("LFG: failed fetching websites for '%s': %v", displayName, err)
 		}
 	}
 
@@ -381,18 +393,36 @@ func (m *Module) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game)
 	// We intentionally keep this lightweight; a cache could be added later if needed.
 	// IGDB Game struct's Cover field is an ID referencing a cover resource containing image_id.
 	if exact.Cover > 0 { // Cover is present
-		if covers, err := m.igdbClient.Covers.List([]int{exact.Cover}, igdb.SetFields("image_id")); err == nil {
+		err := m.igdbClient.Retry(func() error {
+			coversSvc, err := m.igdbClient.Covers()
+			if err != nil {
+				return err
+			}
+			covers, err := coversSvc.List([]int{exact.Cover}, igdb.SetFields("image_id"))
+			if err != nil {
+				return err
+			}
 			if len(covers) > 0 && covers[0] != nil && covers[0].ImageID != "" {
 				// Use a medium/large preset; can adjust size variant if needed (t_cover_big, t_1080p, etc.)
 				coverURL = fmt.Sprintf("https://images.igdb.com/igdb/image/upload/t_cover_big/%s.jpg", covers[0].ImageID)
 			}
-		} else {
+			return nil
+		})
+		if err != nil {
 			m.config.Logger.Debugf("LFG: failed fetching cover for '%s': %v", displayName, err)
 		}
 	}
 
 	if len(exact.MultiplayerModes) > 0 {
-		if modes, err := m.igdbClient.MultiplayerModes.List(exact.MultiplayerModes, igdb.SetFields("*")); err == nil {
+		err := m.igdbClient.Retry(func() error {
+			modesSvc, err := m.igdbClient.MultiplayerModes()
+			if err != nil {
+				return err
+			}
+			modes, err := modesSvc.List(exact.MultiplayerModes, igdb.SetFields("*"))
+			if err != nil {
+				return err
+			}
 			var onlineMax, coopMax int
 			for _, m := range modes {
 				if m == nil {
@@ -416,6 +446,10 @@ func (m *Module) createLFGThreadFromExactMatch(forumID string, exact *igdb.Game)
 					playerLine += fmt.Sprintf("co-op up to %d", coopMax)
 				}
 			}
+			return nil
+		})
+		if err != nil {
+			m.config.Logger.Debugf("LFG: failed fetching multiplayer modes for '%s': %v", displayName, err)
 		}
 	}
 

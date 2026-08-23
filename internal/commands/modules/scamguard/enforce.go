@@ -2,6 +2,7 @@ package scamguard
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -16,27 +17,23 @@ const banScamButtonPrefix = "scamguard:ban:"
 // enforce applies the configured action for a detected scam image and logs it.
 // Actions are cumulative: "log" only logs; "delete" also deletes the message;
 // "timeout" also times the author out.
-func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, matched string) {
+// imageData and matchedAttachment are the already-fetched bytes and attachment
+// that triggered the match — passed in from detect.go to avoid a redundant
+// network fetch and to guarantee we log the correct image.
+func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, matched string, imageData []byte, matchedAttachment *discordgo.MessageAttachment) {
 	action := m.config.GetScamGuardAction()
 
-	// Download the matched image before any deletion — Discord purges CDN URLs
-	// the moment a message is deleted, so we must fetch the bytes first.
-	var imageData []byte
-	var imageFilename string
-	for _, a := range e.Attachments {
-		if a.URL != "" {
-			data, err := m.fetchImage(a.URL, maxImageBytes)
-			if err != nil {
-				m.config.Logger.Warnf("scamguard: failed to download attachment for log: %v", err)
-			} else {
-				imageData = data
-				imageFilename = a.Filename
-				if imageFilename == "" {
-					imageFilename = "scam-image.png"
-				}
-			}
-			break // only need the first matched attachment
-		}
+	imageFilename := ""
+	imageContentType := ""
+	if matchedAttachment != nil {
+		imageFilename = matchedAttachment.Filename
+		imageContentType = matchedAttachment.ContentType
+	}
+	if imageFilename == "" {
+		imageFilename = "scam-image.png"
+	}
+	if imageContentType == "" {
+		imageContentType = http.DetectContentType(imageData)
 	}
 
 	deleted := false
@@ -61,13 +58,13 @@ func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, match
 		}
 	}
 
-	m.logAction(s, e, matched, imageData, imageFilename, deleted, timedOut, appliedTimeout)
+	m.logAction(s, e, matched, imageData, imageFilename, imageContentType, deleted, timedOut, appliedTimeout)
 }
 
 // logAction posts a mod-channel embed describing the detection and what was
 // done. timeoutDur is the effective (clamped) timeout applied, used only for
 // display.
-func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, matched string, imageData []byte, imageFilename string, deleted, timedOut bool, timeoutDur time.Duration) {
+func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, matched string, imageData []byte, imageFilename, imageContentType string, deleted, timedOut bool, timeoutDur time.Duration) {
 	channelID := m.config.GetScamGuardLogChannelID()
 	if channelID == "" {
 		return
@@ -107,7 +104,7 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, mat
 	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Ban", Style: discordgo.DangerButton, CustomID: banScamButtonPrefix + e.Author.ID},
 	}}}
-	if err := m.sendLogMessage(s, channelID, embed, components, imageData, imageFilename); err != nil {
+	if err := m.sendLogMessage(s, channelID, embed, components, imageData, imageFilename, imageContentType); err != nil {
 		m.config.Logger.Warnf("scamguard: failed to send log message: %v", err)
 	}
 }

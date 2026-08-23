@@ -76,12 +76,14 @@ type timeoutCall struct {
 }
 
 type enforceRec struct {
-	mu         sync.Mutex
-	deleted    []string
-	timeouts   []timeoutCall
-	logs       []*discordgo.MessageEmbed
-	components [][]discordgo.MessageComponent
-	isMod      bool
+	mu            sync.Mutex
+	deleted       []string
+	timeouts      []timeoutCall
+	logs          []*discordgo.MessageEmbed
+	components    [][]discordgo.MessageComponent
+	logImageData  [][]byte
+	logImageNames []string
+	isMod         bool
 }
 
 // newTestModule builds a module with recording seams and an injectable image
@@ -118,11 +120,13 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *enforceRec, map[s
 		rec.logs = append(rec.logs, embed)
 		return nil
 	}
-	m.sendLogMessage = func(_ *discordgo.Session, _ string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename string) error {
+	m.sendLogMessage = func(_ *discordgo.Session, _ string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename, imageContentType string) error {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.logs = append(rec.logs, embed)
 		rec.components = append(rec.components, components)
+		rec.logImageData = append(rec.logImageData, imageData)
+		rec.logImageNames = append(rec.logImageNames, imageFilename)
 		return nil
 	}
 	m.authorIsModerator = func(_ *discordgo.Session, _ *discordgo.MessageCreate) bool {
@@ -329,6 +333,9 @@ func TestOnMessageCreate_MatchTimesOut(t *testing.T) {
 	require.Len(t, rec.logs, 1)
 	require.NotNil(t, rec.logs[0].Image, "log embed should include the matched image")
 	require.Equal(t, "attachment://scam.jpg", rec.logs[0].Image.URL)
+	require.Len(t, rec.logImageData, 1)
+	require.NotEmpty(t, rec.logImageData[0], "image bytes should be passed to sendLogMessage")
+	require.Equal(t, "scam.jpg", rec.logImageNames[0])
 	require.Len(t, rec.components, 1)
 	require.Len(t, rec.components[0], 1)
 	row, ok := rec.components[0][0].(discordgo.ActionsRow)

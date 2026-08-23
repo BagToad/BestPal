@@ -48,7 +48,7 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 
-	// Edit the original log embed to reflect the ban and remove the button.
+	// Edit the original log embed to reflect the ban and disable the button.
 	modID := i.Member.User.ID
 	var updatedEmbed *discordgo.MessageEmbed
 	if i.Message != nil && len(i.Message.Embeds) > 0 {

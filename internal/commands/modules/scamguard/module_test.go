@@ -743,6 +743,11 @@ func TestHandleComponent_BansAndUpdatesEmbed(t *testing.T) {
 		gotGuild, gotUser, gotReason, gotDays = guildID, userID, reason, days
 		return nil
 	}
+	var dmmedUser, dmContent string
+	m.sendDM = func(_ *discordgo.Session, userID, message string) error {
+		dmmedUser, dmContent = userID, message
+		return nil
+	}
 	var gotResp *discordgo.InteractionResponse
 	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 		gotResp = resp
@@ -762,6 +767,11 @@ func TestHandleComponent_BansAndUpdatesEmbed(t *testing.T) {
 	require.Equal(t, "U1", gotUser)
 	require.Equal(t, "Scam image detected", gotReason)
 	require.Equal(t, 0, gotDays)
+
+	// DM should be sent before ban.
+	require.Equal(t, "U1", dmmedUser)
+	require.Contains(t, dmContent, "Scam image detected")
+	require.Contains(t, dmContent, "gamerpals.xyz")
 
 	// Response should update the original message, not send an ephemeral.
 	require.NotNil(t, gotResp)
@@ -786,6 +796,7 @@ func TestHandleComponent_BansWithNoEmbed_FallsBackToEphemeral(t *testing.T) {
 	m, _, _ := newTestModule(t, nil)
 	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return true }
 	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { return nil }
+	m.sendDM = func(_ *discordgo.Session, _, _ string) error { return nil }
 	var gotResp *discordgo.InteractionResponse
 	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 		gotResp = resp

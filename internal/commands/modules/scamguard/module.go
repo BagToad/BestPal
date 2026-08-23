@@ -64,6 +64,7 @@ type Module struct {
 	authorIsModerator func(s *discordgo.Session, e *discordgo.MessageCreate) bool
 	hasBanPermissions func(i *discordgo.InteractionCreate) bool
 	createBan         func(s *discordgo.Session, guildID, userID, reason string, days int) error
+	sendDM            func(s *discordgo.Session, userID, message string) error
 	respond           func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
 }
 
@@ -152,6 +153,16 @@ func (m *Module) setDefaultSeams() {
 	}
 	if m.createBan == nil {
 		m.createBan = utils.CreateBan
+	}
+	if m.sendDM == nil {
+		m.sendDM = func(s *discordgo.Session, userID, message string) error {
+			ch, err := s.UserChannelCreate(userID)
+			if err != nil {
+				return err
+			}
+			_, err = s.ChannelMessageSend(ch.ID, message)
+			return err
+		}
 	}
 	if m.respond == nil {
 		m.respond = func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {

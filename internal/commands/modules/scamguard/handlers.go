@@ -37,6 +37,12 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 
+	// DM the user before banning so the message delivers before they lose guild access.
+	const scamBanDMMessage = "You have been banned from GamerPals. Reason: Scam image detected.\n\nSee https://gamerpals.xyz/docs/info/moderation-policies/#appealing-punishments"
+	if err := m.sendDM(s, targetID, scamBanDMMessage); err != nil {
+		m.config.Logger.Warnf("scamguard: could not DM %s before banning (DMs may be disabled): %v", targetID, err)
+	}
+
 	if err := m.createBan(s, i.GuildID, targetID, "Scam image detected", 0); err != nil {
 		respond(fmt.Sprintf("❌ Failed to ban user: %v", err))
 		return

@@ -11,12 +11,14 @@
 package scamguard
 
 import (
+	"bytes"
 	"sync"
 	"time"
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -59,7 +61,12 @@ type Module struct {
 	deleteMessage     func(s *discordgo.Session, channelID, messageID string) error
 	timeoutMember     func(s *discordgo.Session, guildID, userID string, until *time.Time) error
 	sendLogEmbed      func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed) error
+	sendLogMessage    func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename, imageContentType string) error
 	authorIsModerator func(s *discordgo.Session, e *discordgo.MessageCreate) bool
+	hasBanPermissions func(i *discordgo.InteractionCreate) bool
+	createBan         func(s *discordgo.Session, guildID, userID, reason string, days int) error
+	sendDM            func(s *discordgo.Session, userID, message string) error
+	respond           func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
 }
 
 // New creates a new scamguard module and loads the known-bad hash list.
@@ -133,7 +140,42 @@ func (m *Module) setDefaultSeams() {
 			return err
 		}
 	}
+	if m.sendLogMessage == nil {
+		m.sendLogMessage = func(s *discordgo.Session, channelID string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename, imageContentType string) error {
+			msg := &discordgo.MessageSend{Embed: embed, Components: components}
+			if len(imageData) > 0 && imageFilename != "" {
+				msg.Files = []*discordgo.File{{
+					Name:        imageFilename,
+					ContentType: imageContentType,
+					Reader:      bytes.NewReader(imageData),
+				}}
+			}
+			_, err := s.ChannelMessageSendComplex(channelID, msg)
+			return err
+		}
+	}
 	if m.authorIsModerator == nil {
 		m.authorIsModerator = defaultAuthorIsModerator
+	}
+	if m.hasBanPermissions == nil {
+		m.hasBanPermissions = utils.HasBanPermissions
+	}
+	if m.createBan == nil {
+		m.createBan = utils.CreateBan
+	}
+	if m.sendDM == nil {
+		m.sendDM = func(s *discordgo.Session, userID, message string) error {
+			ch, err := s.UserChannelCreate(userID)
+			if err != nil {
+				return err
+			}
+			_, err = s.ChannelMessageSend(ch.ID, message)
+			return err
+		}
+	}
+	if m.respond == nil {
+		m.respond = func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+			return s.InteractionRespond(i, resp)
+		}
 	}
 }

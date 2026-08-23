@@ -6,6 +6,7 @@ import (
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -36,7 +37,7 @@ func defaultBanOpts() banOpts {
 }
 
 func createBan(s *discordgo.Session, guildID, userID, reason string, days int) error {
-	return s.GuildBanCreateWithReason(guildID, userID, reason, days)
+	return utils.CreateBan(s, guildID, userID, reason, days)
 }
 
 func respond(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error {

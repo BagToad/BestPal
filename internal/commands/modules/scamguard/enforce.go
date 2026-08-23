@@ -19,6 +19,15 @@ const banScamButtonPrefix = "scamguard:ban:"
 func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, matched string) {
 	action := m.config.GetScamGuardAction()
 
+	// Capture attachment URLs before any deletion — Discord purges CDN URLs
+	// when a message is deleted, so we must snapshot them first.
+	var attachmentURLs []string
+	for _, a := range e.Attachments {
+		if a.URL != "" {
+			attachmentURLs = append(attachmentURLs, a.URL)
+		}
+	}
+
 	deleted := false
 	if action == "delete" || action == "timeout" {
 		if err := m.deleteMessage(s, e.ChannelID, e.ID); err != nil {
@@ -41,13 +50,13 @@ func (m *Module) enforce(s *discordgo.Session, e *discordgo.MessageCreate, match
 		}
 	}
 
-	m.logAction(s, e, matched, deleted, timedOut, appliedTimeout)
+	m.logAction(s, e, matched, attachmentURLs, deleted, timedOut, appliedTimeout)
 }
 
 // logAction posts a mod-channel embed describing the detection and what was
 // done. timeoutDur is the effective (clamped) timeout applied, used only for
 // display.
-func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, matched string, deleted, timedOut bool, timeoutDur time.Duration) {
+func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, matched string, attachmentURLs []string, deleted, timedOut bool, timeoutDur time.Duration) {
 	channelID := m.config.GetScamGuardLogChannelID()
 	if channelID == "" {
 		return
@@ -79,8 +88,8 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, mat
 	}
 
 	// Attach the matched image so mods can see what triggered the detection.
-	if len(e.Attachments) > 0 {
-		embed.Image = &discordgo.MessageEmbedImage{URL: e.Attachments[0].URL}
+	if len(attachmentURLs) > 0 {
+		embed.Image = &discordgo.MessageEmbedImage{URL: attachmentURLs[0]}
 	}
 
 	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{

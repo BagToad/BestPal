@@ -64,8 +64,17 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 	_ = m.respond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseUpdateMessage,
 		Data: &discordgo.InteractionResponseData{
-			Embeds:     []*discordgo.MessageEmbed{updatedEmbed},
-			Components: []discordgo.MessageComponent{}, // remove button
+			Embeds: []*discordgo.MessageEmbed{updatedEmbed},
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Ban",
+						Style:    discordgo.DangerButton,
+						CustomID: customID,
+						Disabled: true,
+					},
+				}},
+			},
 		},
 	})
 }

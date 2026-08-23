@@ -766,7 +766,13 @@ func TestHandleComponent_BansAndUpdatesEmbed(t *testing.T) {
 	// Response should update the original message, not send an ephemeral.
 	require.NotNil(t, gotResp)
 	require.Equal(t, discordgo.InteractionResponseUpdateMessage, gotResp.Type)
-	require.Empty(t, gotResp.Data.Components)
+	require.Len(t, gotResp.Data.Components, 1)
+	row, ok := gotResp.Data.Components[0].(discordgo.ActionsRow)
+	require.True(t, ok)
+	require.Len(t, row.Components, 1)
+	btn, ok := row.Components[0].(discordgo.Button)
+	require.True(t, ok)
+	require.True(t, btn.Disabled)
 	require.Len(t, gotResp.Data.Embeds, 1)
 
 	// Last field should be "Banned by" with the mod's mention.

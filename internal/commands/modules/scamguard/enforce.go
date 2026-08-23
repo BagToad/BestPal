@@ -78,6 +78,11 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, mat
 		Timestamp: time.Now().Format(time.RFC3339),
 	}
 
+	// Attach the matched image so mods can see what triggered the detection.
+	if len(e.Attachments) > 0 {
+		embed.Image = &discordgo.MessageEmbedImage{URL: e.Attachments[0].URL}
+	}
+
 	components := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Ban", Style: discordgo.DangerButton, CustomID: banScamButtonPrefix + e.Author.ID},
 	}}}

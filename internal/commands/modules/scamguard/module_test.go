@@ -327,6 +327,8 @@ func TestOnMessageCreate_MatchTimesOut(t *testing.T) {
 	require.NotNil(t, rec.timeouts[0].until)
 	require.True(t, rec.timeouts[0].until.After(time.Now()))
 	require.Len(t, rec.logs, 1)
+	require.NotNil(t, rec.logs[0].Image, "log embed should include the matched image")
+	require.Equal(t, "grad", rec.logs[0].Image.URL)
 	require.Len(t, rec.components, 1)
 	require.Len(t, rec.components[0], 1)
 	row, ok := rec.components[0][0].(discordgo.ActionsRow)

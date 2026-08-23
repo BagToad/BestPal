@@ -82,7 +82,7 @@ func (m *Module) logAction(s *discordgo.Session, e *discordgo.MessageCreate, mat
 		discordgo.Button{Label: "Ban", Style: discordgo.DangerButton, CustomID: banScamButtonPrefix + e.Author.ID},
 	}}}
 	if err := m.sendLogMessage(s, channelID, embed, components); err != nil {
-		m.config.Logger.Warnf("scamguard: failed to send log embed: %v", err)
+		m.config.Logger.Warnf("scamguard: failed to send log message: %v", err)
 	}
 }
 

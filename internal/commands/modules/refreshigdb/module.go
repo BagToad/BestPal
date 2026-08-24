@@ -43,7 +43,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 	}
 }
 
-func strPtr(s string) *string { return &s }
+func ptr[T any](v T) *T { return &v }
 
 // handleRefreshIGDB forces a token refresh for the IGDB client.
 // Only usable in bot DM context by super admins.
@@ -63,7 +63,7 @@ func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Interactio
 	})
 
 	if m.igdbClient == nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: strPtr("❌ IGDB client is not initialized.")})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: ptr("❌ IGDB client is not initialized.")})
 		return
 	}
 
@@ -72,12 +72,12 @@ func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.Interactio
 	elapsed := time.Since(startTime)
 
 	if err != nil {
-		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: strPtr(fmt.Sprintf("❌ Failed to force-refresh token: %v", err))})
+		_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: ptr(fmt.Sprintf("❌ Failed to force-refresh token: %v", err))})
 		return
 	}
 
 	msg := fmt.Sprintf("✅ IGDB token force-rotated in %.2f seconds.\n\nThe new token is now active for all IGDB operations.", elapsed.Seconds())
-	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: strPtr(msg)})
+	_, _ = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: ptr(msg)})
 }
 
 // Service returns nil as this module has no services requiring initialization

@@ -18,10 +18,6 @@ func (c *Config) GetIGDBClientSecret() string {
 	return c.v.GetString("igdb_client_secret")
 }
 
-func (c *Config) GetIGDBClientToken() string {
-	return c.v.GetString("igdb_client_token")
-}
-
 func (c *Config) GetCryptoSalt() string {
 	return c.v.GetString("crypto_salt")
 }

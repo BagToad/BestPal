@@ -19,19 +19,22 @@ type Client struct {
 	clientID     string
 	clientSecret string
 
-	mu            sync.RWMutex
-	token         string
-	igdbClient    *igdb.Client
-	fetchInFlight bool
+	mu         sync.Mutex
+	cond       *sync.Cond
+	token      string
+	igdbClient *igdb.Client
+	fetching   bool
 }
 
 // NewClient creates a new auto-refreshing IGDB client.
 // The token is fetched lazily on first use, so this constructor never blocks.
 func NewClient(clientID, clientSecret string) *Client {
-	return &Client{
+	c := &Client{
 		clientID:     clientID,
 		clientSecret: clientSecret,
 	}
+	c.cond = sync.NewCond(&c.mu)
+	return c
 }
 
 // Games returns the Games service, ensuring the client is initialized.
@@ -72,47 +75,34 @@ func (c *Client) MultiplayerModes() (*igdb.MultiplayerModeService, error) {
 
 // getClient returns the underlying IGDB client, initializing it lazily if needed.
 func (c *Client) getClient() (*igdb.Client, error) {
-	c.mu.RLock()
-	if c.igdbClient != nil {
-		defer c.mu.RUnlock()
-		return c.igdbClient, nil
-	}
-	c.mu.RUnlock()
-
-	// Need to initialize
-	return c.ensureToken()
-}
-
-// ensureToken fetches a fresh token and creates a new IGDB client.
-// Concurrent calls are coalesced: only one fetch happens at a time.
-func (c *Client) ensureToken() (*igdb.Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.igdbClient != nil {
+		return c.igdbClient, nil
+	}
+	return c.doFetch()
+}
 
-	// Double-check after acquiring write lock
+// doFetch fetches a fresh token and creates a new IGDB client.
+// Must be called with c.mu held. Concurrent callers wait on c.cond until the
+// in-flight fetch completes, then return the result without fetching again.
+func (c *Client) doFetch() (*igdb.Client, error) {
+	// Wait out any in-flight fetch; re-check afterward.
+	for c.fetching {
+		c.cond.Wait()
+	}
 	if c.igdbClient != nil {
 		return c.igdbClient, nil
 	}
 
-	// If a fetch is already in flight, wait for it
-	for c.fetchInFlight {
-		c.mu.Unlock()
-		// Small sleep to avoid busy waiting
-		// In a production system with heavy concurrency, you'd use a sync.Cond
-		// but for this use case (few concurrent requests), a simple approach works
-		c.mu.Lock()
-		if c.igdbClient != nil {
-			return c.igdbClient, nil
-		}
-	}
-
-	c.fetchInFlight = true
+	c.fetching = true
 	c.mu.Unlock()
 
 	token, err := fetchTwitchAppToken(c.clientID, c.clientSecret)
 
 	c.mu.Lock()
-	c.fetchInFlight = false
+	c.fetching = false
+	c.cond.Broadcast()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch IGDB token: %w", err)
@@ -123,24 +113,27 @@ func (c *Client) ensureToken() (*igdb.Client, error) {
 	return c.igdbClient, nil
 }
 
-// RefreshToken forces a token refresh, useful for the /refresh-igdb command.
+// RefreshToken forces a token refresh, replacing the in-memory client.
+// Concurrent callers coalesce: only one fetch runs; others wait and return
+// after the fetch completes.
 func (c *Client) RefreshToken() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// If a fetch is already in flight, wait for it
-	for c.fetchInFlight {
-		c.mu.Unlock()
-		c.mu.Lock()
+	// Wait out any in-flight fetch first.
+	for c.fetching {
+		c.cond.Wait()
 	}
 
-	c.fetchInFlight = true
+	c.fetching = true
+	c.igdbClient = nil // invalidate so doFetch will proceed
 	c.mu.Unlock()
 
 	token, err := fetchTwitchAppToken(c.clientID, c.clientSecret)
 
 	c.mu.Lock()
-	c.fetchInFlight = false
+	c.fetching = false
+	c.cond.Broadcast()
 
 	if err != nil {
 		return fmt.Errorf("failed to refresh IGDB token: %w", err)
@@ -215,14 +208,12 @@ func (c *Client) Retry(fn func() error) error {
 		return nil
 	}
 
-	// Check if error indicates auth failure
 	if !isAuthError(err) {
 		return err
 	}
 
-	// Refresh token and retry once
-	if err := c.RefreshToken(); err != nil {
-		return fmt.Errorf("token refresh failed: %w", err)
+	if refreshErr := c.RefreshToken(); refreshErr != nil {
+		return fmt.Errorf("token refresh failed: %w", refreshErr)
 	}
 
 	return fn()

@@ -102,15 +102,22 @@ func TestConcurrentTokenFetchCoalescing(t *testing.T) {
 
 	// Launch 10 concurrent getClient calls
 	var wg sync.WaitGroup
+	errCh := make(chan error, 10)
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_, err := client.getClient()
-			require.NoError(t, err)
+			if err != nil {
+				errCh <- err
+			}
 		}()
 	}
 	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
 
 	// Should have only fetched token once despite 10 concurrent calls
 	assert.Equal(t, 1, fetchCount, "concurrent getClient calls should coalesce to one fetch")

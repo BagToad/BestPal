@@ -25,11 +25,16 @@ func ExactMatchWithSuggestions(igdbClient *igdbclient.Client, gameName string) (
 		return nil, fmt.Errorf("empty game name")
 	}
 
+	// Wrap IGDB calls with auto-retry on auth failure.
+	// Reset accumulator vars at the top of the closure so a retry attempt
+	// starts clean and doesn't double-append results from the first attempt.
 	var games []*igdb.Game
 	var searchErr error
 
-	// Wrap IGDB calls with auto-retry on auth failure
 	err := igdbClient.Retry(func() error {
+		games = nil
+		searchErr = nil
+
 		gamesSvc, err := igdbClient.Games()
 		if err != nil {
 			return err

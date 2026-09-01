@@ -24,11 +24,6 @@ var systemPromptRaw string
 
 var systemPrompt = strings.TrimSpace(systemPromptRaw)
 
-//go:embed prompts/internal_request_mode.md
-var internalRequestModePromptRaw string
-
-var internalRequestModePrompt = strings.TrimSpace(internalRequestModePromptRaw)
-
 const (
 	defaultSessionTimeout = 60 * time.Second
 	maxDiscordReplyLen    = 1900
@@ -51,6 +46,13 @@ type Agent struct {
 
 	brain          *Brain
 	brainRefreshMu sync.Mutex
+}
+
+type HandleInternalOptions struct {
+    S *discordgo.Session
+    SystemPrompt string
+    UserPrompt string
+    Caller agentctx.Caller
 }
 
 func New(cfg *config.Config, s *discordgo.Session) (*Agent, error) {
@@ -189,28 +191,24 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 // HandleInternal runs an internal query and returns the raw agent response text.
 // Internal requests run with the internal-only system prompt, separate from the
 // base chat system prompt.
-func (a *Agent) HandleInternal(s *discordgo.Session, prompt string) string {
+func (a *Agent) HandleInternal(opts HandleInternalOptions) string {
 	a.clientMu.Lock()
 	client := a.client
 	a.clientMu.Unlock()
-	if client == nil || s == nil {
+	if client == nil || opts.S == nil {
 		return ""
 	}
 
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
+	userPrompt := strings.TrimSpace(opts.UserPrompt)
+	systemPrompt := strings.TrimSpace(opts.SystemPrompt)
+	if userPrompt == "" || systemPrompt == "" {
 		return ""
-	}
-
-	caller := agentctx.Caller{
-		UserID:  firstMentionUserID(prompt),
-		GuildID: a.cfg.GetGamerPalsServerID(),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSessionTimeout)
 	defer cancel()
 
-	reply, err := a.run(ctx, client, prompt, internalRequestModePrompt, caller)
+	reply, err := a.run(ctx, client, userPrompt, systemPrompt, opts.Caller)
 	if err != nil {
 		a.cfg.Logger.Warnf("agent: internal run failed: %v", err)
 		return ""

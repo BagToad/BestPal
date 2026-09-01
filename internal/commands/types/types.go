@@ -1,6 +1,7 @@
 package types
 
 import (
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/forumcache"
@@ -58,7 +59,7 @@ type CommandModule interface {
 // ComponentAgent defines the agent entrypoint used by component handlers that
 // need machine-readable results for deterministic UI responses.
 type ComponentAgent interface {
-	HandleInternal(s *discordgo.Session, prompt string) string
+	HandleInternal(opts agentengine.HandleInternalOptions) string
 }
 
 // Dependencies contains shared dependencies that command modules may need

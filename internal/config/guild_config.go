@@ -246,6 +246,10 @@ func (gc *GuildConfig) GetIntroFeedBoosterRateLimitHours() int {
 	return hours
 }
 
+func (gc *GuildConfig) GetIntroAvailableRoleID() string {
+	return gc.resolveString(KeyIntroAvailableRoleID)
+}
+
 // LFG
 // -----
 

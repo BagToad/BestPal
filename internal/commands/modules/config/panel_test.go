@@ -22,6 +22,7 @@ func productionLikeRegistry() *config.Registry {
 		{Key: config.KeyIntroFeedChannelID, Category: config.CategoryIntro, Label: "Intro Feed", Kind: config.KindChannel},
 		{Key: config.KeyIntroFeedRateLimitHours, Category: config.CategoryIntro, Label: "Rate Hours", Kind: config.KindInt, Default: 48},
 		{Key: config.KeyIntroFeedBoosterRateLimit, Category: config.CategoryIntro, Label: "Booster Hours", Kind: config.KindInt, Default: 0},
+		{Key: config.KeyIntroAvailableRoleID, Category: config.CategoryIntro, Label: "Intro Available Role", Kind: config.KindRole},
 
 		{Key: config.KeyLFGForumChannelID, Category: config.CategoryLFG, Label: "LFG Forum", Kind: config.KindChannel},
 		{Key: config.KeyLFGNowPanelChannelID, Category: config.CategoryLFG, Label: "Now Panel", Kind: config.KindChannel},

@@ -7,9 +7,9 @@ For the query:
 
 `Find the game threads for the games <@userID> plays.`
 
-respond with this JSON shape only:
+respond with the following JSON structure only:
 
-```json
+<BEGIN-JSON-STRUCTURE-EXAMPLE>
 {
   "game-threads": [
     {
@@ -18,7 +18,7 @@ respond with this JSON shape only:
     }
   ]
 }
-```
+<END-JSON-STRUCTURE-EXAMPLE>
 
 Schema requirements:
 

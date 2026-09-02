@@ -18,7 +18,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
-	"gamerpal/internal/utils"
+	"gamerpal/internal/permissions"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -158,10 +158,14 @@ func (m *Module) setDefaultSeams() {
 		m.authorIsModerator = defaultAuthorIsModerator
 	}
 	if m.hasBanPermissions == nil {
-		m.hasBanPermissions = utils.HasBanPermissions
+		m.hasBanPermissions = func(i *discordgo.InteractionCreate) bool {
+			return permissions.HasBanPermissions(permissions.BanPermissionsOptions{Interaction: i})
+		}
 	}
 	if m.createBan == nil {
-		m.createBan = utils.CreateBan
+		m.createBan = func(s *discordgo.Session, guildID, userID, reason string, days int) error {
+			return permissions.CreateBan(permissions.CreateBanOptions{Session: s, GuildID: guildID, UserID: userID, Reason: reason, DeleteDays: days})
+		}
 	}
 	if m.sendDM == nil {
 		m.sendDM = func(s *discordgo.Session, userID, message string) error {

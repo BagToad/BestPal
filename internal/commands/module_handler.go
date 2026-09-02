@@ -199,6 +199,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
+	case strings.HasPrefix(cid, "scamguard:"):
+		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
+			scamMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Scamguard interaction received but scamguard module not available")
+		}
 	case strings.HasPrefix(cid, "intro:lookup-games"):
 		if introMod, ok := h.GetModule("intro").(*intro.Module); ok {
 			introMod.HandleComponent(s, i)

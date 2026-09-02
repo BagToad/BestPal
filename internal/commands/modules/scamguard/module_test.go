@@ -76,11 +76,14 @@ type timeoutCall struct {
 }
 
 type enforceRec struct {
-	mu       sync.Mutex
-	deleted  []string
-	timeouts []timeoutCall
-	logs     []*discordgo.MessageEmbed
-	isMod    bool
+	mu            sync.Mutex
+	deleted       []string
+	timeouts      []timeoutCall
+	logs          []*discordgo.MessageEmbed
+	components    [][]discordgo.MessageComponent
+	logImageData  [][]byte
+	logImageNames []string
+	isMod         bool
 }
 
 // newTestModule builds a module with recording seams and an injectable image
@@ -115,6 +118,15 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *enforceRec, map[s
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		rec.logs = append(rec.logs, embed)
+		return nil
+	}
+	m.sendLogMessage = func(_ *discordgo.Session, _ string, embed *discordgo.MessageEmbed, components []discordgo.MessageComponent, imageData []byte, imageFilename, imageContentType string) error {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		rec.logs = append(rec.logs, embed)
+		rec.components = append(rec.components, components)
+		rec.logImageData = append(rec.logImageData, imageData)
+		rec.logImageNames = append(rec.logImageNames, imageFilename)
 		return nil
 	}
 	m.authorIsModerator = func(_ *discordgo.Session, _ *discordgo.MessageCreate) bool {
@@ -319,6 +331,20 @@ func TestOnMessageCreate_MatchTimesOut(t *testing.T) {
 	require.NotNil(t, rec.timeouts[0].until)
 	require.True(t, rec.timeouts[0].until.After(time.Now()))
 	require.Len(t, rec.logs, 1)
+	require.NotNil(t, rec.logs[0].Image, "log embed should include the matched image")
+	require.Equal(t, "attachment://scam.jpg", rec.logs[0].Image.URL)
+	require.Len(t, rec.logImageData, 1)
+	require.NotEmpty(t, rec.logImageData[0], "image bytes should be passed to sendLogMessage")
+	require.Equal(t, "scam.jpg", rec.logImageNames[0])
+	require.Len(t, rec.components, 1)
+	require.Len(t, rec.components[0], 1)
+	row, ok := rec.components[0][0].(discordgo.ActionsRow)
+	require.True(t, ok)
+	require.Len(t, row.Components, 1)
+	button, ok := row.Components[0].(discordgo.Button)
+	require.True(t, ok)
+	require.Equal(t, "Ban", button.Label)
+	require.Equal(t, banScamButtonPrefix+"U1", button.CustomID)
 }
 
 func TestOnMessageCreate_ActionDelete_NoTimeout(t *testing.T) {
@@ -683,4 +709,113 @@ func TestModule_DBPersistsAndReloads(t *testing.T) {
 
 	m3 := New(&types.Dependencies{Config: cfg, DB: db})
 	require.Equal(t, 0, m3.hashCount())
+}
+
+func componentInteraction(customID string) *discordgo.InteractionCreate {
+	return componentInteractionWithMessage(customID, nil)
+}
+
+func componentInteractionWithMessage(customID string, msg *discordgo.Message) *discordgo.InteractionCreate {
+	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		Type:      discordgo.InteractionMessageComponent,
+		GuildID:   "G1",
+		ChannelID: "C1",
+		Member:    &discordgo.Member{User: &discordgo.User{ID: "MOD1"}},
+		Message:   msg,
+		Data:      discordgo.MessageComponentInteractionData{CustomID: customID},
+	}}
+}
+
+func TestHandleComponent_BanRequiresPermission(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	called := false
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return false }
+	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { called = true; return nil }
+	var response string
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		response = resp.Data.Content
+		return nil
+	}
+
+	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+
+	require.False(t, called)
+	require.Equal(t, "❌ You need the Ban Members permission to use this button.", response)
+}
+
+func TestHandleComponent_BansAndUpdatesEmbed(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	var gotGuild, gotUser, gotReason string
+	var gotDays int
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return true }
+	m.createBan = func(_ *discordgo.Session, guildID, userID, reason string, days int) error {
+		gotGuild, gotUser, gotReason, gotDays = guildID, userID, reason, days
+		return nil
+	}
+	var dmmedUser, dmContent string
+	m.sendDM = func(_ *discordgo.Session, userID, message string) error {
+		dmmedUser, dmContent = userID, message
+		return nil
+	}
+	var gotResp *discordgo.InteractionResponse
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		gotResp = resp
+		return nil
+	}
+
+	msg := &discordgo.Message{
+		Embeds: []*discordgo.MessageEmbed{
+			{Title: "🛡️ Scam Image Detected", Fields: []*discordgo.MessageEmbedField{
+				{Name: "User", Value: "<@U1>"},
+			}},
+		},
+	}
+	m.HandleComponent(nil, componentInteractionWithMessage(banScamButtonPrefix+"U1", msg))
+
+	require.Equal(t, "G1", gotGuild)
+	require.Equal(t, "U1", gotUser)
+	require.Equal(t, "Scam image detected", gotReason)
+	require.Equal(t, 0, gotDays)
+
+	// DM should be sent before ban.
+	require.Equal(t, "U1", dmmedUser)
+	require.Contains(t, dmContent, "Scam image detected")
+	require.Contains(t, dmContent, "gamerpals.xyz")
+
+	// Response should update the original message, not send an ephemeral.
+	require.NotNil(t, gotResp)
+	require.Equal(t, discordgo.InteractionResponseUpdateMessage, gotResp.Type)
+	require.Len(t, gotResp.Data.Components, 1)
+	row, ok := gotResp.Data.Components[0].(discordgo.ActionsRow)
+	require.True(t, ok)
+	require.Len(t, row.Components, 1)
+	btn, ok := row.Components[0].(discordgo.Button)
+	require.True(t, ok)
+	require.True(t, btn.Disabled)
+	require.Len(t, gotResp.Data.Embeds, 1)
+
+	// Last field should be "Banned by" with the mod's mention.
+	fields := gotResp.Data.Embeds[0].Fields
+	last := fields[len(fields)-1]
+	require.Equal(t, "Banned by", last.Name)
+	require.Equal(t, "<@MOD1>", last.Value)
+}
+
+func TestHandleComponent_BansWithNoEmbed_FallsBackToEphemeral(t *testing.T) {
+	m, _, _ := newTestModule(t, nil)
+	m.hasBanPermissions = func(_ *discordgo.InteractionCreate) bool { return true }
+	m.createBan = func(_ *discordgo.Session, _, _, _ string, _ int) error { return nil }
+	m.sendDM = func(_ *discordgo.Session, _, _ string) error { return nil }
+	var gotResp *discordgo.InteractionResponse
+	m.respond = func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
+		gotResp = resp
+		return nil
+	}
+
+	// No message attached to interaction.
+	m.HandleComponent(nil, componentInteraction(banScamButtonPrefix+"U1"))
+
+	require.NotNil(t, gotResp)
+	require.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, gotResp.Type)
+	require.Equal(t, "✅ Banned <@U1>.", gotResp.Data.Content)
 }

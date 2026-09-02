@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
-	"gamerpal/internal/utils"
+	"gamerpal/internal/permissions"
 	"io"
 	"net/http"
 	"net/url"
@@ -53,7 +53,7 @@ func (m *Module) SetIGDBClientRef(client **igdb.Client) {
 // handleRefreshIGDB refreshes the IGDB access token using the stored client ID and client secret.
 // Only usable in bot DM context by super admins.
 func (m *Module) handleRefreshIGDB(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if !utils.IsSuperAdmin(i.User.ID, m.config) {
+	if !permissions.IsSuperAdmin(permissions.SuperAdminOptions{UserID: i.User.ID, Config: m.config}) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{Content: "❌ You do not have permission to use this command.", Flags: discordgo.MessageFlagsEphemeral},

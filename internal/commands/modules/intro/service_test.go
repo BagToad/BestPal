@@ -7,6 +7,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/forumcache"
+	"gamerpal/internal/permissions"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
@@ -93,8 +94,8 @@ func TestCheckIntroRoleEligibility(t *testing.T) {
 	})
 }
 
-func TestIsModeratorPermissions(t *testing.T) {
-	assert.True(t, isModeratorPermissions(discordgo.PermissionManageMessages))
-	assert.True(t, isModeratorPermissions(discordgo.PermissionAdministrator))
-	assert.False(t, isModeratorPermissions(discordgo.PermissionSendMessages))
+func TestModeratorPermissionsRejectsIncompleteOptions(t *testing.T) {
+	moderator, err := permissions.HasModeratorPermissions(permissions.AdminPermissionsOptions{})
+	assert.Error(t, err)
+	assert.False(t, moderator)
 }

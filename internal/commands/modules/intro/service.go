@@ -9,6 +9,7 @@ import (
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/forumcache"
+	"gamerpal/internal/permissions"
 	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
@@ -544,16 +545,14 @@ func (s *IntroFeedService) checkIntroRoleEligibility(member *discordgo.Member, l
 }
 
 func (s *IntroFeedService) isModerator(guildID, userID, channelID string) (bool, error) {
-	permissions, err := s.deps.Session.UserChannelPermissions(userID, channelID)
-	if err != nil {
-		return false, err
+	if s.deps.Session == nil {
+		return false, discordgo.ErrNilState
 	}
-	return isModeratorPermissions(permissions), nil
-}
-
-func isModeratorPermissions(permissions int64) bool {
-	const moderatorPermissions = discordgo.PermissionManageMessages | discordgo.PermissionAdministrator
-	return permissions&moderatorPermissions != 0
+	return permissions.HasModeratorPermissions(permissions.AdminPermissionsOptions{
+		Session:   s.deps.Session,
+		UserID:    userID,
+		ChannelID: channelID,
+	})
 }
 
 func (s *IntroFeedService) removeIntroAvailableRoleIfPresent(guildID, userID string) error {

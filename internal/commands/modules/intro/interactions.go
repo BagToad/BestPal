@@ -4,9 +4,10 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
+
 	"gamerpal/internal/agentctx"
 	"gamerpal/internal/agentengine"
-	"strings"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -66,8 +67,8 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 		return
 	}
 
-	// Update the message to show that the lookup is in progress
-	// Button label is updated and the button is disabled
+	// Update the message to show that the lookup is in progress.
+	// Button label is updated and the button is disabled.
 	autoIntroComment := newAutoIntroComment(i.GuildID, m.config.Config.GetIntroFeedChannelID())
 	autoIntroComment.aiLoadingState = true
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
@@ -132,7 +133,7 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 		UserPrompt:   prompt,
 		// Set the user that initiated the interaction (button click) as the caller for the agent request.
 		Caller: agentctx.Caller{
-			UserID:  i.Member.User.ID,
+			UserID:  interactionUserID(i),
 			GuildID: i.GuildID,
 		},
 	}
@@ -169,6 +170,19 @@ func (m *Module) handleLookupGamesComponent(s *discordgo.Session, i *discordgo.I
 	if err := m.config.DB.UpsertGameThreadsLookupExecution(i.ChannelID); err != nil {
 		m.config.Config.Logger.Errorf("failed to update game threads lookup execution tracker for intro thread %s: %v", i.ChannelID, err)
 	}
+}
+
+func interactionUserID(i *discordgo.InteractionCreate) string {
+	if i == nil {
+		return ""
+	}
+	if i.Member != nil && i.Member.User != nil {
+		return i.Member.User.ID
+	}
+	if i.User != nil {
+		return i.User.ID
+	}
+	return ""
 }
 
 func respondErrorWithComponentsReset(m *Module, autoIntroComment AutoIntroComment, s *discordgo.Session, i *discordgo.InteractionCreate, message string) {

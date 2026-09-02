@@ -219,9 +219,16 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		return
 	}
 
+	// Require the configured availability role. This keeps deployments that have
+	// not completed the role setup from bypassing the posting cooldown.
+	if s.deps.Config.ForGuild(thread.GuildID).GetIntroAvailableRoleID() == "" {
+		s.deps.Config.Logger.Warnf("Skipping intro feed forwarding for thread %s: intro available role is not configured", thread.ID)
+		return
+	}
+
 	// Get the user's display name
 	member, err := s.deps.Session.GuildMember(thread.GuildID, thread.OwnerID)
-	if err != nil {
+	if err != nil || member == nil {
 		s.deps.Config.Logger.Errorf("Failed to fetch guild member for user %s: %v", thread.OwnerID, err)
 		return
 	}
@@ -438,7 +445,7 @@ func (s *IntroFeedService) ScheduledFuncs() map[string]func() error {
 	}
 }
 
-// Checks all members of the guild and ensures that those who are eligible for the 
+// Checks all members of the guild and ensures that those who are eligible for the
 // intro_available role have it, and those who are not eligible do not have it.
 func (s *IntroFeedService) reconcileIntroAvailableRole() error {
 	if s.deps.Session == nil {
@@ -454,6 +461,10 @@ func (s *IntroFeedService) reconcileIntroAvailableRole() error {
 	roleID := s.deps.Config.ForGuild(guildID).GetIntroAvailableRoleID()
 	if roleID == "" {
 		s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping reconciliation for guild %s: intro_available_role_id is not configured", guildID)
+		return nil
+	}
+	if s.deps.ForumCache == nil {
+		s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping reconciliation for guild %s: forum cache is unavailable", guildID)
 		return nil
 	}
 

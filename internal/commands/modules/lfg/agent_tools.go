@@ -3,6 +3,7 @@ package lfg
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"gamerpal/internal/agentctx"
 
@@ -167,6 +168,7 @@ func channelToThreadInfo(ch *discordgo.Channel, created bool) *threadInfo {
 }
 
 func (m *Module) batchSearchGameThreads(gameNames []string, sessionID string) *batchSearchResult {
+	gameNames = deduplicateGameNames(gameNames)
 	out := &batchSearchResult{
 		Games:        make([]gameThreadResult, 0, len(gameNames)),
 		MissingGames: make([]string, 0, len(gameNames)),
@@ -199,6 +201,29 @@ func (m *Module) batchSearchGameThreads(gameNames []string, sessionID string) *b
 		out.Note = m.missingThreadNoteForSession(sessionID)
 	}
 	return out
+}
+
+func deduplicateGameNames(gameNames []string) []string {
+	seen := make(map[string]struct{}, len(gameNames))
+	unique := make([]string, 0, len(gameNames))
+	for _, rawName := range gameNames {
+		name := strings.TrimSpace(rawName)
+		if name == "" {
+			continue
+		}
+		key := strings.Map(func(r rune) rune {
+			if unicode.IsSpace(r) {
+				return -1
+			}
+			return unicode.ToLower(r)
+		}, name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, name)
+	}
+	return unique
 }
 
 func (m *Module) missingThreadNoteForSession(sessionID string) string {

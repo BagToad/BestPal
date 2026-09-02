@@ -4,8 +4,8 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"slices"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -49,10 +49,10 @@ type Agent struct {
 }
 
 type HandleInternalOptions struct {
-    S *discordgo.Session
-    SystemPrompt string
-    UserPrompt string
-    Caller agentctx.Caller
+	S            *discordgo.Session
+	SystemPrompt string
+	UserPrompt   string
+	Caller       agentctx.Caller
 }
 
 func New(cfg *config.Config, s *discordgo.Session) (*Agent, error) {

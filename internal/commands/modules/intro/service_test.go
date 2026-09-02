@@ -92,3 +92,9 @@ func TestCheckIntroRoleEligibility(t *testing.T) {
 		assert.True(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, meta, now))
 	})
 }
+
+func TestIsModeratorPermissions(t *testing.T) {
+	assert.True(t, isModeratorPermissions(discordgo.PermissionManageMessages))
+	assert.True(t, isModeratorPermissions(discordgo.PermissionAdministrator))
+	assert.False(t, isModeratorPermissions(discordgo.PermissionSendMessages))
+}

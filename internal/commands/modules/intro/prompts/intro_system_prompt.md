@@ -20,8 +20,9 @@ respond with the following JSON structure only:
 }
 <END-JSON-STRUCTURE-EXAMPLE>
 
-Schema requirements:
+Requirements:
 
+- Deduplicate the user's game list before searching for matching threads.
 - `game-threads` is required and must be an array.
 - Every item must include `name` and `url`.
 - `name` must not be empty.

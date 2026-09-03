@@ -227,13 +227,12 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		return
 	}
 	displayName := member.DisplayName()
-	moderator, err := s.isModerator(thread.GuildID, thread.OwnerID, introForumID)
-	if err != nil {
-		s.deps.Config.Logger.Warnf("Failed to determine moderation permissions for user %s: %v", thread.OwnerID, err)
-		// Do not risk consuming a moderator's role when permission resolution fails.
-		moderator = true
-	}
-	if !moderator && s.deps.Config.ForGuild(thread.GuildID).GetIntroAvailableRoleID() == "" {
+	isAdmin := permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{
+		Session:   s.deps.Session,
+		UserID:    thread.OwnerID,
+		ChannelID: introForumID,
+	})
+	if !isAdmin && s.deps.Config.ForGuild(thread.GuildID).GetIntroAvailableRoleID() == "" {
 		s.deps.Config.Logger.Warnf("Skipping intro feed forwarding for thread %s: intro available role is not configured", thread.ID)
 		return
 	}
@@ -249,9 +248,9 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	// Consume intro availability only after the post is successfully forwarded.
-	// Moderators are allowed to create intros without the availability role and
+	// Administrators are allowed to create intros without the availability role and
 	// should not have that role managed by this lifecycle.
-	if !moderator {
+	if !isAdmin {
 		if err := s.removeIntroAvailableRoleIfPresent(thread.GuildID, thread.OwnerID); err != nil {
 			s.deps.Config.Logger.Warnf("[IntroAvailable] Failed to remove role after intro forward for user %s: %v", thread.OwnerID, err)
 		}
@@ -496,13 +495,11 @@ func (s *IntroFeedService) reconcileIntroAvailableRole() error {
 		scanned++
 		userID := member.User.ID
 
-		moderator, err := s.isModerator(guildID, userID, introForumID)
-		if err != nil {
-			s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping moderator check for user %s: %v", userID, err)
-			failures++
-			continue
-		}
-		if moderator {
+		if permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{
+			Session:   s.deps.Session,
+			UserID:    userID,
+			ChannelID: introForumID,
+		}) {
 			skippedModerators++
 			continue
 		}
@@ -542,17 +539,6 @@ func (s *IntroFeedService) checkIntroRoleEligibility(member *discordgo.Member, l
 	cooldownHours := s.cooldownHoursForMember(member)
 	eligibleAt := latestIntro.CreatedAt.Add(time.Duration(cooldownHours) * time.Hour)
 	return !now.Before(eligibleAt)
-}
-
-func (s *IntroFeedService) isModerator(guildID, userID, channelID string) (bool, error) {
-	if s.deps.Session == nil {
-		return false, discordgo.ErrNilState
-	}
-	return permissions.HasModeratorPermissions(permissions.AdminPermissionsOptions{
-		Session:   s.deps.Session,
-		UserID:    userID,
-		ChannelID: channelID,
-	})
 }
 
 func (s *IntroFeedService) removeIntroAvailableRoleIfPresent(guildID, userID string) error {

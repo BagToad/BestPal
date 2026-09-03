@@ -3,6 +3,7 @@ package permissions
 
 import (
 	"gamerpal/internal/config"
+	"slices"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -13,39 +14,38 @@ type AdminPermissionsOptions struct {
 	ChannelID string
 }
 
-// HasAdminPermissions reports whether a user has Administrator in a channel.
+// HasAdminPermissions checks if the user has administrator permissions
 func HasAdminPermissions(opts AdminPermissionsOptions) bool {
-	permissions, err := resolveChannelPermissions(opts)
-	return err == nil && permissions&discordgo.PermissionAdministrator != 0
-}
-
-// HasModeratorPermissions reports whether a user has moderator-level authority.
-func HasModeratorPermissions(opts AdminPermissionsOptions) (bool, error) {
-	permissions, err := resolveChannelPermissions(opts)
-	if err != nil {
-		return false, err
-	}
-	return permissions&(discordgo.PermissionManageMessages|discordgo.PermissionAdministrator) != 0, nil
-}
-
-func resolveChannelPermissions(opts AdminPermissionsOptions) (int64, error) {
 	if opts.Session == nil || opts.UserID == "" || opts.ChannelID == "" {
-		return 0, discordgo.ErrNilState
+		return false
 	}
-	return opts.Session.UserChannelPermissions(opts.UserID, opts.ChannelID)
+
+	// Get the member's permissions
+	permissions, err := opts.Session.UserChannelPermissions(opts.UserID, opts.ChannelID)
+	if err != nil {
+		return false
+	}
+
+	// Check for administrator permission
+	return permissions&discordgo.PermissionAdministrator != 0
 }
 
 type BanPermissionsOptions struct {
 	Interaction *discordgo.InteractionCreate
 }
 
-// HasBanPermissions reports whether an interaction user can ban members.
+// HasBanPermissions reports whether the interaction user holds guild-level ban
+// permissions. Ban Members and Administrator are guild-wide bits; using
+// i.Member.Permissions (supplied by Discord in the interaction payload) avoids
+// a channel-permission lookup that can be masked by channel overwrites and
+// diverge from actual moderation authority.
 func HasBanPermissions(opts BanPermissionsOptions) bool {
-	if opts.Interaction == nil || opts.Interaction.Member == nil {
+	i := opts.Interaction
+	if i == nil || i.Member == nil {
 		return false
 	}
 	const banBits = discordgo.PermissionBanMembers | discordgo.PermissionAdministrator
-	return opts.Interaction.Member.Permissions&banBits != 0
+	return i.Member.Permissions&banBits != 0
 }
 
 type CreateBanOptions struct {
@@ -56,6 +56,7 @@ type CreateBanOptions struct {
 	DeleteDays int
 }
 
+// CreateBan is the shared Discord ban operation used by moderation features.
 func CreateBan(opts CreateBanOptions) error {
 	if opts.Session == nil || opts.GuildID == "" || opts.UserID == "" {
 		return discordgo.ErrNilState
@@ -69,13 +70,10 @@ type SuperAdminOptions struct {
 }
 
 func IsSuperAdmin(opts SuperAdminOptions) bool {
-	if opts.Config == nil || opts.UserID == "" {
+	if opts.Config == nil {
 		return false
 	}
-	for _, id := range opts.Config.GetSuperAdmins() {
-		if id == opts.UserID {
-			return true
-		}
-	}
-	return false
+
+	superAdmins := opts.Config.GetSuperAdmins()
+	return slices.Contains(superAdmins, opts.UserID)
 }

@@ -11,12 +11,6 @@ func TestHasAdminPermissionsRejectsIncompleteOptions(t *testing.T) {
 	assert.False(t, HasAdminPermissions(AdminPermissionsOptions{}))
 }
 
-func TestHasModeratorPermissionsRejectsIncompleteOptions(t *testing.T) {
-	moderator, err := HasModeratorPermissions(AdminPermissionsOptions{})
-	assert.Error(t, err)
-	assert.False(t, moderator)
-}
-
 func TestHasBanPermissions(t *testing.T) {
 	assert.False(t, HasBanPermissions(BanPermissionsOptions{}))
 	assert.True(t, HasBanPermissions(BanPermissionsOptions{

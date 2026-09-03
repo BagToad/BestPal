@@ -7,7 +7,6 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/forumcache"
-	"gamerpal/internal/permissions"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
@@ -92,10 +91,4 @@ func TestCheckIntroRoleEligibility(t *testing.T) {
 		meta := &forumcache.ThreadMeta{CreatedAt: now.Add(-96 * time.Hour)}
 		assert.True(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, meta, now))
 	})
-}
-
-func TestModeratorPermissionsRejectsIncompleteOptions(t *testing.T) {
-	moderator, err := permissions.HasModeratorPermissions(permissions.AdminPermissionsOptions{})
-	assert.Error(t, err)
-	assert.False(t, moderator)
 }

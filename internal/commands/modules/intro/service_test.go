@@ -6,6 +6,7 @@ import (
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
+	"gamerpal/internal/forumcache"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
@@ -63,5 +64,31 @@ func TestCooldownHoursForMember(t *testing.T) {
 	t.Run("standard default (48) applies when standard limit unset", func(t *testing.T) {
 		svc := newFeedService(map[string]any{"intro_feed_booster_rate_limit_hours": 6})
 		assert.Equal(t, 48, svc.cooldownHoursForMember(&discordgo.Member{}))
+	})
+}
+
+func TestCheckIntroRoleEligibility(t *testing.T) {
+	now := time.Now()
+
+	t.Run("no intro metadata means eligible", func(t *testing.T) {
+		svc := newFeedService(map[string]any{"intro_feed_rate_limit_hours": 48})
+		assert.True(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, nil, now))
+	})
+
+	t.Run("unknown intro timestamp means eligible", func(t *testing.T) {
+		svc := newFeedService(map[string]any{"intro_feed_rate_limit_hours": 48})
+		assert.True(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, &forumcache.ThreadMeta{}, now))
+	})
+
+	t.Run("recent intro inside cooldown means not eligible", func(t *testing.T) {
+		svc := newFeedService(map[string]any{"intro_feed_rate_limit_hours": 48})
+		meta := &forumcache.ThreadMeta{CreatedAt: now.Add(-2 * time.Hour)}
+		assert.False(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, meta, now))
+	})
+
+	t.Run("old intro outside cooldown means eligible", func(t *testing.T) {
+		svc := newFeedService(map[string]any{"intro_feed_rate_limit_hours": 48})
+		meta := &forumcache.ThreadMeta{CreatedAt: now.Add(-96 * time.Hour)}
+		assert.True(t, svc.checkIntroRoleEligibility(&discordgo.Member{}, meta, now))
 	})
 }

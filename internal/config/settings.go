@@ -20,6 +20,7 @@ const (
 	KeyIntroFeedChannelID          = "intro_feed_channel_id"
 	KeyIntroFeedRateLimitHours     = "intro_feed_rate_limit_hours"
 	KeyIntroFeedBoosterRateLimit   = "intro_feed_booster_rate_limit_hours"
+	KeyIntroAvailableRoleID        = "intro_available_role_id"
 
 	KeyLFGForumChannelID    = "gamerpals_lfg_forum_channel_id"
 	KeyLFGNowPanelChannelID = "gamerpals_lfg_now_panel_channel_id"

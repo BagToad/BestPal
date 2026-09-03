@@ -48,6 +48,7 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyIntroFeedChannelID,
 		config.KeyIntroFeedRateLimitHours,
 		config.KeyIntroFeedBoosterRateLimit,
+		config.KeyIntroAvailableRoleID,
 		config.KeyLFGForumChannelID,
 		config.KeyLFGNowPanelChannelID,
 		config.KeyLFGNowRoleID,

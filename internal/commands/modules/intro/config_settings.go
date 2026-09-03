@@ -36,5 +36,12 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Kind:        config.KindInt,
 			Default:     0,
 		},
+		{
+			Key:         config.KeyIntroAvailableRoleID,
+			Category:    config.CategoryIntro,
+			Label:       "Intro available role",
+			Description: "Role required to create a new intro post/thread.",
+			Kind:        config.KindRole,
+		},
 	}
 }

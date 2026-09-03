@@ -1,6 +1,7 @@
 package types
 
 import (
+	"gamerpal/internal/agentengine"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/forumcache"
@@ -55,6 +56,12 @@ type CommandModule interface {
 	Service() ModuleService
 }
 
+// ComponentAgent defines the agent entrypoint used by component handlers that
+// need machine-readable results for deterministic UI responses.
+type ComponentAgent interface {
+	HandleInternal(opts agentengine.HandleInternalOptions) string
+}
+
 // Dependencies contains shared dependencies that command modules may need
 type Dependencies struct {
 	Config     *config.Config
@@ -62,4 +69,5 @@ type Dependencies struct {
 	IGDBClient *igdb.Client
 	Session    *discordgo.Session
 	ForumCache *forumcache.Service
+	Agent      ComponentAgent
 }

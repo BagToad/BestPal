@@ -58,9 +58,6 @@ type CreateBanOptions struct {
 
 // CreateBan is the shared Discord ban operation used by moderation features.
 func CreateBan(opts CreateBanOptions) error {
-	if opts.Session == nil || opts.GuildID == "" || opts.UserID == "" {
-		return discordgo.ErrNilState
-	}
 	return opts.Session.GuildBanCreateWithReason(opts.GuildID, opts.UserID, opts.Reason, opts.DeleteDays)
 }
 

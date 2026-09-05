@@ -201,10 +201,9 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 }
 
 // HandleNewIntroThread is called when a new thread is created in the intro forum.
-// It checks eligibility and forwards to the feed if appropriate.
-// Silently skips if user is on cooldown (for automatic forwarding).
+// It forwards the intro to the feed and posts a helper message in-thread.
 func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
-	if s.deps.Session == nil || s.deps.DB == nil {
+	if s.deps.Session == nil || thread == nil {
 		return
 	}
 
@@ -226,19 +225,17 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		s.deps.Config.Logger.Warnf("Failed to check intro feed eligibility for user %s: %v", thread.OwnerID, err)
 		return
 	}
-
 	if !eligibility.Eligible {
 		s.deps.Config.Logger.Infof("Skipping intro feed for user %s: %s", thread.OwnerID, eligibility.Reason)
-		// Still record the post so the post count increments
-		if err := s.deps.DB.RecordIntroFeedPost(thread.OwnerID, thread.ID, "", false); err != nil {
-			s.deps.Config.Logger.Warnf("Failed to record skipped intro feed post: %v", err)
+		if s.deps.DB != nil {
+			_ = s.deps.DB.RecordIntroFeedPost(thread.OwnerID, thread.ID, "", false)
 		}
 		return
 	}
 
-	// Get the user's display name
+	// Get the user's display name.
 	member, err := s.deps.Session.GuildMember(thread.GuildID, thread.OwnerID)
-	if err != nil {
+	if err != nil || member == nil {
 		s.deps.Config.Logger.Errorf("Failed to fetch guild member for user %s: %v", thread.OwnerID, err)
 		return
 	}
@@ -255,6 +252,17 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
+
+	// Post auto-post in the intro thread
+	autoIntroComment := newAutoIntroComment(thread.GuildID, feedChannelID)
+	_, err = s.deps.Session.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: autoIntroComment.components(),
+	})
+	if err != nil {
+		s.deps.Config.Logger.Warnf("Failed to post auto-post to intro thread %s: %v", thread.ID, err)
+		// Don't fail the overall function; feed post was successful
+	}
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.

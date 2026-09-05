@@ -1,7 +1,6 @@
 package intro
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -270,20 +269,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.
 // Unlike automatic forwarding, this returns an error/message to show the user.
-// If skipEligibilityCheck is true, bypasses the cooldown check (for moderators).
-func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, skipEligibilityCheck bool) error {
-	// Check eligibility unless bypassed
-	if !skipEligibilityCheck {
-		eligibility, err := s.CheckFeedEligibility(guildID, userID)
-		if err != nil {
-			return fmt.Errorf("failed to check eligibility: %w", err)
-		}
-
-		if !eligibility.Eligible {
-			return errors.New(eligibility.Reason)
-		}
-	}
-
+func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, isAdmin bool) error {
 	// Fetch the thread to get applied tags
 	var tagIDs []string
 	if s.deps.Session != nil {
@@ -299,6 +285,12 @@ func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayNam
 		return err
 	}
 
+	// Start the cooldown only after the bump is successfully forwarded.
+	if !isAdmin {
+		if err := s.addIntroCooldownRoleIfMissing(guildID, userID); err != nil {
+			return fmt.Errorf("failed to add intro cooldown role: %w", err)
+		}
+	}
 	return nil
 }
 

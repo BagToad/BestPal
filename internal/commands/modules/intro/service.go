@@ -1,7 +1,6 @@
 package intro
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,61 +25,6 @@ func NewIntroFeedService(deps *types.Dependencies) *IntroFeedService {
 	return &IntroFeedService{
 		deps: deps,
 	}
-}
-
-// EligibilityResult contains the result of checking feed eligibility
-type EligibilityResult struct {
-	Eligible      bool
-	TimeRemaining time.Duration
-	Reason        string
-}
-
-// CheckFeedEligibility checks if a user is eligible to have their intro posted to the feed.
-// This checks the database for the last time they had an intro posted. Server (Nitro) boosters
-// use a separate rate limit when one is configured (see feedCooldownHours).
-func (s *IntroFeedService) CheckFeedEligibility(guildID, userID string) (*EligibilityResult, error) {
-	if s.deps.DB == nil {
-		return &EligibilityResult{
-			Eligible: false,
-			Reason:   "Database not available",
-		}, nil
-	}
-
-	cooldownHours := s.feedCooldownHours(guildID, userID)
-	eligible, remaining, err := s.deps.DB.IsUserEligibleForIntroFeed(userID, cooldownHours)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check feed eligibility: %w", err)
-	}
-
-	if !eligible {
-		return &EligibilityResult{
-			Eligible:      false,
-			TimeRemaining: remaining,
-			Reason:        fmt.Sprintf("You can post to the feed again in %s", formatDuration(remaining)),
-		}, nil
-	}
-
-	return &EligibilityResult{
-		Eligible: true,
-	}, nil
-}
-
-// feedCooldownHours returns the rate-limit window (in hours) that applies to a user. When a
-// booster rate limit is configured and the user is a server booster, the booster window is used;
-// otherwise the standard window applies. The member is only fetched when a booster limit is set.
-func (s *IntroFeedService) feedCooldownHours(guildID, userID string) int {
-	boosterHours := s.deps.Config.GetIntroFeedBoosterRateLimitHours()
-	if boosterHours <= 0 || s.deps.Session == nil {
-		return s.deps.Config.GetIntroFeedRateLimitHours()
-	}
-
-	member, err := s.deps.Session.GuildMember(guildID, userID)
-	if err != nil {
-		s.deps.Config.Logger.Warnf("Failed to fetch member %s for booster rate limit check: %v", userID, err)
-		return s.deps.Config.GetIntroFeedRateLimitHours()
-	}
-
-	return s.cooldownHoursForMember(member)
 }
 
 // cooldownHoursForMember returns the applicable feed cooldown for an already-resolved member,
@@ -232,8 +176,8 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		UserID:    thread.OwnerID,
 		ChannelID: introForumID,
 	})
-	if !isAdmin && s.deps.Config.ForGuild(thread.GuildID).GetIntroAvailableRoleID() == "" {
-		s.deps.Config.Logger.Warnf("Skipping intro feed forwarding for thread %s: intro available role is not configured", thread.ID)
+	if !isAdmin && s.deps.Config.ForGuild(thread.GuildID).GetIntroCooldownRoleID() == "" {
+		s.deps.Config.Logger.Warnf("Skipping intro feed forwarding for thread %s: intro cooldown role is not configured", thread.ID)
 		return
 	}
 	if member != nil && member.Nick != "" {
@@ -247,12 +191,10 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 		return
 	}
 
-	// Consume intro availability only after the post is successfully forwarded.
-	// Administrators are allowed to create intros without the availability role and
-	// should not have that role managed by this lifecycle.
+	// Start the cooldown only after the post is successfully forwarded.
 	if !isAdmin {
-		if err := s.removeIntroAvailableRoleIfPresent(thread.GuildID, thread.OwnerID); err != nil {
-			s.deps.Config.Logger.Warnf("[IntroAvailable] Failed to remove role after intro forward for user %s: %v", thread.OwnerID, err)
+		if err := s.addIntroCooldownRoleIfMissing(thread.GuildID, thread.OwnerID); err != nil {
+			s.deps.Config.Logger.Warnf("[IntroCooldown] Failed to add role after intro forward for user %s: %v", thread.OwnerID, err)
 		}
 	}
 
@@ -272,20 +214,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.
 // Unlike automatic forwarding, this returns an error/message to show the user.
-// If skipEligibilityCheck is true, bypasses the cooldown check (for moderators).
-func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, skipEligibilityCheck bool) error {
-	// Check eligibility unless bypassed
-	if !skipEligibilityCheck {
-		eligibility, err := s.CheckFeedEligibility(guildID, userID)
-		if err != nil {
-			return fmt.Errorf("failed to check eligibility: %w", err)
-		}
-
-		if !eligibility.Eligible {
-			return errors.New(eligibility.Reason)
-		}
-	}
-
+func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, isAdmin bool) error {
 	// Fetch the thread to get applied tags
 	var tagIDs []string
 	if s.deps.Session != nil {
@@ -301,6 +230,12 @@ func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayNam
 		return err
 	}
 
+	// Start the cooldown only after the bump is successfully forwarded.
+	if !isAdmin {
+		if err := s.addIntroCooldownRoleIfMissing(guildID, userID); err != nil {
+			return fmt.Errorf("failed to add intro cooldown role: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -448,86 +383,76 @@ func (s *IntroFeedService) getUserAvatarURL(guildID, userID string) string {
 
 func (s *IntroFeedService) ScheduledFuncs() map[string]func() error {
 	return map[string]func() error{
-		"@hourly": s.reconcileIntroAvailableRole,
+		"@hourly": s.reconcileIntroCooldownRole,
 	}
 }
 
-// Checks all members of the guild and ensures that those who are eligible for the
-// intro_available role have it, and those who are not eligible do not have it.
-func (s *IntroFeedService) reconcileIntroAvailableRole() error {
+// Checks all human non-admin members and synchronizes the intro_cooldown role
+// with their latest intro and applicable normal or booster cooldown.
+func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 	if s.deps.Session == nil {
 		return nil
 	}
 
 	guildID := s.deps.Config.GetGamerPalsServerID()
 	if guildID == "" {
-		s.deps.Config.Logger.Warn("[IntroAvailable] Skipping reconciliation: guild ID not configured")
+		s.deps.Config.Logger.Warn("[IntroCooldown] Skipping reconciliation: guild ID not configured")
 		return nil
 	}
-
 	introForumID := s.deps.Config.GetGamerPalsIntroductionsForumChannelID()
 	if introForumID == "" {
-		s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping reconciliation for guild %s: introductions forum is not configured", guildID)
+		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: introductions forum is not configured", guildID)
 		return nil
 	}
-
-	roleID := s.deps.Config.ForGuild(guildID).GetIntroAvailableRoleID()
+	roleID := s.deps.Config.ForGuild(guildID).GetIntroCooldownRoleID()
 	if roleID == "" {
-		s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping reconciliation for guild %s: intro_available_role_id is not configured", guildID)
+		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: intro_cooldown_role_id is not configured", guildID)
 		return nil
 	}
 	if s.deps.ForumCache == nil {
-		s.deps.Config.Logger.Warnf("[IntroAvailable] Skipping reconciliation for guild %s: forum cache is unavailable", guildID)
+		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: forum cache is unavailable", guildID)
 		return nil
 	}
-
 	members, err := utils.GetAllHumanGuildMembers(s.deps.Session, guildID)
 	if err != nil {
-		return fmt.Errorf("failed to fetch guild members for intro-available reconciliation: %w", err)
+		return fmt.Errorf("failed to fetch guild members for intro-cooldown reconciliation: %w", err)
 	}
 
 	now := time.Now()
-	var scanned, eligible, added, skippedExisting, skippedModerators, skippedNotEligible, failures int
+	var scanned, added, removed, skippedAdmins, unchanged, failures int
 	for _, member := range members {
 		if member == nil || member.User == nil {
 			continue
 		}
 		scanned++
 		userID := member.User.ID
-
-		if permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{
-			Session:   s.deps.Session,
-			UserID:    userID,
-			ChannelID: introForumID,
-		}) {
-			skippedModerators++
+		if permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s.deps.Session, UserID: userID, ChannelID: introForumID}) {
+			skippedAdmins++
 			continue
 		}
-
-		if slices.Contains(member.Roles, roleID) {
-			skippedExisting++
-			continue
-		}
-
+		hasRole := slices.Contains(member.Roles, roleID)
 		latestMeta, _ := s.GetUserLatestIntroThread(userID)
-		if !s.checkIntroRoleEligibility(member, latestMeta, now) {
-			skippedNotEligible++
-			continue
+		onCooldown := !s.checkIntroRoleEligibility(member, latestMeta, now)
+		switch {
+		case onCooldown && !hasRole:
+			if err := s.deps.Session.GuildMemberRoleAdd(guildID, userID, roleID); err != nil {
+				s.deps.Config.Logger.Warnf("[IntroCooldown] Failed to add role %s to user %s in guild %s: %v", roleID, userID, guildID, err)
+				failures++
+				continue
+			}
+			added++
+		case !onCooldown && hasRole:
+			if err := s.deps.Session.GuildMemberRoleRemove(guildID, userID, roleID); err != nil {
+				s.deps.Config.Logger.Warnf("[IntroCooldown] Failed to remove role %s from user %s in guild %s: %v", roleID, userID, guildID, err)
+				failures++
+				continue
+			}
+			removed++
+		default:
+			unchanged++
 		}
-		eligible++
-
-		if err := s.deps.Session.GuildMemberRoleAdd(guildID, userID, roleID); err != nil {
-			s.deps.Config.Logger.Warnf("[IntroAvailable] Failed to add role %s to user %s in guild %s: %v", roleID, userID, guildID, err)
-			failures++
-			continue
-		}
-		added++
 	}
-
-	s.deps.Config.Logger.Infof(
-		"[IntroAvailable] Reconciliation complete (guild=%s): scanned=%d eligible=%d added=%d skipped_existing=%d skipped_moderators=%d skipped_not_eligible=%d failures=%d",
-		guildID, scanned, eligible, added, skippedExisting, skippedModerators, skippedNotEligible, failures,
-	)
+	s.deps.Config.Logger.Infof("[IntroCooldown] Reconciliation complete (guild=%s): scanned=%d added=%d removed=%d skipped_admins=%d unchanged=%d failures=%d", guildID, scanned, added, removed, skippedAdmins, unchanged, failures)
 	return nil
 }
 
@@ -541,27 +466,20 @@ func (s *IntroFeedService) checkIntroRoleEligibility(member *discordgo.Member, l
 	return !now.Before(eligibleAt)
 }
 
-func (s *IntroFeedService) removeIntroAvailableRoleIfPresent(guildID, userID string) error {
+func (s *IntroFeedService) addIntroCooldownRoleIfMissing(guildID, userID string) error {
 	if s.deps.Session == nil {
 		return nil
 	}
-	roleID := s.deps.Config.ForGuild(guildID).GetIntroAvailableRoleID()
+	roleID := s.deps.Config.ForGuild(guildID).GetIntroCooldownRoleID()
 	if roleID == "" {
 		return nil
 	}
-
 	member, err := s.deps.Session.GuildMember(guildID, userID)
 	if err != nil {
-		s.deps.Config.Logger.Warnf("[IntroAvailable] Failed to fetch member %s in guild %s for role removal: %v", userID, guildID, err)
 		return err
 	}
-	if member == nil || !slices.Contains(member.Roles, roleID) {
+	if member == nil || slices.Contains(member.Roles, roleID) {
 		return nil
 	}
-
-	err = s.deps.Session.GuildMemberRoleRemove(guildID, userID, roleID)
-	if err != nil {
-		s.deps.Config.Logger.Warnf("[IntroAvailable] Failed to remove role %s from user %s in guild %s: %v", roleID, userID, guildID, err)
-	}
-	return err
+	return s.deps.Session.GuildMemberRoleAdd(guildID, userID, roleID)
 }

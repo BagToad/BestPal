@@ -37,10 +37,10 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Default:     0,
 		},
 		{
-			Key:         config.KeyIntroAvailableRoleID,
+			Key:         config.KeyIntroCooldownRoleID,
 			Category:    config.CategoryIntro,
-			Label:       "Intro available role",
-			Description: "Role required to create a new intro post/thread.",
+			Label:       "Intro cooldown role",
+			Description: "Role assigned while a member is on intro cooldown.",
 			Kind:        config.KindRole,
 		},
 	}

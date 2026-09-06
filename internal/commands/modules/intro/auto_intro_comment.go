@@ -36,7 +36,10 @@ func newAutoIntroComment(guildID, feedChannelID string) AutoIntroComment {
 	}
 }
 
-// components returns the rendered components for the discord message.
+// components returns the rendered components for the Discord message:
+// a preamble TextDisplay at index 0, an ActionsRow at index 1 with the lookup
+// Button first, and a game-thread TextDisplay at index 2 only when
+// len(m.gameThreads) > 0.
 func (m AutoIntroComment) components() []discordgo.MessageComponent {
 	buttonLabel := lookupButtonDefaultLabel
 	buttonDisabled := false
@@ -64,6 +67,33 @@ func (m AutoIntroComment) components() []discordgo.MessageComponent {
 	}
 
 	return components
+}
+
+// resolveLookupButton expects a *discordgo.ActionsRow at components[1]
+// containing a *discordgo.Button at its Components[0].
+func resolveLookupButton(components []discordgo.MessageComponent) *discordgo.Button {
+	return components[1].(*discordgo.ActionsRow).Components[0].(*discordgo.Button)
+}
+
+// setLookupButtonLoading updates only the resolved button's loading state.
+func setLookupButtonLoading(button *discordgo.Button, loading bool) {
+	button.Disabled = loading
+	button.Label = lookupButtonDefaultLabel
+	if loading {
+		button.Label = lookupButtonLoadingLabel
+	}
+}
+
+// updateGameThreads expects a non-nil message with two or three components
+// and a *discordgo.TextDisplay at message.Components[2] when present.
+func updateGameThreads(message *discordgo.Message, threads []GameThread) {
+	content := formatGameThreads(threads)
+	switch len(message.Components) {
+	case 2:
+		message.Components = append(message.Components, &discordgo.TextDisplay{Content: content})
+	case 3:
+		message.Components[2].(*discordgo.TextDisplay).Content = content
+	}
 }
 
 func formatGameThreads(threads []GameThread) string {

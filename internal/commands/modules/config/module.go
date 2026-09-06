@@ -3,7 +3,7 @@ package config
 import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
-	"gamerpal/internal/utils"
+	"gamerpal/internal/permissions"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -105,7 +105,7 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 // super admins always, otherwise members with Ban Members or Administrator.
 func (m *Module) canManage(i *discordgo.InteractionCreate) bool {
 	userID := interactionUserID(i)
-	if userID != "" && utils.IsSuperAdmin(userID, m.config) {
+	if userID != "" && permissions.IsSuperAdmin(permissions.SuperAdminOptions{UserID: userID, Config: m.config}) {
 		return true
 	}
 	if i.Member == nil {

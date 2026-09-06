@@ -451,7 +451,7 @@ func (s *IntroFeedService) ScheduledFuncs() map[string]func() error {
 }
 
 // Checks all human non-admin members and synchronizes the intro_cooldown role
-// with their latest intro and applicable normal or booster cooldown.
+// with their latest successful feed post or bump and applicable normal or booster cooldown.
 func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 	if s.deps.Session == nil {
 		return nil
@@ -472,8 +472,8 @@ func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: intro_cooldown_role_id is not configured", guildID)
 		return nil
 	}
-	if s.deps.ForumCache == nil {
-		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: forum cache is unavailable", guildID)
+	if s.deps.DB == nil {
+		s.deps.Config.Logger.Warnf("[IntroCooldown] Skipping reconciliation for guild %s: database is unavailable", guildID)
 		return nil
 	}
 	members, err := utils.GetAllHumanGuildMembers(s.deps.Session, guildID)
@@ -481,7 +481,6 @@ func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 		return fmt.Errorf("failed to fetch guild members for intro-cooldown reconciliation: %w", err)
 	}
 
-	now := time.Now()
 	var scanned, added, removed, skippedAdmins, unchanged, failures int
 	for _, member := range members {
 		if member == nil || member.User == nil {
@@ -493,9 +492,14 @@ func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 			skippedAdmins++
 			continue
 		}
+		eligible, _, err := s.deps.DB.IsUserEligibleForIntroFeed(userID, s.cooldownHoursForMember(member))
+		if err != nil {
+			s.deps.Config.Logger.Warnf("[IntroCooldown] Failed to check feed eligibility for user %s in guild %s: %v", userID, guildID, err)
+			failures++
+			continue
+		}
 		hasRole := slices.Contains(member.Roles, roleID)
-		latestMeta, _ := s.GetUserLatestIntroThread(userID)
-		onCooldown := !s.checkIntroRoleEligibility(member, latestMeta, now)
+		onCooldown := !eligible
 		switch {
 		case onCooldown && !hasRole:
 			if err := s.deps.Session.GuildMemberRoleAdd(guildID, userID, roleID); err != nil {
@@ -517,16 +521,6 @@ func (s *IntroFeedService) reconcileIntroCooldownRole() error {
 	}
 	s.deps.Config.Logger.Infof("[IntroCooldown] Reconciliation complete (guild=%s): scanned=%d added=%d removed=%d skipped_admins=%d unchanged=%d failures=%d", guildID, scanned, added, removed, skippedAdmins, unchanged, failures)
 	return nil
-}
-
-// Checks if the configured cooldown period has passed since the user's last intro post.
-func (s *IntroFeedService) checkIntroRoleEligibility(member *discordgo.Member, latestIntro *forumcache.ThreadMeta, now time.Time) bool {
-	if latestIntro == nil || latestIntro.CreatedAt.IsZero() {
-		return true
-	}
-	cooldownHours := s.cooldownHoursForMember(member)
-	eligibleAt := latestIntro.CreatedAt.Add(time.Duration(cooldownHours) * time.Hour)
-	return !now.Before(eligibleAt)
 }
 
 func (s *IntroFeedService) addIntroCooldownRoleIfMissing(guildID, userID string) error {

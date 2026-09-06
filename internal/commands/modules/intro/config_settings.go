@@ -36,5 +36,12 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Kind:        config.KindInt,
 			Default:     0,
 		},
+		{
+			Key:         config.KeyIntroCooldownRoleID,
+			Category:    config.CategoryIntro,
+			Label:       "Intro cooldown role",
+			Description: "Role assigned while a member is on intro cooldown.",
+			Kind:        config.KindRole,
+		},
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"gamerpal/internal/permissions"
 	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
@@ -16,7 +17,7 @@ const maxInactiveUsersDisplay = 20
 // handlePruneInactive handles the prune-inactive slash command
 func (m *Module) handlePruneInactive(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Check if user has administrator permissions
-	if !utils.HasAdminPermissions(s, i) {
+	if !permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s, UserID: i.Member.User.ID, ChannelID: i.ChannelID}) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{
@@ -157,7 +158,7 @@ func (m *Module) handlePruneInactive(s *discordgo.Session, i *discordgo.Interact
 // Dry run by default; when execute:true, deletes flagged threads.
 func (m *Module) handlePruneForum(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Admin guard
-	if !utils.HasAdminPermissions(s, i) {
+	if !permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s, UserID: i.Member.User.ID, ChannelID: i.ChannelID}) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{

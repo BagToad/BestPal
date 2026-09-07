@@ -12,7 +12,7 @@ import (
 
 	"gamerpal/internal/agentctx"
 	"gamerpal/internal/config"
-	"gamerpal/internal/utils"
+	"gamerpal/internal/permissions"
 
 	"github.com/bwmarrin/discordgo"
 	copilot "github.com/github/copilot-sdk/go"
@@ -141,7 +141,7 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	caller := agentctx.Caller{}
 	if m.Author != nil {
 		caller.UserID = m.Author.ID
-		caller.IsAdmin = utils.IsSuperAdmin(m.Author.ID, a.cfg)
+		caller.IsAdmin = permissions.IsSuperAdmin(permissions.SuperAdminOptions{UserID: m.Author.ID, Config: a.cfg})
 	}
 	caller.GuildID = m.GuildID
 	caller.ChannelID = m.ChannelID
@@ -323,7 +323,7 @@ func userHasAgentRole(cfg *config.Config, m *discordgo.MessageCreate) bool {
 		return false
 	}
 
-	if m.Author != nil && utils.IsSuperAdmin(m.Author.ID, cfg) {
+	if m.Author != nil && permissions.IsSuperAdmin(permissions.SuperAdminOptions{UserID: m.Author.ID, Config: cfg}) {
 		return true
 	}
 

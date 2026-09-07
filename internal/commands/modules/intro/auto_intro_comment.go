@@ -3,6 +3,7 @@ package intro
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -11,7 +12,8 @@ const (
 	lookupButtonDefaultLabel = "🎮 Find your game threads"
 	lookupButtonLoadingLabel = "⏳ Finding your game threads..."
 
-	gameThreadsHeader = "**Game Threads:**"
+	gameThreadsHeader          = "**Game Threads:**"
+	expectedCooldownResetLabel = "Expected cooldown reset: "
 )
 
 // AutoPost represents a rendered auto-comment on a user's introduction post
@@ -37,7 +39,8 @@ func newAutoIntroComment(guildID, feedChannelID string) AutoIntroComment {
 }
 
 // components returns the rendered components for the Discord message:
-// a preamble TextDisplay at index 0, an ActionsRow at index 1 with the lookup
+// a preamble TextDisplay (including any cooldown timestamp) at index 0,
+// an ActionsRow at index 1 with the lookup
 // Button first, and a game-thread TextDisplay at index 2 only when
 // len(m.gameThreads) > 0.
 func (m AutoIntroComment) components() []discordgo.MessageComponent {
@@ -67,6 +70,22 @@ func (m AutoIntroComment) components() []discordgo.MessageComponent {
 	}
 
 	return components
+}
+
+// withExpectedCooldownReset changes only the timestamp line in a preamble.
+// Legacy comments get the line appended; zero time omits it for exempt members.
+func withExpectedCooldownReset(preamble string, reset time.Time) string {
+	lines := strings.Split(preamble, "\n")
+	kept := lines[:0]
+	for _, line := range lines {
+		if !strings.HasPrefix(line, expectedCooldownResetLabel) {
+			kept = append(kept, line)
+		}
+	}
+	if !reset.IsZero() {
+		kept = append(kept, fmt.Sprintf("%s<t:%d:R>", expectedCooldownResetLabel, reset.Unix()))
+	}
+	return strings.Join(kept, "\n")
 }
 
 // resolveLookupButton expects a *discordgo.ActionsRow at components[1]

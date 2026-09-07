@@ -5,6 +5,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/permissions"
 	"gamerpal/internal/utils"
+	"slices"
 	"time"
 
 	"github.com/MakeNowJust/heredoc"
@@ -418,14 +419,16 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 		displayName = i.Member.Nick
 	}
 
-	// Check if user is a moderator (admin) - they can bypass the cooldown
-	isModerator := false
-	if i.Member != nil {
-		isModerator = permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s, UserID: i.Member.User.ID, ChannelID: i.ChannelID})
+	// Administrators bypass the cooldown role. Other members must not have it.
+	isAdmin := i.Member != nil && permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s, UserID: user.ID, ChannelID: i.ChannelID})
+	cooldownRoleID := m.config.Config.ForGuild(i.GuildID).GetIntroCooldownRoleID()
+	if !isAdmin && (cooldownRoleID == "" || i.Member == nil || slices.Contains(i.Member.Roles, cooldownRoleID)) {
+		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: new("❌ You are not currently eligible to bump your introduction.")})
+		return
 	}
 
 	// Attempt to bump to feed
-	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isModerator)
+	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isAdmin)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 			Content: new(fmt.Sprintf("❌ %s", err.Error())),

@@ -267,7 +267,7 @@ func (db *DB) IsUserEligibleForIntroFeed(userID string, cooldownHours int) (bool
 	eligibleAt := lastPost.Add(cooldown)
 	now := time.Now()
 
-	if now.After(eligibleAt) {
+	if !now.Before(eligibleAt) {
 		return true, 0, nil
 	}
 	return false, eligibleAt.Sub(now), nil

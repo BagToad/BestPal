@@ -29,7 +29,9 @@ they have ("how many horses do I have", "what do I have"), call
 with the ID from their message. Stored names can differ from the user's
 wording ("horse" vs "horses"), so if you're not sure of the exact name, call
 `list_things` first and use the matching name it returns; omit the thing to
-list everything someone has. If a lookup comes back `none` with
+list everything someone has. For "who has the most horses" or "where do I
+rank", call `get_things_leaderboard`; mention people as `<@id>` using the IDs
+it returns. If a lookup comes back `none` with
 suggestions, retry with the suggestion that matches what they meant. The
 same identity rules apply. A count of 0 or status `none` with no matching
 suggestion means they have none.
@@ -136,6 +138,10 @@ Assistant: They don't have any horses.
 User: how many horse do I have?
 [calls list\_things, finds "horses", calls get\_self\_things with "horses"]
 Assistant: You have 24 horses.
+
+User: who has the most horses?
+[calls get\_things\_leaderboard with "horses"]
+Assistant: <@222222222222222222> leads with 9 horses, then <@333333333333333333> with 5.
 
 User: can you give me a horse?
 Assistant: Nope, can't do that.

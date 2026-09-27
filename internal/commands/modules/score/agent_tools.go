@@ -46,7 +46,77 @@ func (m *Module) AgentTools() []copilot.Tool {
 	if m == nil || m.store == nil {
 		return nil
 	}
-	return []copilot.Tool{m.newUserThingsTool(), m.newSelfThingsTool(), m.newListThingsTool()}
+	return []copilot.Tool{m.newUserThingsTool(), m.newSelfThingsTool(), m.newListThingsTool(), m.newLeaderboardTool()}
+}
+
+type leaderboardParams struct {
+	Thing string `json:"thing" jsonschema:"the thing to rank holders of, e.g. horses"`
+}
+
+type agentLeaderboardEntry struct {
+	Rank   int    `json:"rank"`
+	UserID string `json:"user_id"`
+	Count  int64  `json:"count"`
+}
+
+type leaderboardResult struct {
+	// Status is one of: found, none, unavailable.
+	Status  string                  `json:"status"`
+	Thing   string                  `json:"thing,omitempty"`
+	Entries []agentLeaderboardEntry `json:"entries,omitempty"`
+	// Caller is the caller's own spot when they hold some but aren't in entries.
+	Caller      *agentLeaderboardEntry `json:"caller,omitempty"`
+	Suggestions []string               `json:"suggestions,omitempty"`
+	Note        string                 `json:"note,omitempty"`
+}
+
+func (m *Module) newLeaderboardTool() copilot.Tool {
+	t := copilot.DefineTool(
+		"get_things_leaderboard",
+		`Rank who in this server holds the most of a "thing" (e.g. horses): the top 10, highest first, with tied counts sharing a rank. Also returns the caller's own spot when they hold some but aren't in the top 10. Use for "who has the most horses", "horse leaderboard", "where do I rank for horses". Thing names match case-insensitively but otherwise exactly; if unsure of the exact name call list_things first, and on status "none" check suggestions. Status is one of: "found", "none", "unavailable".`,
+		func(p leaderboardParams, inv copilot.ToolInvocation) (*leaderboardResult, error) {
+			caller, _ := agentctx.CallerForSession(inv.SessionID)
+			return m.lookupLeaderboard(caller.GuildID, caller.UserID, p.Thing), nil
+		},
+	)
+	t.SkipPermission = true
+	return t
+}
+
+func (m *Module) lookupLeaderboard(guildID, callerID, thing string) *leaderboardResult {
+	if guildID == "" {
+		return &leaderboardResult{Status: "unavailable", Note: "things only exist in a server, not in DMs"}
+	}
+	thing = database.NormalizeScoreItemName(thing)
+	if thing == "" {
+		return &leaderboardResult{Status: "none", Note: "no thing given"}
+	}
+	name, entries, err := m.leaderboard(m.session, guildID, thing)
+	if err != nil {
+		m.config.Logger.Errorf("score agent tool: failed to load leaderboard for %q: %v", thing, err)
+		return &leaderboardResult{Status: "unavailable", Note: "failed to load leaderboard"}
+	}
+	if len(entries) == 0 {
+		return &leaderboardResult{Status: "none", Thing: thing, Suggestions: m.similarThingNames(guildID, thing)}
+	}
+
+	res := &leaderboardResult{Status: "found", Thing: name}
+	rank := 0
+	for idx, e := range entries {
+		if idx == 0 || e.Count != entries[idx-1].Count {
+			rank = idx + 1
+		}
+		res.Entries = append(res.Entries, agentLeaderboardEntry{Rank: rank, UserID: e.UserID, Count: e.Count})
+	}
+	if callerID != "" && !containsUser(entries, callerID) {
+		count, rank, err := m.store.GetScoreRank(guildID, thing, callerID)
+		if err != nil {
+			m.config.Logger.Errorf("score agent tool: failed to rank user %s: %v", callerID, err)
+		} else if count > 0 {
+			res.Caller = &agentLeaderboardEntry{Rank: rank, UserID: callerID, Count: count}
+		}
+	}
+	return res
 }
 
 type listThingsParams struct {

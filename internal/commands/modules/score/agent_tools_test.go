@@ -2,6 +2,7 @@ package score
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"gamerpal/internal/agentctx"
@@ -44,7 +45,7 @@ func TestAgentTools_ExposesExpectedTools(t *testing.T) {
 		names = append(names, tl.Name)
 		assert.True(t, tl.SkipPermission, "tool %s should skip permission", tl.Name)
 	}
-	assert.ElementsMatch(t, []string{"get_user_things", "get_self_things", "list_things"}, names)
+	assert.ElementsMatch(t, []string{"get_user_things", "get_self_things", "list_things", "get_things_leaderboard"}, names)
 
 	assert.Nil(t, (&Module{}).AgentTools(), "no tools without a database")
 }
@@ -178,4 +179,63 @@ func TestAgentTools_MissSuggestsSimilarNames(t *testing.T) {
 	res = m.lookupThings("guild1", "user1", "horses")
 	assert.Equal(t, "found", res.Status)
 	assert.Empty(t, res.Suggestions)
+}
+
+func callLeaderboardTool(t *testing.T, m *Module, sessionID string, args map[string]any) leaderboardResult {
+	t.Helper()
+	res, err := agentTool(t, m, "get_things_leaderboard").Handler(copilot.ToolInvocation{SessionID: sessionID, ToolName: "get_things_leaderboard", Arguments: args})
+	require.NoError(t, err)
+	var out leaderboardResult
+	require.NoError(t, json.Unmarshal([]byte(res.TextResultForLLM), &out), res.TextResultForLLM)
+	return out
+}
+
+func TestAgentTools_Leaderboard(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("Horses"), countOpt(5)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(9)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user3"), thingOpt("horses"), countOpt(5)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("gone"), thingOpt("horses"), countOpt(100)))
+	c.left = map[string]bool{"gone": true}
+	registerCaller(t, "sess-lb", agentctx.Caller{UserID: "user1", GuildID: "guild1"})
+	registerCaller(t, "sess-lb-dm", agentctx.Caller{UserID: "user1"})
+
+	res := callLeaderboardTool(t, m, "sess-lb", map[string]any{"thing": "HORSES"})
+	assert.Equal(t, "found", res.Status)
+	assert.Equal(t, "Horses", res.Thing)
+	assert.Equal(t, []agentLeaderboardEntry{{1, "user2", 9}, {2, "user1", 5}, {2, "user3", 5}}, res.Entries, "tied counts share a rank, departed members are skipped")
+	assert.Nil(t, res.Caller, "caller is already in the top list")
+
+	res = callLeaderboardTool(t, m, "sess-lb", map[string]any{"thing": "horse"})
+	assert.Equal(t, "none", res.Status)
+	assert.Equal(t, []string{"Horses"}, res.Suggestions)
+
+	res = callLeaderboardTool(t, m, "sess-lb", map[string]any{"thing": " "})
+	assert.Equal(t, "none", res.Status)
+
+	res = callLeaderboardTool(t, m, "sess-lb-dm", map[string]any{"thing": "horses"})
+	assert.Equal(t, "unavailable", res.Status)
+}
+
+func TestAgentTools_LeaderboardIncludesCallerOutsideTop(t *testing.T) {
+	m, _ := newTestModule(t, nil)
+	for n := 0; n < leaderboardSize; n++ {
+		m.handleGive(nil, interaction("give", "mod1", userOpt(fmt.Sprintf("top%02d", n)), thingOpt("horses"), countOpt(10)))
+	}
+	m.handleGive(nil, interaction("give", "mod1", userOpt("asker"), thingOpt("horses"), countOpt(2)))
+	registerCaller(t, "sess-lb-rank", agentctx.Caller{UserID: "asker", GuildID: "guild1"})
+	registerCaller(t, "sess-lb-none", agentctx.Caller{UserID: "nobody", GuildID: "guild1"})
+
+	res := callLeaderboardTool(t, m, "sess-lb-rank", map[string]any{"thing": "horses"})
+	assert.Len(t, res.Entries, leaderboardSize)
+	assert.Equal(t, &agentLeaderboardEntry{Rank: leaderboardSize + 1, UserID: "asker", Count: 2}, res.Caller)
+
+	res = callLeaderboardTool(t, m, "sess-lb-none", map[string]any{"thing": "horses"})
+	assert.Nil(t, res.Caller, "callers holding none get no spot")
+}
+
+func TestAgentTools_LeaderboardLoadFailure(t *testing.T) {
+	m, _ := newTestModule(t, failingStore{})
+	res := m.lookupLeaderboard("guild1", "user1", "horses")
+	assert.Equal(t, "unavailable", res.Status)
 }

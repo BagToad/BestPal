@@ -246,19 +246,14 @@ type ScoreLeaderboardEntry struct {
 	Count  int64
 }
 
-// notDeparted filters score_items rows (aliased s) to members still in the guild.
-const notDeparted = `NOT EXISTS (
-	SELECT 1 FROM score_departed_members d
-	WHERE d.guild_id = s.guild_id AND d.user_id = s.user_id)`
-
 // GetScoreLeaderboard returns the members holding the most of a thing in a
 // guild, highest first, capped at limit; ties go to whoever got it first.
-// Members who left the guild are skipped. name is the thing's first-given
+// name is the thing's first-given
 // spelling, or "" when nobody holds it.
 func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string, entries []ScoreLeaderboardEntry, err error) {
 	key := scoreItemKey(thing)
 	err = db.conn.QueryRow(
-		`SELECT name FROM score_items s WHERE guild_id = ? AND name_key = ? AND `+notDeparted+` ORDER BY id ASC LIMIT 1`,
+		`SELECT name FROM score_items s WHERE guild_id = ? AND name_key = ? ORDER BY id ASC LIMIT 1`,
 		guildID, key,
 	).Scan(&name)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -270,7 +265,7 @@ func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string
 
 	rows, err := db.conn.Query(`
 		SELECT user_id, count FROM score_items s
-		WHERE guild_id = ? AND name_key = ? AND `+notDeparted+`
+		WHERE guild_id = ? AND name_key = ?
 		ORDER BY count DESC, id ASC
 		LIMIT ?
 	`, guildID, key, limit)
@@ -293,7 +288,7 @@ func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string
 }
 
 // GetScoreRank returns how many of a thing a user holds and their leaderboard
-// rank: one more than the number of members still in the guild who hold
+// rank: one more than the number of members who hold
 // strictly more, so ties share a rank. count is 0 when the user holds none.
 func (db *DB) GetScoreRank(guildID, thing, userID string) (count int64, rank int, err error) {
 	key := scoreItemKey(thing)
@@ -308,7 +303,7 @@ func (db *DB) GetScoreRank(guildID, thing, userID string) (count int64, rank int
 		return 0, 0, fmt.Errorf("failed to look up score rank: %w", err)
 	}
 	err = db.conn.QueryRow(
-		`SELECT COUNT(*) + 1 FROM score_items s WHERE guild_id = ? AND name_key = ? AND count > ? AND `+notDeparted,
+		`SELECT COUNT(*) + 1 FROM score_items s WHERE guild_id = ? AND name_key = ? AND count > ?`,
 		guildID, key, count,
 	).Scan(&rank)
 	if err != nil {
@@ -317,23 +312,14 @@ func (db *DB) GetScoreRank(guildID, thing, userID string) (count int64, rank int
 	return count, rank, nil
 }
 
-// SetScoreMemberDeparted records whether a user has left a guild, so the
-// leaderboard can skip them without losing what they hold should they return.
-func (db *DB) SetScoreMemberDeparted(guildID, userID string, departed bool) error {
-	var err error
-	if departed {
-		_, err = db.conn.Exec(
-			`INSERT OR IGNORE INTO score_departed_members (guild_id, user_id) VALUES (?, ?)`,
-			guildID, userID,
-		)
-	} else {
-		_, err = db.conn.Exec(
-			`DELETE FROM score_departed_members WHERE guild_id = ? AND user_id = ?`,
-			guildID, userID,
-		)
-	}
-	if err != nil {
-		return fmt.Errorf("failed to update departed member: %w", err)
+// PurgeScoreMember deletes everything a user holds in a guild, e.g. after they
+// leave it.
+func (db *DB) PurgeScoreMember(guildID, userID string) error {
+	if _, err := db.conn.Exec(
+		`DELETE FROM score_items WHERE guild_id = ? AND user_id = ?`,
+		guildID, userID,
+	); err != nil {
+		return fmt.Errorf("failed to purge score member: %w", err)
 	}
 	return nil
 }

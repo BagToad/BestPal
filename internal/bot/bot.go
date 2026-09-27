@@ -124,9 +124,8 @@ func New(cfg *config.Config) (*Bot, error) {
 		events.OnGuildMemberAdd(s, r, cfg)
 	})
 
-	// score module - keeps the leaderboard to members still in the server.
+	// score module - purges what members hold when they leave.
 	if mod, ok := handler.GetModule("score").(*score.Module); ok {
-		session.AddHandler(mod.OnGuildMemberAdd)
 		session.AddHandler(mod.OnGuildMemberRemove)
 	}
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.GuildScheduledEventCreate) {

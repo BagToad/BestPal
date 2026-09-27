@@ -55,7 +55,7 @@ func (failingStore) GetScoreLeaderboard(string, string, int) (string, []database
 func (failingStore) GetScoreRank(string, string, string) (int64, int, error) {
 	return 0, 0, errors.New("boom")
 }
-func (failingStore) SetScoreMemberDeparted(string, string, bool) error { return errors.New("boom") }
+func (failingStore) PurgeScoreMember(string, string) error { return errors.New("boom") }
 func (failingStore) RenameScoreItem(string, string, string) (database.RenameResult, int, error) {
 	return 0, 0, errors.New("boom")
 }
@@ -618,7 +618,7 @@ func TestLeaderboard_ShowsCallersRankBelowTopTen(t *testing.T) {
 	assert.NotContains(t, c.responses[2].Data.Content, "…", "no extra line when the caller has none")
 }
 
-func TestLeaderboard_SkipsMembersWhoLeftUntilTheyReturn(t *testing.T) {
+func TestLeaderboard_PurgesMembersWhoLeft(t *testing.T) {
 	m, c := newTestModule(t, nil)
 	for n := 1; n <= 12; n++ {
 		m.handleGive(nil, interaction("give", "mod1", userOpt(fmt.Sprintf("user%02d", n)), thingOpt("horses"), countOpt(float64(n))))
@@ -634,18 +634,39 @@ func TestLeaderboard_SkipsMembersWhoLeftUntilTheyReturn(t *testing.T) {
 	top, _, _ := strings.Cut(content, "…")
 	assert.Equal(t, leaderboardSize, strings.Count(top, "\\. <@"), "the next member fills the top 10")
 	assert.True(t, strings.HasSuffix(content, "\n…\n11\\. <@user01> — 1"), "the caller's rank skips them too")
+	items, err := m.store.GetScoreItems("guild1", "user12")
+	require.NoError(t, err)
+	assert.Empty(t, items, "purged")
 
-	// Left while the bot was watching: skipped without asking Discord.
+	// Left while the bot was watching: purged without asking Discord.
 	m.OnGuildMemberRemove(nil, &discordgo.GuildMemberRemove{Member: &discordgo.Member{GuildID: "guild1", User: &discordgo.User{ID: "user11"}}})
+	items, err = m.store.GetScoreItems("guild1", "user11")
+	require.NoError(t, err)
+	assert.Empty(t, items, "purged")
 	c.memberChecks = 0
 	m.handleLeaderboard(nil, interaction("leaderboard", "user01", thingOpt("horses")))
 	assert.NotContains(t, c.responses[1].Data.Content, "<@user11>")
 	assert.Equal(t, leaderboardSize, c.memberChecks)
 
+	// Coming back doesn't restore anything.
 	delete(c.left, "user12")
-	m.OnGuildMemberAdd(nil, &discordgo.GuildMemberAdd{Member: &discordgo.Member{GuildID: "guild1", User: &discordgo.User{ID: "user12"}}})
-	m.handleLeaderboard(nil, interaction("leaderboard", "user01", thingOpt("horses")))
-	assert.Contains(t, c.responses[2].Data.Content, "1\\. <@user12> — 12", "back with everything they had")
+	m.handleLeaderboard(nil, interaction("leaderboard", "user12", thingOpt("horses")))
+	assert.NotContains(t, c.responses[2].Data.Content, "<@user12>")
+}
+
+func TestOnGuildMemberRemove_ForgetsThingsOnlyTheyHeld(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("zebras")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses")))
+
+	m.OnGuildMemberRemove(nil, &discordgo.GuildMemberRemove{Member: &discordgo.Member{GuildID: "guild1", User: &discordgo.User{ID: "user1"}}})
+	c.responses = nil
+	m.HandleAutocomplete(nil, &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
+		Type: discordgo.InteractionApplicationCommandAutocomplete, GuildID: "guild1",
+		Data: discordgo.ApplicationCommandInteractionData{Name: "leaderboard", Options: []*discordgo.ApplicationCommandInteractionDataOption{focusedThing("")}},
+	}})
+
+	assert.Equal(t, []string{"horses"}, choiceNames(t, c))
 }
 
 func TestLeaderboard_EveryoneLeft(t *testing.T) {
@@ -737,28 +758,4 @@ func TestAutocomplete_ThingsSubcommandSuggestsServerWide(t *testing.T) {
 	m.HandleAutocomplete(nil, i)
 
 	assert.Equal(t, []string{"horses"}, choiceNames(t, c))
-}
-
-func TestLeaderboard_CallerWhoRejoinedUnseenIsShownAgain(t *testing.T) {
-	m, c := newTestModule(t, nil)
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(1)))
-	require.NoError(t, m.store.SetScoreMemberDeparted("guild1", "user1", true))
-	c.responses = nil
-
-	m.handleLeaderboard(nil, interaction("leaderboard", "user1", thingOpt("horses")))
-
-	assert.Contains(t, c.responses[0].Data.Content, "1\\. <@user1> — 3")
-}
-
-func TestGive_RecipientWhoRejoinedUnseenIsShownAgain(t *testing.T) {
-	m, c := newTestModule(t, nil)
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
-	require.NoError(t, m.store.SetScoreMemberDeparted("guild1", "user1", true))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
-	c.responses = nil
-
-	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
-
-	assert.Contains(t, c.responses[0].Data.Content, "1\\. <@user1> — 4")
 }

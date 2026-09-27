@@ -179,7 +179,7 @@ func TestScoreItems_Leaderboard(t *testing.T) {
 	require.Empty(t, entries)
 }
 
-func TestScoreItems_RankAndDepartedMembers(t *testing.T) {
+func TestScoreItems_RankAndPurgedMembers(t *testing.T) {
 	db := newTestDB(t)
 	giveApplied(t, db, "g1", "u1", "horses", 9)
 	giveApplied(t, db, "g1", "u2", "horses", 5)
@@ -191,11 +191,13 @@ func TestScoreItems_RankAndDepartedMembers(t *testing.T) {
 	require.Equal(t, int64(1), count)
 	require.Equal(t, 4, rank)
 
-	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", true))
-	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", true), "idempotent")
+	giveApplied(t, db, "g1", "u1", "zebras", 2)
+	giveApplied(t, db, "g2", "u1", "horses", 7)
+	require.NoError(t, db.PurgeScoreMember("g1", "u1"))
+	require.NoError(t, db.PurgeScoreMember("g1", "u1"), "idempotent")
 	_, rank, err = db.GetScoreRank("g1", "horses", "u4")
 	require.NoError(t, err)
-	require.Equal(t, 3, rank, "departed members don't count")
+	require.Equal(t, 3, rank, "purged members don't count")
 	_, rank, err = db.GetScoreRank("g1", "horses", "u3")
 	require.NoError(t, err)
 	require.Equal(t, 1, rank, "ties share a rank")
@@ -205,12 +207,13 @@ func TestScoreItems_RankAndDepartedMembers(t *testing.T) {
 	require.Equal(t, []ScoreLeaderboardEntry{{"u2", 5}, {"u3", 5}, {"u4", 1}}, entries)
 	items, err := db.GetScoreItems("g1", "u1")
 	require.NoError(t, err)
-	require.Len(t, items, 1, "departed members keep their things")
-
-	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", false))
-	_, entries, err = db.GetScoreLeaderboard("g1", "horses", 10)
+	require.Empty(t, items, "everything they held is gone")
+	names, err := db.SuggestScoreItemNames("g1", "", "")
 	require.NoError(t, err)
-	require.Len(t, entries, 4)
+	require.Equal(t, []string{"horses"}, names, "things only they held are forgotten")
+	items, err = db.GetScoreItems("g2", "u1")
+	require.NoError(t, err)
+	require.Len(t, items, 1, "other servers are untouched")
 
 	count, rank, err = db.GetScoreRank("g1", "zebras", "u1")
 	require.NoError(t, err)

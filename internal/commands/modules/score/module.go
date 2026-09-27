@@ -30,7 +30,7 @@ type store interface {
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
 	GetScoreRank(guildID, thing, userID string) (int64, int, error)
-	SetScoreMemberDeparted(guildID, userID string, departed bool) error
+	PurgeScoreMember(guildID, userID string) error
 	RenameScoreItem(guildID, from, to string) (database.RenameResult, int, error)
 	WipeScoreItem(guildID, thing string) (int, error)
 }
@@ -330,10 +330,6 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	// A recipient picked in the command is in the server, even if they
-	// rejoined while the bot was offline.
-	m.setDeparted(i.GuildID, &discordgo.User{ID: userID}, false)
-
 	announcement, note, err := apply(userID, thing, count, all)
 	if err != nil {
 		m.config.Logger.Errorf("%s: failed to save %q for user %s: %v", verb, thing, userID, err)
@@ -495,11 +491,6 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 	}
 
 	callerID := invokerID(i)
-	if callerID != "" {
-		// Whoever runs the command is in the server, even if they rejoined
-		// while the bot was offline.
-		m.setDeparted(i.GuildID, &discordgo.User{ID: callerID}, false)
-	}
 
 	name, entries, err := m.leaderboard(s, i.GuildID, thing)
 	if err != nil {
@@ -538,8 +529,8 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 const maxLeaderboardRechecks = 3
 
 // leaderboard loads the top holders of a thing, confirming each is still in
-// the server. Anyone found to have left is recorded as departed (their things
-// are kept in case they return) and the list is reloaded. This catches
+// the server. Anyone found to have left has their things purged and the list
+// is reloaded. This catches
 // departures the member-remove event missed, e.g. while the bot was offline.
 func (m *Module) leaderboard(s *discordgo.Session, guildID, thing string) (string, []database.ScoreLeaderboardEntry, error) {
 	for attempt := 0; ; attempt++ {
@@ -559,7 +550,7 @@ func (m *Module) leaderboard(s *discordgo.Session, guildID, thing string) (strin
 				present = append(present, e)
 				continue
 			}
-			if err := m.store.SetScoreMemberDeparted(guildID, e.UserID, true); err != nil {
+			if err := m.store.PurgeScoreMember(guildID, e.UserID); err != nil {
 				return "", nil, err
 			}
 		}
@@ -683,23 +674,13 @@ func peopleCount(n int) string {
 	return fmt.Sprintf("%d people", n)
 }
 
-// OnGuildMemberRemove records that a member left so the leaderboard skips
-// them. What they hold is kept in case they come back.
+// OnGuildMemberRemove purges everything a departing member holds.
 func (m *Module) OnGuildMemberRemove(_ *discordgo.Session, e *discordgo.GuildMemberRemove) {
-	m.setDeparted(e.GuildID, e.User, true)
-}
-
-// OnGuildMemberAdd puts a returning member back on the leaderboard.
-func (m *Module) OnGuildMemberAdd(_ *discordgo.Session, e *discordgo.GuildMemberAdd) {
-	m.setDeparted(e.GuildID, e.User, false)
-}
-
-func (m *Module) setDeparted(guildID string, user *discordgo.User, departed bool) {
-	if m.store == nil || user == nil {
+	if m.store == nil || e.User == nil {
 		return
 	}
-	if err := m.store.SetScoreMemberDeparted(guildID, user.ID, departed); err != nil {
-		m.config.Logger.Errorf("score: failed to record member %s departed=%v: %v", user.ID, departed, err)
+	if err := m.store.PurgeScoreMember(e.GuildID, e.User.ID); err != nil {
+		m.config.Logger.Errorf("score: failed to purge member %s: %v", e.User.ID, err)
 	}
 }
 

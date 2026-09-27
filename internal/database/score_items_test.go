@@ -155,3 +155,26 @@ func TestScoreItems_Suggest(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, names, 25)
 }
+
+func TestScoreItems_Leaderboard(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "Horses", 3)
+	giveApplied(t, db, "g1", "u2", "horses", 7)
+	giveApplied(t, db, "g1", "u3", "horses", 3)
+	giveApplied(t, db, "g2", "u9", "horses", 100)
+	giveApplied(t, db, "g1", "u9", "giraffe", 50)
+
+	name, entries, err := db.GetScoreLeaderboard("g1", " HORSES ", 10)
+	require.NoError(t, err)
+	require.Equal(t, "Horses", name, "first-given spelling")
+	require.Equal(t, []ScoreLeaderboardEntry{{"u2", 7}, {"u1", 3}, {"u3", 3}}, entries, "ties in give order, scoped to guild")
+
+	_, entries, err = db.GetScoreLeaderboard("g1", "horses", 2)
+	require.NoError(t, err)
+	require.Len(t, entries, 2)
+
+	name, entries, err = db.GetScoreLeaderboard("g1", "zebras", 10)
+	require.NoError(t, err)
+	require.Empty(t, name)
+	require.Empty(t, entries)
+}

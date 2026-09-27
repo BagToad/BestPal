@@ -2,6 +2,7 @@ package score
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"path/filepath"
 	"strings"
@@ -44,6 +45,9 @@ func (failingStore) SuggestScoreItemNames(string, string, string) ([]string, err
 }
 func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) {
 	return nil, errors.New("boom")
+}
+func (failingStore) GetScoreLeaderboard(string, string, int) (string, []database.ScoreLeaderboardEntry, error) {
+	return "", nil, errors.New("boom")
 }
 
 func newTestModule(t *testing.T, st store) (*Module, *capture) {
@@ -512,4 +516,71 @@ func TestBuildScoreMessage_ExactFitHasNoOverflowNote(t *testing.T) {
 
 	assert.Len(t, msg, maxMessageLength)
 	assert.NotContains(t, msg, "more")
+}
+
+func TestLeaderboard_RanksHoldersPubliclyWithoutPinging(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("Horses"), countOpt(5)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(24)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user3"), thingOpt("horses"), countOpt(5)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user4"), thingOpt("horses"), countOpt(1)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user4"), thingOpt("giraffe"), countOpt(99)))
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("HORSES")))
+
+	require.Len(t, c.responses, 1)
+	resp := c.responses[0]
+	assert.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, resp.Type)
+	assert.Zero(t, resp.Data.Flags, "leaderboard is posted publicly")
+	assert.Equal(t, "Leaderboard for Horses:\n\n1. <@user2> — 24\n2. <@user1> — 5\n2. <@user3> — 5\n4. <@user4> — 1", resp.Data.Content)
+	require.NotNil(t, resp.Data.AllowedMentions)
+	assert.Empty(t, resp.Data.AllowedMentions.Users)
+	assert.Empty(t, resp.Data.AllowedMentions.Parse)
+}
+
+func TestLeaderboard_ShowsTopTen(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	for n := 1; n <= 12; n++ {
+		m.handleGive(nil, interaction("give", "mod1", userOpt(fmt.Sprintf("user%02d", n)), thingOpt("horses"), countOpt(float64(n))))
+	}
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
+
+	content := c.responses[0].Data.Content
+	assert.Equal(t, leaderboardSize, strings.Count(content, "<@"))
+	assert.Contains(t, content, "1. <@user12> — 12")
+	assert.NotContains(t, content, "<@user02>")
+}
+
+func TestLeaderboard_NobodyHasIt(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), allOpt()))
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
+
+	require.Len(t, c.responses, 1)
+	assert.Equal(t, "Nobody has any horses.", c.responses[0].Data.Content)
+}
+
+func TestLeaderboard_LoadFailureIsEphemeral(t *testing.T) {
+	m, c := newTestModule(t, failingStore{})
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
+
+	require.Len(t, c.responses, 1)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, c.responses[0].Data.Flags)
+}
+
+func TestAutocomplete_LeaderboardSuggestsServerWide(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
+
+	m.HandleAutocomplete(nil, autocomplete("leaderboard", focusedThing("")))
+
+	assert.Equal(t, []string{"giraffe", "horses"}, choiceNames(t, c))
 }

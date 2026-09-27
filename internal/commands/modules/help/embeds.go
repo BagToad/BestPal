@@ -38,6 +38,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/leaderboard",
+				Value:  "See who has the most of something\n• Use `/leaderboard thing:horses`",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,

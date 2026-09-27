@@ -19,6 +19,7 @@ environment (see `config.example.yaml`).
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
 | `/score` | See what someone has |
+| `/leaderboard` | See who has the most of something |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |

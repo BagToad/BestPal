@@ -16,6 +16,8 @@ const (
 	maxThingLength = 100
 	// Discord rejects message content longer than 2000 characters.
 	maxMessageLength = 2000
+	// leaderboardSize is how many users /leaderboard lists.
+	leaderboardSize = 10
 )
 
 // store is the persistence the module needs; *database.DB satisfies it.
@@ -25,6 +27,7 @@ type store interface {
 	TakeAllScoreItem(guildID, userID, name string) (database.TakeResult, int64, error)
 	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
+	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
 }
 
 // discordOps wraps the Discord calls the handlers make so tests can capture them.
@@ -51,7 +54,8 @@ func defaultDiscordOps() discordOps {
 }
 
 // Module implements /give and /take (moderators hand out and remove arbitrary
-// things) and /score (anyone lists what a user holds).
+// things), /score (anyone lists what a user holds) and /leaderboard (anyone
+// ranks who holds the most of a thing).
 type Module struct {
 	config *config.Config
 	store  store
@@ -103,7 +107,7 @@ func modCommand(name, description, userDesc, thingDesc, countDesc string) *disco
 	}
 }
 
-// Register adds the /give, /take and /score commands to the command map
+// Register adds the /give, /take, /score and /leaderboard commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["give"] = &types.Command{
 		ApplicationCommand: modCommand("give", "Give a user something",
@@ -137,6 +141,25 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			},
 		},
 		HandlerFunc: m.handleScore,
+	}
+
+	cmds["leaderboard"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "leaderboard",
+			Description: "See who has the most of something",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:         discordgo.ApplicationCommandOptionString,
+					Name:         "thing",
+					Description:  "What to rank (e.g. horses)",
+					Required:     true,
+					MaxLength:    maxThingLength,
+					Autocomplete: true,
+				},
+			},
+		},
+		HandlerFunc: m.handleLeaderboard,
 	}
 }
 
@@ -259,9 +282,9 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 	m.editResponse(s, i, "✅ Done.")
 }
 
-// HandleAutocomplete suggests things for the /give and /take thing option.
-// /take (and /give once a user is picked) suggests what that user has; /give
-// without a user suggests anything held in the server. Only things someone
+// HandleAutocomplete suggests things for the /give, /take and /leaderboard
+// thing option. /take (and /give once a user is picked) suggests what that
+// user has; otherwise anything held in the server is suggested. Only things someone
 // currently holds are suggested.
 func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
@@ -372,6 +395,62 @@ func (m *Module) handleScore(s *discordgo.Session, i *discordgo.InteractionCreat
 	}); err != nil {
 		m.config.Logger.Errorf("score: failed to respond: %v", err)
 	}
+}
+
+func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	var thing string
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Name == "thing" {
+			thing = database.NormalizeScoreItemName(opt.StringValue())
+		}
+	}
+	if thing == "" {
+		m.respondEphemeral(s, i, "❌ Please specify a thing.")
+		return
+	}
+	if m.store == nil {
+		m.respondEphemeral(s, i, "❌ Database is unavailable.")
+		return
+	}
+
+	name, entries, err := m.store.GetScoreLeaderboard(i.GuildID, thing, leaderboardSize)
+	if err != nil {
+		m.config.Logger.Errorf("leaderboard: failed to load %q: %v", thing, err)
+		m.respondEphemeral(s, i, "❌ Failed to load the leaderboard.")
+		return
+	}
+	if name == "" {
+		name = thing
+	}
+
+	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: buildLeaderboardMessage(name, entries),
+			// Show the mentions without pinging anyone.
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		},
+	}); err != nil {
+		m.config.Logger.Errorf("leaderboard: failed to respond: %v", err)
+	}
+}
+
+// buildLeaderboardMessage ranks holders of a thing. Tied counts share a rank
+// (1, 1, 3). At most leaderboardSize short lines, so it always fits a message.
+func buildLeaderboardMessage(name string, entries []database.ScoreLeaderboardEntry) string {
+	if len(entries) == 0 {
+		return fmt.Sprintf("Nobody has any %s.", name)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Leaderboard for %s:\n", name)
+	rank := 0
+	for idx, e := range entries {
+		if idx == 0 || e.Count != entries[idx-1].Count {
+			rank = idx + 1
+		}
+		fmt.Fprintf(&b, "\n%d. <@%s> — %d", rank, e.UserID, e.Count)
+	}
+	return b.String()
 }
 
 // botCanPost reports whether the bot may post in the invoking channel, using

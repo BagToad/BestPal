@@ -239,3 +239,49 @@ func (db *DB) SuggestScoreItemNames(guildID, userID, query string) ([]string, er
 	}
 	return names, nil
 }
+
+// ScoreLeaderboardEntry is one user's holding of a thing.
+type ScoreLeaderboardEntry struct {
+	UserID string
+	Count  int64
+}
+
+// GetScoreLeaderboard returns the users holding the most of a thing in a
+// guild, highest first, capped at limit; ties go to whoever got it first.
+// name is the thing's first-given spelling, or "" when nobody holds it.
+func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string, entries []ScoreLeaderboardEntry, err error) {
+	key := scoreItemKey(thing)
+	err = db.conn.QueryRow(
+		`SELECT name FROM score_items WHERE guild_id = ? AND name_key = ? ORDER BY id ASC LIMIT 1`,
+		guildID, key,
+	).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, nil
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to look up score leaderboard thing: %w", err)
+	}
+
+	rows, err := db.conn.Query(`
+		SELECT user_id, count FROM score_items
+		WHERE guild_id = ? AND name_key = ?
+		ORDER BY count DESC, id ASC
+		LIMIT ?
+	`, guildID, key, limit)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to get score leaderboard: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var e ScoreLeaderboardEntry
+		if err := rows.Scan(&e.UserID, &e.Count); err != nil {
+			return "", nil, fmt.Errorf("failed to scan score leaderboard: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, fmt.Errorf("failed to iterate score leaderboard: %w", err)
+	}
+	return name, entries, nil
+}

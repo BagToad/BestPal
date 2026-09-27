@@ -246,13 +246,19 @@ type ScoreLeaderboardEntry struct {
 	Count  int64
 }
 
-// GetScoreLeaderboard returns the users holding the most of a thing in a
+// notDeparted filters score_items rows (aliased s) to members still in the guild.
+const notDeparted = `NOT EXISTS (
+	SELECT 1 FROM score_departed_members d
+	WHERE d.guild_id = s.guild_id AND d.user_id = s.user_id)`
+
+// GetScoreLeaderboard returns the members holding the most of a thing in a
 // guild, highest first, capped at limit; ties go to whoever got it first.
-// name is the thing's first-given spelling, or "" when nobody holds it.
+// Members who left the guild are skipped. name is the thing's first-given
+// spelling, or "" when nobody holds it.
 func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string, entries []ScoreLeaderboardEntry, err error) {
 	key := scoreItemKey(thing)
 	err = db.conn.QueryRow(
-		`SELECT name FROM score_items WHERE guild_id = ? AND name_key = ? ORDER BY id ASC LIMIT 1`,
+		`SELECT name FROM score_items s WHERE guild_id = ? AND name_key = ? AND `+notDeparted+` ORDER BY id ASC LIMIT 1`,
 		guildID, key,
 	).Scan(&name)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -263,8 +269,8 @@ func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string
 	}
 
 	rows, err := db.conn.Query(`
-		SELECT user_id, count FROM score_items
-		WHERE guild_id = ? AND name_key = ?
+		SELECT user_id, count FROM score_items s
+		WHERE guild_id = ? AND name_key = ? AND `+notDeparted+`
 		ORDER BY count DESC, id ASC
 		LIMIT ?
 	`, guildID, key, limit)
@@ -284,4 +290,178 @@ func (db *DB) GetScoreLeaderboard(guildID, thing string, limit int) (name string
 		return "", nil, fmt.Errorf("failed to iterate score leaderboard: %w", err)
 	}
 	return name, entries, nil
+}
+
+// GetScoreRank returns how many of a thing a user holds and their leaderboard
+// rank: one more than the number of members still in the guild who hold
+// strictly more, so ties share a rank. count is 0 when the user holds none.
+func (db *DB) GetScoreRank(guildID, thing, userID string) (count int64, rank int, err error) {
+	key := scoreItemKey(thing)
+	err = db.conn.QueryRow(
+		`SELECT count FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+		guildID, userID, key,
+	).Scan(&count)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to look up score rank: %w", err)
+	}
+	err = db.conn.QueryRow(
+		`SELECT COUNT(*) + 1 FROM score_items s WHERE guild_id = ? AND name_key = ? AND count > ? AND `+notDeparted,
+		guildID, key, count,
+	).Scan(&rank)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to compute score rank: %w", err)
+	}
+	return count, rank, nil
+}
+
+// SetScoreMemberDeparted records whether a user has left a guild, so the
+// leaderboard can skip them without losing what they hold should they return.
+func (db *DB) SetScoreMemberDeparted(guildID, userID string, departed bool) error {
+	var err error
+	if departed {
+		_, err = db.conn.Exec(
+			`INSERT OR IGNORE INTO score_departed_members (guild_id, user_id) VALUES (?, ?)`,
+			guildID, userID,
+		)
+	} else {
+		_, err = db.conn.Exec(
+			`DELETE FROM score_departed_members WHERE guild_id = ? AND user_id = ?`,
+			guildID, userID,
+		)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update departed member: %w", err)
+	}
+	return nil
+}
+
+// RenameResult reports what RenameScoreItem did.
+type RenameResult int
+
+const (
+	// RenameApplied means the thing was renamed for everyone holding it.
+	RenameApplied RenameResult = iota
+	// RenameNotHeld means nobody holds the thing; nothing changed.
+	RenameNotHeld
+	// RenameOverflow means merging into an existing thing would push someone's
+	// total past an int64; nothing changed.
+	RenameOverflow
+)
+
+// RenameScoreItem renames a thing for everyone in a guild. Holders who
+// already have the new thing get the counts merged. The new spelling becomes
+// the display name for everyone holding it. people is how many users held the
+// old thing.
+func (db *DB) RenameScoreItem(guildID, from, to string) (result RenameResult, people int, err error) {
+	if from, err = validateScoreItem(from, 1); err != nil {
+		return 0, 0, err
+	}
+	if to, err = validateScoreItem(to, 1); err != nil {
+		return 0, 0, err
+	}
+	fromKey, toKey := scoreItemKey(from), scoreItemKey(to)
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to begin rename transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	type holding struct {
+		userID string
+		count  int64
+	}
+	rows, err := tx.Query(
+		`SELECT user_id, count FROM score_items WHERE guild_id = ? AND name_key = ?`,
+		guildID, fromKey,
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to look up score items to rename: %w", err)
+	}
+	var held []holding
+	for rows.Next() {
+		var h holding
+		if err := rows.Scan(&h.userID, &h.count); err != nil {
+			_ = rows.Close()
+			return 0, 0, fmt.Errorf("failed to scan score item to rename: %w", err)
+		}
+		held = append(held, h)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, fmt.Errorf("failed to iterate score items to rename: %w", err)
+	}
+	if len(held) == 0 {
+		return RenameNotHeld, 0, nil
+	}
+
+	if fromKey != toKey {
+		for _, h := range held {
+			var existing int64
+			err := tx.QueryRow(
+				`SELECT count FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+				guildID, h.userID, toKey,
+			).Scan(&existing)
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+				_, err = tx.Exec(
+					`UPDATE score_items SET name_key = ?, updated_at = CURRENT_TIMESTAMP
+					 WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+					toKey, guildID, h.userID, fromKey,
+				)
+			case err != nil:
+				return 0, 0, fmt.Errorf("failed to look up rename target: %w", err)
+			case existing > math.MaxInt64-h.count:
+				return RenameOverflow, 0, nil
+			default:
+				if _, err = tx.Exec(
+					`UPDATE score_items SET count = count + ?, updated_at = CURRENT_TIMESTAMP
+					 WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+					h.count, guildID, h.userID, toKey,
+				); err == nil {
+					_, err = tx.Exec(
+						`DELETE FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+						guildID, h.userID, fromKey,
+					)
+				}
+			}
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to rename score item: %w", err)
+			}
+		}
+	}
+
+	if _, err := tx.Exec(
+		`UPDATE score_items SET name = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ? AND name_key = ?`,
+		to, guildID, toKey,
+	); err != nil {
+		return 0, 0, fmt.Errorf("failed to respell score item: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("failed to commit rename: %w", err)
+	}
+	return RenameApplied, len(held), nil
+}
+
+// WipeScoreItem removes a thing from everyone in a guild, as if it was never
+// given. people is how many users held it.
+func (db *DB) WipeScoreItem(guildID, thing string) (people int, err error) {
+	if thing, err = validateScoreItem(thing, 1); err != nil {
+		return 0, err
+	}
+	res, err := db.conn.Exec(
+		`DELETE FROM score_items WHERE guild_id = ? AND name_key = ?`,
+		guildID, scoreItemKey(thing),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to wipe score item: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count wiped score items: %w", err)
+	}
+	return int(n), nil
 }

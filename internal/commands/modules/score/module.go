@@ -1,6 +1,7 @@
 package score
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -28,6 +29,10 @@ type store interface {
 	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
+	GetScoreRank(guildID, thing, userID string) (int64, int, error)
+	SetScoreMemberDeparted(guildID, userID string, departed bool) error
+	RenameScoreItem(guildID, from, to string) (database.RenameResult, int, error)
+	WipeScoreItem(guildID, thing string) (int, error)
 }
 
 // discordOps wraps the Discord calls the handlers make so tests can capture them.
@@ -35,6 +40,8 @@ type discordOps struct {
 	Respond      func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
 	EditResponse func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error
 	SendMessage  func(s *discordgo.Session, channelID string, msg *discordgo.MessageSend) error
+	// IsMember reports whether a user is still in a guild.
+	IsMember func(s *discordgo.Session, guildID, userID string) (bool, error)
 }
 
 func defaultDiscordOps() discordOps {
@@ -50,12 +57,34 @@ func defaultDiscordOps() discordOps {
 			_, err := s.ChannelMessageSendComplex(channelID, msg)
 			return err
 		},
+		IsMember: func(s *discordgo.Session, guildID, userID string) (bool, error) {
+			if s.State != nil {
+				if _, err := s.State.Member(guildID, userID); err == nil {
+					return true, nil
+				}
+			}
+			member, err := s.GuildMember(guildID, userID)
+			var restErr *discordgo.RESTError
+			if errors.As(err, &restErr) && restErr.Message != nil && restErr.Message.Code == discordgo.ErrCodeUnknownMember {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			// Cache it so the next leaderboard doesn't ask again.
+			if s.State != nil {
+				member.GuildID = guildID
+				_ = s.State.MemberAdd(member)
+			}
+			return true, nil
+		},
 	}
 }
 
 // Module implements /give and /take (moderators hand out and remove arbitrary
 // things), /score (anyone lists what a user holds) and /leaderboard (anyone
-// ranks who holds the most of a thing).
+// ranks who holds the most of a thing). /things lets moderators rename or
+// wipe a thing server-wide.
 type Module struct {
 	config *config.Config
 	store  store
@@ -107,7 +136,7 @@ func modCommand(name, description, userDesc, thingDesc, countDesc string) *disco
 	}
 }
 
-// Register adds the /give, /take, /score and /leaderboard commands to the command map
+// Register adds the /give, /take, /things, /score and /leaderboard commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["give"] = &types.Command{
 		ApplicationCommand: modCommand("give", "Give a user something",
@@ -160,6 +189,50 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			},
 		},
 		HandlerFunc: m.handleLeaderboard,
+	}
+
+	var modPerms int64 = discordgo.PermissionBanMembers
+	thingOption := func(desc string) *discordgo.ApplicationCommandOption {
+		return &discordgo.ApplicationCommandOption{
+			Type:         discordgo.ApplicationCommandOptionString,
+			Name:         "thing",
+			Description:  desc,
+			Required:     true,
+			MaxLength:    maxThingLength,
+			Autocomplete: true,
+		}
+	}
+	cmds["things"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "things",
+			Description:              "Clean up a thing for everyone",
+			DefaultMemberPermissions: &modPerms,
+			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "rename",
+					Description: "Rename a thing for everyone who has it (merges into an existing thing)",
+					Options: []*discordgo.ApplicationCommandOption{
+						thingOption("The thing to rename"),
+						{
+							Type:        discordgo.ApplicationCommandOptionString,
+							Name:        "to",
+							Description: "The new name",
+							Required:    true,
+							MaxLength:   maxThingLength,
+						},
+					},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        "wipe",
+					Description: "Remove a thing from everyone, as if it was never given",
+					Options:     []*discordgo.ApplicationCommandOption{thingOption("The thing to wipe")},
+				},
+			},
+		},
+		HandlerFunc: m.handleThings,
 	}
 }
 
@@ -257,6 +330,10 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
+	// A recipient picked in the command is in the server, even if they
+	// rejoined while the bot was offline.
+	m.setDeparted(i.GuildID, &discordgo.User{ID: userID}, false)
+
 	announcement, note, err := apply(userID, thing, count, all)
 	if err != nil {
 		m.config.Logger.Errorf("%s: failed to save %q for user %s: %v", verb, thing, userID, err)
@@ -282,15 +359,19 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 	m.editResponse(s, i, "✅ Done.")
 }
 
-// HandleAutocomplete suggests things for the /give, /take and /leaderboard
-// thing option. /take (and /give once a user is picked) suggests what that
+// HandleAutocomplete suggests things for the /give, /take, /things and
+// /leaderboard thing option. /take (and /give once a user is picked) suggests what that
 // user has; otherwise anything held in the server is suggested. Only things someone
 // currently holds are suggested.
 func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	data := i.ApplicationCommandData()
 	var query, userID string
 	focusedThing := false
-	for _, opt := range data.Options {
+	opts := data.Options
+	if len(opts) == 1 && opts[0].Type == discordgo.ApplicationCommandOptionSubCommand {
+		opts = opts[0].Options
+	}
+	for _, opt := range opts {
 		switch opt.Name {
 		case "thing":
 			query, _ = opt.Value.(string)
@@ -413,7 +494,14 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 		return
 	}
 
-	name, entries, err := m.store.GetScoreLeaderboard(i.GuildID, thing, leaderboardSize)
+	callerID := invokerID(i)
+	if callerID != "" {
+		// Whoever runs the command is in the server, even if they rejoined
+		// while the bot was offline.
+		m.setDeparted(i.GuildID, &discordgo.User{ID: callerID}, false)
+	}
+
+	name, entries, err := m.leaderboard(s, i.GuildID, thing)
 	if err != nil {
 		m.config.Logger.Errorf("leaderboard: failed to load %q: %v", thing, err)
 		m.respondEphemeral(s, i, "❌ Failed to load the leaderboard.")
@@ -423,10 +511,20 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 		name = thing
 	}
 
+	var caller *rankedEntry
+	if callerID != "" && len(entries) > 0 && !containsUser(entries, callerID) {
+		count, rank, err := m.store.GetScoreRank(i.GuildID, thing, callerID)
+		if err != nil {
+			m.config.Logger.Errorf("leaderboard: failed to rank user %s: %v", callerID, err)
+		} else if count > 0 {
+			caller = &rankedEntry{rank: rank, ScoreLeaderboardEntry: database.ScoreLeaderboardEntry{UserID: callerID, Count: count}}
+		}
+	}
+
 	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: buildLeaderboardMessage(name, entries),
+			Content: buildLeaderboardMessage(name, entries, caller),
 			// Show the mentions without pinging anyone.
 			AllowedMentions: &discordgo.MessageAllowedMentions{},
 		},
@@ -435,9 +533,67 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 	}
 }
 
+// maxLeaderboardRechecks bounds how many times the leaderboard is reloaded
+// after finding holders who left, keeping the number of Discord lookups small.
+const maxLeaderboardRechecks = 3
+
+// leaderboard loads the top holders of a thing, confirming each is still in
+// the server. Anyone found to have left is recorded as departed (their things
+// are kept in case they return) and the list is reloaded. This catches
+// departures the member-remove event missed, e.g. while the bot was offline.
+func (m *Module) leaderboard(s *discordgo.Session, guildID, thing string) (string, []database.ScoreLeaderboardEntry, error) {
+	for attempt := 0; ; attempt++ {
+		name, entries, err := m.store.GetScoreLeaderboard(guildID, thing, leaderboardSize)
+		if err != nil {
+			return "", nil, err
+		}
+		var present []database.ScoreLeaderboardEntry
+		for _, e := range entries {
+			member, err := m.ops.IsMember(s, guildID, e.UserID)
+			if err != nil {
+				// Don't hide someone over a transient lookup failure.
+				m.config.Logger.Warnf("leaderboard: couldn't check membership of %s: %v", e.UserID, err)
+				member = true
+			}
+			if member {
+				present = append(present, e)
+				continue
+			}
+			if err := m.store.SetScoreMemberDeparted(guildID, e.UserID, true); err != nil {
+				return "", nil, err
+			}
+		}
+		if len(present) == len(entries) || attempt == maxLeaderboardRechecks {
+			return name, present, nil
+		}
+	}
+}
+
+func invokerID(i *discordgo.InteractionCreate) string {
+	if i.Member != nil && i.Member.User != nil {
+		return i.Member.User.ID
+	}
+	return ""
+}
+
+func containsUser(entries []database.ScoreLeaderboardEntry, userID string) bool {
+	for _, e := range entries {
+		if e.UserID == userID {
+			return true
+		}
+	}
+	return false
+}
+
+type rankedEntry struct {
+	database.ScoreLeaderboardEntry
+	rank int
+}
+
 // buildLeaderboardMessage ranks holders of a thing. Tied counts share a rank
-// (1, 1, 3). At most leaderboardSize short lines, so it always fits a message.
-func buildLeaderboardMessage(name string, entries []database.ScoreLeaderboardEntry) string {
+// (1, 1, 3). caller, when set, is the invoker's own spot below the top list.
+// At most leaderboardSize+1 short lines, so it always fits a message.
+func buildLeaderboardMessage(name string, entries []database.ScoreLeaderboardEntry, caller *rankedEntry) string {
 	if len(entries) == 0 {
 		return fmt.Sprintf("Nobody has any %s.", name)
 	}
@@ -448,9 +604,103 @@ func buildLeaderboardMessage(name string, entries []database.ScoreLeaderboardEnt
 		if idx == 0 || e.Count != entries[idx-1].Count {
 			rank = idx + 1
 		}
-		fmt.Fprintf(&b, "\n%d. <@%s> — %d", rank, e.UserID, e.Count)
+		writeLeaderboardLine(&b, rank, e)
+	}
+	if caller != nil {
+		b.WriteString("\n…")
+		writeLeaderboardLine(&b, caller.rank, caller.ScoreLeaderboardEntry)
 	}
 	return b.String()
+}
+
+// writeLeaderboardLine escapes the rank's dot so Discord doesn't render the
+// lines as a Markdown list, which would renumber tied ranks.
+func writeLeaderboardLine(b *strings.Builder, rank int, e database.ScoreLeaderboardEntry) {
+	fmt.Fprintf(b, "\n%d\\. <@%s> — %d", rank, e.UserID, e.Count)
+}
+
+// handleThings runs /things rename and /things wipe. These are cleanup tools,
+// so the result goes only to the moderator and nothing is announced.
+func (m *Module) handleThings(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	options := i.ApplicationCommandData().Options
+	if len(options) != 1 {
+		m.respondEphemeral(s, i, "❌ Please pick rename or wipe.")
+		return
+	}
+	sub := options[0]
+	var thing, to string
+	for _, opt := range sub.Options {
+		switch opt.Name {
+		case "thing":
+			thing = database.NormalizeScoreItemName(opt.StringValue())
+		case "to":
+			to = database.NormalizeScoreItemName(opt.StringValue())
+		}
+	}
+	if thing == "" || (sub.Name == "rename" && to == "") {
+		m.respondEphemeral(s, i, "❌ Please specify a thing.")
+		return
+	}
+	if m.store == nil {
+		m.respondEphemeral(s, i, "❌ Database is unavailable.")
+		return
+	}
+
+	switch sub.Name {
+	case "rename":
+		result, people, err := m.store.RenameScoreItem(i.GuildID, thing, to)
+		switch {
+		case err != nil:
+			m.config.Logger.Errorf("things: failed to rename %q to %q: %v", thing, to, err)
+			m.respondEphemeral(s, i, "❌ Failed to rename. Nothing changed.")
+		case result == database.RenameNotHeld:
+			m.respondEphemeral(s, i, fmt.Sprintf("ℹ️ Nobody has any %s. Nothing changed.", thing))
+		case result == database.RenameOverflow:
+			m.respondEphemeral(s, i, "❌ Merging would give someone too many. Nothing changed.")
+		default:
+			m.respondEphemeral(s, i, fmt.Sprintf("✅ Renamed %s to %s for %s.", thing, to, peopleCount(people)))
+		}
+	case "wipe":
+		people, err := m.store.WipeScoreItem(i.GuildID, thing)
+		switch {
+		case err != nil:
+			m.config.Logger.Errorf("things: failed to wipe %q: %v", thing, err)
+			m.respondEphemeral(s, i, "❌ Failed to wipe. Nothing changed.")
+		case people == 0:
+			m.respondEphemeral(s, i, fmt.Sprintf("ℹ️ Nobody has any %s. Nothing changed.", thing))
+		default:
+			m.respondEphemeral(s, i, fmt.Sprintf("✅ Wiped %s from %s.", thing, peopleCount(people)))
+		}
+	default:
+		m.respondEphemeral(s, i, "❌ Unknown subcommand.")
+	}
+}
+
+func peopleCount(n int) string {
+	if n == 1 {
+		return "1 person"
+	}
+	return fmt.Sprintf("%d people", n)
+}
+
+// OnGuildMemberRemove records that a member left so the leaderboard skips
+// them. What they hold is kept in case they come back.
+func (m *Module) OnGuildMemberRemove(_ *discordgo.Session, e *discordgo.GuildMemberRemove) {
+	m.setDeparted(e.GuildID, e.User, true)
+}
+
+// OnGuildMemberAdd puts a returning member back on the leaderboard.
+func (m *Module) OnGuildMemberAdd(_ *discordgo.Session, e *discordgo.GuildMemberAdd) {
+	m.setDeparted(e.GuildID, e.User, false)
+}
+
+func (m *Module) setDeparted(guildID string, user *discordgo.User, departed bool) {
+	if m.store == nil || user == nil {
+		return
+	}
+	if err := m.store.SetScoreMemberDeparted(guildID, user.ID, departed); err != nil {
+		m.config.Logger.Errorf("score: failed to record member %s departed=%v: %v", user.ID, departed, err)
+	}
 }
 
 // botCanPost reports whether the bot may post in the invoking channel, using

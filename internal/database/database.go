@@ -130,6 +130,12 @@ func (db *DB) initTables() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE (guild_id, user_id, name_key)
 	);
+
+	CREATE TABLE IF NOT EXISTS score_departed_members (
+		guild_id TEXT NOT NULL,
+		user_id  TEXT NOT NULL,
+		PRIMARY KEY (guild_id, user_id)
+	);
 	`
 
 	_, err := db.conn.Exec(query)

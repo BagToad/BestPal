@@ -22,6 +22,9 @@ type capture struct {
 	edits     []string
 	sent      []sentMessage
 	sendErr   error
+	// left holds users IsMember reports as no longer in the server.
+	left         map[string]bool
+	memberChecks int
 }
 
 type sentMessage struct {
@@ -49,6 +52,14 @@ func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) 
 func (failingStore) GetScoreLeaderboard(string, string, int) (string, []database.ScoreLeaderboardEntry, error) {
 	return "", nil, errors.New("boom")
 }
+func (failingStore) GetScoreRank(string, string, string) (int64, int, error) {
+	return 0, 0, errors.New("boom")
+}
+func (failingStore) SetScoreMemberDeparted(string, string, bool) error { return errors.New("boom") }
+func (failingStore) RenameScoreItem(string, string, string) (database.RenameResult, int, error) {
+	return 0, 0, errors.New("boom")
+}
+func (failingStore) WipeScoreItem(string, string) (int, error) { return 0, errors.New("boom") }
 
 func newTestModule(t *testing.T, st store) (*Module, *capture) {
 	t.Helper()
@@ -58,7 +69,7 @@ func newTestModule(t *testing.T, st store) (*Module, *capture) {
 		t.Cleanup(func() { _ = db.Close() })
 		st = db
 	}
-	c := &capture{}
+	c := &capture{left: map[string]bool{}}
 	return &Module{
 		config: config.NewMockConfig(nil),
 		store:  st,
@@ -77,6 +88,10 @@ func newTestModule(t *testing.T, st store) (*Module, *capture) {
 				}
 				c.sent = append(c.sent, sentMessage{channelID: channelID, msg: msg})
 				return nil
+			},
+			IsMember: func(_ *discordgo.Session, _, userID string) (bool, error) {
+				c.memberChecks++
+				return !c.left[userID], nil
 			},
 		},
 	}, c
@@ -533,7 +548,7 @@ func TestLeaderboard_RanksHoldersPubliclyWithoutPinging(t *testing.T) {
 	resp := c.responses[0]
 	assert.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, resp.Type)
 	assert.Zero(t, resp.Data.Flags, "leaderboard is posted publicly")
-	assert.Equal(t, "Leaderboard for Horses:\n\n1. <@user2> — 24\n2. <@user1> — 5\n2. <@user3> — 5\n4. <@user4> — 1", resp.Data.Content)
+	assert.Equal(t, "Leaderboard for Horses:\n\n1\\. <@user2> — 24\n2\\. <@user1> — 5\n2\\. <@user3> — 5\n4\\. <@user4> — 1", resp.Data.Content)
 	require.NotNil(t, resp.Data.AllowedMentions)
 	assert.Empty(t, resp.Data.AllowedMentions.Users)
 	assert.Empty(t, resp.Data.AllowedMentions.Parse)
@@ -550,7 +565,7 @@ func TestLeaderboard_ShowsTopTen(t *testing.T) {
 
 	content := c.responses[0].Data.Content
 	assert.Equal(t, leaderboardSize, strings.Count(content, "<@"))
-	assert.Contains(t, content, "1. <@user12> — 12")
+	assert.Contains(t, content, "1\\. <@user12> — 12")
 	assert.NotContains(t, content, "<@user02>")
 }
 
@@ -583,4 +598,167 @@ func TestAutocomplete_LeaderboardSuggestsServerWide(t *testing.T) {
 	m.HandleAutocomplete(nil, autocomplete("leaderboard", focusedThing("")))
 
 	assert.Equal(t, []string{"giraffe", "horses"}, choiceNames(t, c))
+}
+
+func TestLeaderboard_ShowsCallersRankBelowTopTen(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	for n := 1; n <= 12; n++ {
+		m.handleGive(nil, interaction("give", "mod1", userOpt(fmt.Sprintf("user%02d", n)), thingOpt("horses"), countOpt(float64(n+10))))
+	}
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user13"), thingOpt("horses"), countOpt(11)))
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "user13", thingOpt("horses")))
+	assert.True(t, strings.HasSuffix(c.responses[0].Data.Content, "\n…\n12\\. <@user13> — 11"), "ties share the caller's rank")
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "user12", thingOpt("horses")))
+	assert.NotContains(t, c.responses[1].Data.Content, "…", "no extra line when the caller is in the top 10")
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "nobody", thingOpt("horses")))
+	assert.NotContains(t, c.responses[2].Data.Content, "…", "no extra line when the caller has none")
+}
+
+func TestLeaderboard_SkipsMembersWhoLeftUntilTheyReturn(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	for n := 1; n <= 12; n++ {
+		m.handleGive(nil, interaction("give", "mod1", userOpt(fmt.Sprintf("user%02d", n)), thingOpt("horses"), countOpt(float64(n))))
+	}
+	c.responses = nil
+
+	// Left while the bot wasn't watching: caught when the leaderboard checks.
+	c.left["user12"] = true
+	m.handleLeaderboard(nil, interaction("leaderboard", "user01", thingOpt("horses")))
+	content := c.responses[0].Data.Content
+	assert.NotContains(t, content, "<@user12>")
+	assert.Contains(t, content, "1\\. <@user11> — 11")
+	top, _, _ := strings.Cut(content, "…")
+	assert.Equal(t, leaderboardSize, strings.Count(top, "\\. <@"), "the next member fills the top 10")
+	assert.True(t, strings.HasSuffix(content, "\n…\n11\\. <@user01> — 1"), "the caller's rank skips them too")
+
+	// Left while the bot was watching: skipped without asking Discord.
+	m.OnGuildMemberRemove(nil, &discordgo.GuildMemberRemove{Member: &discordgo.Member{GuildID: "guild1", User: &discordgo.User{ID: "user11"}}})
+	c.memberChecks = 0
+	m.handleLeaderboard(nil, interaction("leaderboard", "user01", thingOpt("horses")))
+	assert.NotContains(t, c.responses[1].Data.Content, "<@user11>")
+	assert.Equal(t, leaderboardSize, c.memberChecks)
+
+	delete(c.left, "user12")
+	m.OnGuildMemberAdd(nil, &discordgo.GuildMemberAdd{Member: &discordgo.Member{GuildID: "guild1", User: &discordgo.User{ID: "user12"}}})
+	m.handleLeaderboard(nil, interaction("leaderboard", "user01", thingOpt("horses")))
+	assert.Contains(t, c.responses[2].Data.Content, "1\\. <@user12> — 12", "back with everything they had")
+}
+
+func TestLeaderboard_EveryoneLeft(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	c.left["user1"] = true
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
+
+	assert.Equal(t, "Nobody has any horses.", c.responses[0].Data.Content)
+}
+
+func thingsCmd(sub string, opts ...*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
+	return interaction("things", "mod1", &discordgo.ApplicationCommandInteractionDataOption{
+		Name: sub, Type: discordgo.ApplicationCommandOptionSubCommand, Options: opts,
+	})
+}
+
+func toOpt(name string) *discordgo.ApplicationCommandInteractionDataOption {
+	return &discordgo.ApplicationCommandInteractionDataOption{Name: "to", Type: discordgo.ApplicationCommandOptionString, Value: name}
+}
+
+func TestThings_RenameMergesAndIsPrivate(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("hroses"), countOpt(2)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("hroses"), countOpt(3)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(10)))
+	c.sent, c.responses = nil, nil
+
+	m.handleThings(nil, thingsCmd("rename", thingOpt("hroses"), toOpt("Horses")))
+
+	assert.Empty(t, c.sent, "nothing is announced")
+	require.Len(t, c.responses, 1)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, c.responses[0].Data.Flags)
+	assert.Equal(t, "✅ Renamed hroses to Horses for 2 people.", c.responses[0].Data.Content)
+
+	items, err := m.store.GetScoreItems("guild1", "user2")
+	require.NoError(t, err)
+	assert.Equal(t, []database.ScoreItem{{Name: "Horses", Count: 13}}, items)
+
+	m.handleThings(nil, thingsCmd("rename", thingOpt("hroses"), toOpt("horses")))
+	assert.Contains(t, c.responses[1].Data.Content, "Nobody has any hroses")
+}
+
+func TestThings_WipeRemovesFromEveryoneAndAutocomplete(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("hroses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("Hroses"), countOpt(4)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
+	c.sent, c.responses = nil, nil
+
+	m.handleThings(nil, thingsCmd("wipe", thingOpt("HROSES")))
+
+	assert.Empty(t, c.sent, "nothing is announced")
+	require.Len(t, c.responses, 1)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, c.responses[0].Data.Flags)
+	assert.Equal(t, "✅ Wiped HROSES from 2 people.", c.responses[0].Data.Content)
+
+	m.HandleAutocomplete(nil, autocomplete("give", focusedThing("")))
+	assert.Equal(t, []string{"giraffe"}, choiceNames(t, c))
+
+	m.handleThings(nil, thingsCmd("wipe", thingOpt("hroses")))
+	assert.Contains(t, c.responses[len(c.responses)-1].Data.Content, "Nobody has any hroses")
+}
+
+func TestThings_FailureIsPrivate(t *testing.T) {
+	m, c := newTestModule(t, failingStore{})
+
+	m.handleThings(nil, thingsCmd("wipe", thingOpt("horses")))
+	m.handleThings(nil, thingsCmd("rename", thingOpt("horses"), toOpt("ponies")))
+
+	require.Len(t, c.responses, 2)
+	for _, r := range c.responses {
+		assert.Equal(t, discordgo.MessageFlagsEphemeral, r.Data.Flags)
+		assert.Contains(t, r.Data.Content, "Nothing changed")
+	}
+}
+
+func TestAutocomplete_ThingsSubcommandSuggestsServerWide(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
+
+	i := autocomplete("things", &discordgo.ApplicationCommandInteractionDataOption{
+		Name: "wipe", Type: discordgo.ApplicationCommandOptionSubCommand,
+		Options: []*discordgo.ApplicationCommandInteractionDataOption{focusedThing("h")},
+	})
+	m.HandleAutocomplete(nil, i)
+
+	assert.Equal(t, []string{"horses"}, choiceNames(t, c))
+}
+
+func TestLeaderboard_CallerWhoRejoinedUnseenIsShownAgain(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(1)))
+	require.NoError(t, m.store.SetScoreMemberDeparted("guild1", "user1", true))
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "user1", thingOpt("horses")))
+
+	assert.Contains(t, c.responses[0].Data.Content, "1\\. <@user1> — 3")
+}
+
+func TestGive_RecipientWhoRejoinedUnseenIsShownAgain(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
+	require.NoError(t, m.store.SetScoreMemberDeparted("guild1", "user1", true))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	c.responses = nil
+
+	m.handleLeaderboard(nil, interaction("leaderboard", "someone", thingOpt("horses")))
+
+	assert.Contains(t, c.responses[0].Data.Content, "1\\. <@user1> — 4")
 }

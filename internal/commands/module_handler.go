@@ -244,7 +244,7 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
 		}
-	case "give", "take", "leaderboard":
+	case "give", "take", "things", "leaderboard":
 		if scoreMod, ok := h.GetModule("score").(*score.Module); ok {
 			scoreMod.HandleAutocomplete(s, i)
 		} else {

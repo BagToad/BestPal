@@ -178,3 +178,115 @@ func TestScoreItems_Leaderboard(t *testing.T) {
 	require.Empty(t, name)
 	require.Empty(t, entries)
 }
+
+func TestScoreItems_RankAndDepartedMembers(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "horses", 9)
+	giveApplied(t, db, "g1", "u2", "horses", 5)
+	giveApplied(t, db, "g1", "u3", "horses", 5)
+	giveApplied(t, db, "g1", "u4", "horses", 1)
+
+	count, rank, err := db.GetScoreRank("g1", "HORSES", "u4")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	require.Equal(t, 4, rank)
+
+	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", true))
+	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", true), "idempotent")
+	_, rank, err = db.GetScoreRank("g1", "horses", "u4")
+	require.NoError(t, err)
+	require.Equal(t, 3, rank, "departed members don't count")
+	_, rank, err = db.GetScoreRank("g1", "horses", "u3")
+	require.NoError(t, err)
+	require.Equal(t, 1, rank, "ties share a rank")
+
+	_, entries, err := db.GetScoreLeaderboard("g1", "horses", 10)
+	require.NoError(t, err)
+	require.Equal(t, []ScoreLeaderboardEntry{{"u2", 5}, {"u3", 5}, {"u4", 1}}, entries)
+	items, err := db.GetScoreItems("g1", "u1")
+	require.NoError(t, err)
+	require.Len(t, items, 1, "departed members keep their things")
+
+	require.NoError(t, db.SetScoreMemberDeparted("g1", "u1", false))
+	_, entries, err = db.GetScoreLeaderboard("g1", "horses", 10)
+	require.NoError(t, err)
+	require.Len(t, entries, 4)
+
+	count, rank, err = db.GetScoreRank("g1", "zebras", "u1")
+	require.NoError(t, err)
+	require.Zero(t, count)
+	require.Zero(t, rank)
+}
+
+func TestScoreItems_Rename(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "hroses", 2)
+	giveApplied(t, db, "g1", "u2", "Hroses", 3)
+	giveApplied(t, db, "g1", "u2", "horses", 10)
+	giveApplied(t, db, "g1", "u3", "horses", 1)
+	giveApplied(t, db, "g2", "u1", "hroses", 7)
+
+	result, people, err := db.RenameScoreItem("g1", "HROSES", "Horses")
+	require.NoError(t, err)
+	require.Equal(t, RenameApplied, result)
+	require.Equal(t, 2, people)
+
+	for user, want := range map[string]int64{"u1": 2, "u2": 13, "u3": 1} {
+		items, err := db.GetScoreItems("g1", user)
+		require.NoError(t, err)
+		require.Equal(t, []ScoreItem{{"Horses", want}}, items, user)
+	}
+	items, err := db.GetScoreItems("g2", "u1")
+	require.NoError(t, err)
+	require.Equal(t, []ScoreItem{{"hroses", 7}}, items, "other guilds untouched")
+
+	result, people, err = db.RenameScoreItem("g1", "horses", "HORSES")
+	require.NoError(t, err)
+	require.Equal(t, RenameApplied, result, "respelling the same thing")
+	require.Equal(t, 3, people)
+
+	result, _, err = db.RenameScoreItem("g1", "zebras", "horses")
+	require.NoError(t, err)
+	require.Equal(t, RenameNotHeld, result)
+
+	_, _, err = db.RenameScoreItem("g1", "horses", "  ")
+	require.Error(t, err)
+}
+
+func TestScoreItems_RenameOverflowChangesNothing(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "a", 1)
+	giveApplied(t, db, "g1", "u2", "a", 1)
+	giveApplied(t, db, "g1", "u2", "b", math.MaxInt64)
+
+	result, _, err := db.RenameScoreItem("g1", "a", "b")
+	require.NoError(t, err)
+	require.Equal(t, RenameOverflow, result)
+
+	items, err := db.GetScoreItems("g1", "u1")
+	require.NoError(t, err)
+	require.Equal(t, []ScoreItem{{"a", 1}}, items, "rolled back for everyone")
+}
+
+func TestScoreItems_Wipe(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "hroses", 2)
+	giveApplied(t, db, "g1", "u2", "Hroses", 3)
+	giveApplied(t, db, "g1", "u2", "giraffe", 1)
+	giveApplied(t, db, "g2", "u1", "hroses", 7)
+
+	people, err := db.WipeScoreItem("g1", "hroses")
+	require.NoError(t, err)
+	require.Equal(t, 2, people)
+
+	names, err := db.SuggestScoreItemNames("g1", "", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"giraffe"}, names)
+	names, err = db.SuggestScoreItemNames("g2", "", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"hroses"}, names)
+
+	people, err = db.WipeScoreItem("g1", "hroses")
+	require.NoError(t, err)
+	require.Zero(t, people)
+}

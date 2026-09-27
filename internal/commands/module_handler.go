@@ -17,6 +17,7 @@ import (
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
@@ -105,6 +106,7 @@ func (h *ModuleHandler) registerModules() {
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
+		{"score", score.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
 	}
 

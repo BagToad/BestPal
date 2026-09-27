@@ -18,6 +18,7 @@ environment (see `config.example.yaml`).
 | `/intro` | Find a user's intro forum post |
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
+| `/score` | See what someone has |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |

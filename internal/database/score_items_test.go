@@ -1,0 +1,79 @@
+package database
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestScoreItems_EmptyByDefault(t *testing.T) {
+	db := newTestDB(t)
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Empty(t, items)
+}
+
+func TestScoreItems_CountedGivesStackCaseInsensitively(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "Horses", new(int64(20))))
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "  horses ", new(int64(4))))
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "horse", new(int64(1))))
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.Equal(t, "Horses", items[0].Name, "first-given spelling is kept")
+	require.Equal(t, int64(24), *items[0].Count)
+	require.Equal(t, "horse", items[1].Name, "different names do not stack")
+	require.Equal(t, int64(1), *items[1].Count)
+}
+
+func TestScoreItems_UncountedThings(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "a can  of eggs", nil))
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "A can of eggs", nil))
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Len(t, items, 1, "repeat uncounted gives don't duplicate")
+	require.Equal(t, "a can of eggs", items[0].Name)
+	require.Nil(t, items[0].Count)
+
+	// A later counted give of the same name starts counting; a later uncounted
+	// give leaves an existing count alone.
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "a can of eggs", new(int64(2))))
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "a can of eggs", nil))
+	items, err = db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), *items[0].Count)
+}
+
+func TestScoreItems_ScopedByGuildAndUserInGiveOrder(t *testing.T) {
+	db := newTestDB(t)
+
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "giraffe", new(int64(1))))
+	require.NoError(t, db.GiveScoreItem("guild1", "user1", "a black zebra", nil))
+	require.NoError(t, db.GiveScoreItem("guild1", "user2", "giraffe", new(int64(5))))
+	require.NoError(t, db.GiveScoreItem("guild2", "user1", "giraffe", new(int64(9))))
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	require.Equal(t, "giraffe", items[0].Name)
+	require.Equal(t, int64(1), *items[0].Count)
+	require.Equal(t, "a black zebra", items[1].Name)
+}
+
+func TestScoreItems_RejectsInvalidInput(t *testing.T) {
+	db := newTestDB(t)
+
+	require.Error(t, db.GiveScoreItem("guild1", "user1", "   ", nil))
+	require.Error(t, db.GiveScoreItem("guild1", "user1", "horses", new(int64(0))))
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Empty(t, items)
+}

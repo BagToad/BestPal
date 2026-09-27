@@ -33,6 +33,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/score",
+				Value:  "See what someone has\n• Use `/score` for yourself or `/score user:@username` for someone else",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,

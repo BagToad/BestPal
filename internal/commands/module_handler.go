@@ -17,6 +17,7 @@ import (
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
@@ -105,6 +106,7 @@ func (h *ModuleHandler) registerModules() {
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
+		{"score", score.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
 	}
 
@@ -235,12 +237,18 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 	// Check which command is being autocompleted
 	commandName := i.ApplicationCommandData().Name
 
-	// Currently only game-thread command (in LFG module) uses autocomplete
-	if commandName == "game-thread" {
+	switch commandName {
+	case "game-thread":
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 			lfgMod.HandleAutocomplete(s, i)
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
+		}
+	case "give", "take", "things", "leaderboard":
+		if scoreMod, ok := h.GetModule("score").(*score.Module); ok {
+			scoreMod.HandleAutocomplete(s, i)
+		} else {
+			h.config.Logger.Warn("Autocomplete received for " + commandName + " but score module not available")
 		}
 	}
 }

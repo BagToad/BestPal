@@ -22,6 +22,8 @@ const (
 type store interface {
 	GiveScoreItem(guildID, userID, name string, count int64) (database.GiveResult, error)
 	TakeScoreItem(guildID, userID, name string, count int64) (database.TakeResult, int64, error)
+	TakeAllScoreItem(guildID, userID, name string) (database.TakeResult, int64, error)
+	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 }
 
@@ -82,11 +84,12 @@ func modCommand(name, description, userDesc, thingDesc, countDesc string) *disco
 				Required:    true,
 			},
 			{
-				Type:        discordgo.ApplicationCommandOptionString,
-				Name:        "thing",
-				Description: thingDesc,
-				Required:    true,
-				MaxLength:   maxThingLength,
+				Type:         discordgo.ApplicationCommandOptionString,
+				Name:         "thing",
+				Description:  thingDesc,
+				Required:     true,
+				MaxLength:    maxThingLength,
+				Autocomplete: true,
 			},
 			{
 				// No MaxValue: Discord's own integer limit (2^53) is the cap.
@@ -112,6 +115,12 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			"Who loses it", "What they lose (e.g. horses)", "How many (defaults to 1)"),
 		HandlerFunc: m.handleTake,
 	}
+	cmds["take"].ApplicationCommand.Options = append(cmds["take"].ApplicationCommand.Options, &discordgo.ApplicationCommandOption{
+		Type:        discordgo.ApplicationCommandOptionBoolean,
+		Name:        "all",
+		Description: "Take every one they have (instead of a count)",
+		Required:    false,
+	})
 
 	cmds["score"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
@@ -137,7 +146,7 @@ func (m *Module) Service() types.ModuleService {
 }
 
 func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	m.handleChange(s, i, "give", func(userID, thing string, count int64) (string, string, error) {
+	m.handleChange(s, i, "give", func(userID, thing string, count int64, _ bool) (string, string, error) {
 		result, err := m.store.GiveScoreItem(i.GuildID, userID, thing, count)
 		if err != nil || result == database.GiveOverflow {
 			return "", "❌ That would be too many. Nothing was given.", err
@@ -147,8 +156,16 @@ func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func (m *Module) handleTake(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	m.handleChange(s, i, "take", func(userID, thing string, count int64) (string, string, error) {
-		result, held, err := m.store.TakeScoreItem(i.GuildID, userID, thing, count)
+	m.handleChange(s, i, "take", func(userID, thing string, count int64, all bool) (string, string, error) {
+		var result database.TakeResult
+		var held int64
+		var err error
+		if all {
+			result, held, err = m.store.TakeAllScoreItem(i.GuildID, userID, thing)
+			count = held
+		} else {
+			result, held, err = m.store.TakeScoreItem(i.GuildID, userID, thing, count)
+		}
 		switch {
 		case err != nil:
 			return "", "", err
@@ -163,7 +180,7 @@ func (m *Module) handleTake(s *discordgo.Session, i *discordgo.InteractionCreate
 
 // changeFunc applies a give or take. It returns the public announcement, or a
 // private note for the moderator when nothing changed.
-type changeFunc func(userID, thing string, count int64) (announcement, note string, err error)
+type changeFunc func(userID, thing string, count int64, all bool) (announcement, note string, err error)
 
 // handleChange runs the flow shared by /give and /take: validate, make sure
 // the announcement can be posted, apply the change, then announce it as a
@@ -171,6 +188,7 @@ type changeFunc func(userID, thing string, count int64) (announcement, note stri
 func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCreate, verb string, apply changeFunc) {
 	var userID, thing string
 	var count int64 = 1
+	var countSet, all bool
 	for _, opt := range i.ApplicationCommandData().Options {
 		switch opt.Name {
 		case "user":
@@ -179,11 +197,18 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 			thing = database.NormalizeScoreItemName(opt.StringValue())
 		case "count":
 			count = opt.IntValue()
+			countSet = true
+		case "all":
+			all = opt.BoolValue()
 		}
 	}
 
 	if userID == "" || thing == "" {
 		m.respondEphemeral(s, i, "❌ Please specify a user and a thing.")
+		return
+	}
+	if all && countSet {
+		m.respondEphemeral(s, i, "❌ Use either a count or all, not both.")
 		return
 	}
 	if count < 1 {
@@ -209,7 +234,7 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	announcement, note, err := apply(userID, thing, count)
+	announcement, note, err := apply(userID, thing, count, all)
 	if err != nil {
 		m.config.Logger.Errorf("%s: failed to save %q for user %s: %v", verb, thing, userID, err)
 		m.editResponse(s, i, "❌ Failed to save. Nothing was announced.")
@@ -232,6 +257,83 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 
 	m.editResponse(s, i, "✅ Done.")
+}
+
+// HandleAutocomplete suggests things for the /give and /take thing option.
+// /take (and /give once a user is picked) suggests what that user has; /give
+// without a user suggests anything held in the server. Only things someone
+// currently holds are suggested.
+func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	data := i.ApplicationCommandData()
+	var query, userID string
+	focusedThing := false
+	for _, opt := range data.Options {
+		switch opt.Name {
+		case "thing":
+			query, _ = opt.Value.(string)
+			focusedThing = opt.Focused
+		case "user":
+			// Unresolved in autocomplete: the value is the raw user ID.
+			userID, _ = opt.Value.(string)
+		}
+	}
+
+	choices := []*discordgo.ApplicationCommandOptionChoice{}
+	if focusedThing && m.store != nil {
+		names, err := m.suggest(i.GuildID, data.Name, userID, query)
+		if err != nil {
+			m.config.Logger.Errorf("%s: autocomplete failed: %v", data.Name, err)
+		}
+		for _, name := range names {
+			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{Name: name, Value: name})
+		}
+	}
+
+	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	}); err != nil {
+		m.config.Logger.Errorf("%s: failed to respond to autocomplete: %v", data.Name, err)
+	}
+}
+
+func (m *Module) suggest(guildID, command, userID, query string) ([]string, error) {
+	if userID == "" || command == "give" {
+		// A give can stack onto anything that exists in the server, but the
+		// recipient's own things are listed first.
+		var own []string
+		if userID != "" {
+			var err error
+			if own, err = m.store.SuggestScoreItemNames(guildID, userID, query); err != nil {
+				return nil, err
+			}
+		}
+		all, err := m.store.SuggestScoreItemNames(guildID, "", query)
+		if err != nil {
+			return nil, err
+		}
+		return mergeSuggestions(own, all), nil
+	}
+	return m.store.SuggestScoreItemNames(guildID, userID, query)
+}
+
+// mergeSuggestions appends rest to first, skipping case-insensitive
+// duplicates and capping at Discord's 25-choice limit.
+func mergeSuggestions(first, rest []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range append(first, rest...) {
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		if len(out) == 25 {
+			break
+		}
+		seen[key] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 func (m *Module) handleScore(s *discordgo.Session, i *discordgo.InteractionCreate) {

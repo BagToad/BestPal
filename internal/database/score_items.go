@@ -109,12 +109,27 @@ func (db *DB) GiveScoreItem(guildID, userID, name string, count int64) (GiveResu
 
 // TakeScoreItem removes count of a thing from a user, deleting it when none
 // are left. Taking more than the user has changes nothing; held is the amount
-// the user has (0 when not held).
+// the user had (0 when not held).
 func (db *DB) TakeScoreItem(guildID, userID, name string, count int64) (result TakeResult, held int64, err error) {
 	name, err = validateScoreItem(name, count)
 	if err != nil {
 		return 0, 0, err
 	}
+	return db.takeScoreItem(guildID, userID, name, count)
+}
+
+// TakeAllScoreItem removes a thing from a user entirely; held is the amount
+// the user had (0 when not held).
+func (db *DB) TakeAllScoreItem(guildID, userID, name string) (result TakeResult, held int64, err error) {
+	name, err = validateScoreItem(name, 1)
+	if err != nil {
+		return 0, 0, err
+	}
+	return db.takeScoreItem(guildID, userID, name, 0)
+}
+
+// takeScoreItem removes count of a thing, or all of it when count is 0.
+func (db *DB) takeScoreItem(guildID, userID, name string, count int64) (result TakeResult, held int64, err error) {
 	key := scoreItemKey(name)
 
 	tx, err := db.conn.Begin()
@@ -134,7 +149,7 @@ func (db *DB) TakeScoreItem(guildID, userID, name string, count int64) (result T
 		return 0, 0, fmt.Errorf("failed to look up score item: %w", err)
 	case held < count:
 		return TakeInsufficient, held, nil
-	case held == count:
+	case count == 0 || held == count:
 		_, err = tx.Exec(
 			`DELETE FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
 			guildID, userID, key,
@@ -181,4 +196,46 @@ func (db *DB) GetScoreItems(guildID, userID string) ([]ScoreItem, error) {
 		return nil, fmt.Errorf("failed to iterate score items: %w", err)
 	}
 	return items, nil
+}
+
+// maxScoreItemSuggestions is Discord's cap on autocomplete choices.
+const maxScoreItemSuggestions = 25
+
+// SuggestScoreItemNames returns names of things currently held in a guild
+// whose name contains query (case-insensitively), for autocomplete. When
+// userID is set only that user's things are considered. Each thing appears
+// once, spelled as it was first given. Things nobody holds any more are gone
+// from the table, so they are never suggested.
+func (db *DB) SuggestScoreItemNames(guildID, userID, query string) ([]string, error) {
+	sqlQuery := `
+		SELECT name, MIN(id) AS first_id FROM score_items
+		WHERE guild_id = ? AND instr(name_key, ?) > 0`
+	args := []any{guildID, scoreItemKey(query)}
+	if userID != "" {
+		sqlQuery += ` AND user_id = ?`
+		args = append(args, userID)
+	}
+	// SQLite returns the bare name column from the MIN(id) row.
+	sqlQuery += ` GROUP BY name_key ORDER BY name_key LIMIT ?`
+	args = append(args, maxScoreItemSuggestions)
+
+	rows, err := db.conn.Query(sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to suggest score items: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		var firstID int64
+		if err := rows.Scan(&name, &firstID); err != nil {
+			return nil, fmt.Errorf("failed to scan score item suggestion: %w", err)
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate score item suggestions: %w", err)
+	}
+	return names, nil
 }

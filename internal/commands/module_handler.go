@@ -237,12 +237,18 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 	// Check which command is being autocompleted
 	commandName := i.ApplicationCommandData().Name
 
-	// Currently only game-thread command (in LFG module) uses autocomplete
-	if commandName == "game-thread" {
+	switch commandName {
+	case "game-thread":
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 			lfgMod.HandleAutocomplete(s, i)
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
+		}
+	case "give", "take":
+		if scoreMod, ok := h.GetModule("score").(*score.Module); ok {
+			scoreMod.HandleAutocomplete(s, i)
+		} else {
+			h.config.Logger.Warn("Autocomplete received for " + commandName + " but score module not available")
 		}
 	}
 }

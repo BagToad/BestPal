@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -108,4 +109,49 @@ func TestScoreItems_RejectsInvalidInput(t *testing.T) {
 	items, err := db.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
 	require.Empty(t, items)
+}
+
+func TestScoreItems_TakeAll(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "guild1", "user1", "Horses", 24)
+
+	result, held, err := db.TakeAllScoreItem("guild1", "user1", "horses")
+	require.NoError(t, err)
+	require.Equal(t, TakeApplied, result)
+	require.Equal(t, int64(24), held)
+
+	result, _, err = db.TakeAllScoreItem("guild1", "user1", "horses")
+	require.NoError(t, err)
+	require.Equal(t, TakeNotHeld, result)
+
+	items, err := db.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Empty(t, items)
+}
+
+func TestScoreItems_Suggest(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "guild1", "user1", "Black Zebras", 1)
+	giveApplied(t, db, "guild1", "user2", "black zebras", 1)
+	giveApplied(t, db, "guild1", "user2", "Émus", 1)
+	giveApplied(t, db, "guild2", "user1", "giraffe", 1)
+
+	names, err := db.SuggestScoreItemNames("guild1", "", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Black Zebras", "Émus"}, names)
+
+	names, err = db.SuggestScoreItemNames("guild1", "", "ému")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Émus"}, names, "matching is Unicode case-insensitive")
+
+	names, err = db.SuggestScoreItemNames("guild1", "user1", "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Black Zebras"}, names)
+
+	for n := range 30 {
+		giveApplied(t, db, "guild3", "user1", fmt.Sprintf("thing %02d", n), 1)
+	}
+	names, err = db.SuggestScoreItemNames("guild3", "", "thing")
+	require.NoError(t, err)
+	require.Len(t, names, 25)
 }

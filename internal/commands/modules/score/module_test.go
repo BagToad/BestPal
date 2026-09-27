@@ -36,6 +36,12 @@ func (failingStore) GiveScoreItem(string, string, string, int64) (database.GiveR
 func (failingStore) TakeScoreItem(string, string, string, int64) (database.TakeResult, int64, error) {
 	return 0, 0, errors.New("boom")
 }
+func (failingStore) TakeAllScoreItem(string, string, string) (database.TakeResult, int64, error) {
+	return 0, 0, errors.New("boom")
+}
+func (failingStore) SuggestScoreItemNames(string, string, string) ([]string, error) {
+	return nil, errors.New("boom")
+}
 func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) {
 	return nil, errors.New("boom")
 }
@@ -205,6 +211,126 @@ func TestTake_MoreThanHeldOrNotHeldIsNotAnnounced(t *testing.T) {
 	items, err := m.store.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), items[0].Count)
+}
+
+func allOpt() *discordgo.ApplicationCommandInteractionDataOption {
+	return &discordgo.ApplicationCommandInteractionDataOption{Name: "all", Type: discordgo.ApplicationCommandOptionBoolean, Value: true}
+}
+
+func TestTake_AllRemovesEverythingAndAnnouncesTheAmount(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(24)))
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), allOpt()))
+
+	require.Len(t, c.sent, 2)
+	assert.Equal(t, "<@user1> has lost 24 horses!", c.sent[1].msg.Content)
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Empty(t, items)
+
+	c.edits = nil
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), allOpt()))
+	assert.Len(t, c.sent, 2)
+	require.Len(t, c.edits, 1)
+	assert.Contains(t, c.edits[0], "doesn't have any horses")
+}
+
+func TestTake_AllWithCountIsRejected(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(24)))
+	c.responses = nil
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(2), allOpt()))
+
+	assert.Len(t, c.sent, 1)
+	require.Len(t, c.responses, 1)
+	assert.Contains(t, c.responses[0].Data.Content, "not both")
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(24), items[0].Count)
+}
+
+func autocomplete(command string, opts ...*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
+	i := interaction(command, "mod1", opts...)
+	i.Type = discordgo.InteractionApplicationCommandAutocomplete
+	return i
+}
+
+func focusedThing(query string) *discordgo.ApplicationCommandInteractionDataOption {
+	o := thingOpt(query)
+	o.Focused = true
+	return o
+}
+
+func choiceNames(t *testing.T, c *capture) []string {
+	t.Helper()
+	require.NotEmpty(t, c.responses)
+	resp := c.responses[len(c.responses)-1]
+	require.Equal(t, discordgo.InteractionApplicationCommandAutocompleteResult, resp.Type)
+	names := []string{}
+	for _, choice := range resp.Data.Choices {
+		assert.Equal(t, choice.Name, choice.Value)
+		names = append(names, choice.Name)
+	}
+	return names
+}
+
+func TestAutocomplete_SuggestsOnlyThingsStillHeld(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("Horses"), countOpt(2)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses"), countOpt(3)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
+
+	m.HandleAutocomplete(nil, autocomplete("give", focusedThing("")))
+	assert.Equal(t, []string{"giraffe", "Horses"}, choiceNames(t, c), "one entry per thing, first spelling")
+
+	m.HandleAutocomplete(nil, autocomplete("give", focusedThing("OR")))
+	assert.Equal(t, []string{"Horses"}, choiceNames(t, c))
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), allOpt()))
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user2"), thingOpt("horses"), allOpt()))
+	m.HandleAutocomplete(nil, autocomplete("give", focusedThing("")))
+	assert.Equal(t, []string{"giraffe"}, choiceNames(t, c), "gone once nobody has any")
+}
+
+func TestAutocomplete_TakeSuggestsOnlyThatUsersThings(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
+
+	m.HandleAutocomplete(nil, autocomplete("take", userOpt("user1"), focusedThing("")))
+	assert.Equal(t, []string{"horses"}, choiceNames(t, c))
+
+	m.HandleAutocomplete(nil, autocomplete("take", focusedThing("")))
+	assert.Equal(t, []string{"giraffe", "horses"}, choiceNames(t, c), "server-wide until a user is picked")
+}
+
+func TestAutocomplete_GiveListsRecipientsThingsFirst(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("apples")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("zebras")))
+
+	m.HandleAutocomplete(nil, autocomplete("give", userOpt("user1"), focusedThing("")))
+	assert.Equal(t, []string{"zebras", "apples"}, choiceNames(t, c))
+}
+
+func TestAutocomplete_FailureStillRespondsWithEmptyChoices(t *testing.T) {
+	m, c := newTestModule(t, failingStore{})
+
+	m.HandleAutocomplete(nil, autocomplete("give", focusedThing("h")))
+
+	assert.Empty(t, choiceNames(t, c))
+}
+
+func TestMergeSuggestions_DedupesAndCaps(t *testing.T) {
+	var many []string
+	for n := range 30 {
+		many = append(many, strings.Repeat("x", n+1))
+	}
+	merged := mergeSuggestions([]string{"Horses"}, append([]string{"horses"}, many...))
+	assert.Len(t, merged, 25)
+	assert.Equal(t, []string{"Horses", "x"}, merged[:2])
 }
 
 func TestTake_CannotPostInChannelChangesNothing(t *testing.T) {

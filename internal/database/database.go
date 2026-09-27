@@ -125,7 +125,7 @@ func (db *DB) initTables() error {
 		user_id    TEXT NOT NULL,
 		name       TEXT NOT NULL,
 		name_key   TEXT NOT NULL,
-		count      INTEGER,
+		count      INTEGER NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE (guild_id, user_id, name_key)

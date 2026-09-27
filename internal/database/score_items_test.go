@@ -1,12 +1,13 @@
 package database
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func giveApplied(t *testing.T, db *DB, guildID, userID, name string, count *int64) {
+func giveApplied(t *testing.T, db *DB, guildID, userID, name string, count int64) {
 	t.Helper()
 	result, err := db.GiveScoreItem(guildID, userID, name, count)
 	require.NoError(t, err)
@@ -21,80 +22,87 @@ func TestScoreItems_EmptyByDefault(t *testing.T) {
 	require.Empty(t, items)
 }
 
-func TestScoreItems_CountedGivesStackCaseInsensitively(t *testing.T) {
+func TestScoreItems_GivesStackCaseInsensitively(t *testing.T) {
 	db := newTestDB(t)
 
-	giveApplied(t, db, "guild1", "user1", "Horses", new(int64(20)))
-	giveApplied(t, db, "guild1", "user1", "  horses ", new(int64(4)))
-	giveApplied(t, db, "guild1", "user1", "horse", new(int64(1)))
+	giveApplied(t, db, "guild1", "user1", "Horses", 20)
+	giveApplied(t, db, "guild1", "user1", "  horses ", 4)
+	giveApplied(t, db, "guild1", "user1", "horse", 1)
 
 	items, err := db.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
 	require.Len(t, items, 2)
-	require.Equal(t, "Horses", items[0].Name, "first-given spelling is kept")
-	require.Equal(t, int64(24), *items[0].Count)
-	require.Equal(t, "horse", items[1].Name, "different names do not stack")
-	require.Equal(t, int64(1), *items[1].Count)
+	require.Equal(t, ScoreItem{Name: "Horses", Count: 24}, items[0], "first-given spelling is kept")
+	require.Equal(t, ScoreItem{Name: "horse", Count: 1}, items[1], "different names do not stack")
 }
 
-func TestScoreItems_UncountedThings(t *testing.T) {
+func TestScoreItems_GiveOverflowChangesNothing(t *testing.T) {
 	db := newTestDB(t)
+	giveApplied(t, db, "guild1", "user1", "horses", math.MaxInt64-1)
+	giveApplied(t, db, "guild1", "user1", "horses", 1)
 
-	giveApplied(t, db, "guild1", "user1", "a can  of eggs", nil)
-
-	result, err := db.GiveScoreItem("guild1", "user1", "A can of eggs", nil)
+	result, err := db.GiveScoreItem("guild1", "user1", "horses", 1)
 	require.NoError(t, err)
-	require.Equal(t, GiveAlreadyHeld, result)
+	require.Equal(t, GiveOverflow, result)
 
 	items, err := db.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
-	require.Len(t, items, 1, "repeat uncounted gives don't duplicate")
-	require.Equal(t, "a can of eggs", items[0].Name)
-	require.Nil(t, items[0].Count)
+	require.Equal(t, int64(math.MaxInt64), items[0].Count)
 }
 
-func TestScoreItems_KindMismatchChangesNothing(t *testing.T) {
+func TestScoreItems_Take(t *testing.T) {
 	db := newTestDB(t)
-	giveApplied(t, db, "guild1", "user1", "a can of eggs", nil)
-	giveApplied(t, db, "guild1", "user1", "horses", new(int64(24)))
+	giveApplied(t, db, "guild1", "user1", "Horses", 5)
+	giveApplied(t, db, "guild1", "user1", "giraffe", 1)
 
-	result, err := db.GiveScoreItem("guild1", "user1", "a can of eggs", new(int64(2)))
+	result, held, err := db.TakeScoreItem("guild1", "user1", "horses", 3)
 	require.NoError(t, err)
-	require.Equal(t, GiveKindMismatch, result)
+	require.Equal(t, TakeApplied, result)
+	require.Equal(t, int64(5), held)
 
-	result, err = db.GiveScoreItem("guild1", "user1", "Horses", nil)
+	result, held, err = db.TakeScoreItem("guild1", "user1", "horses", 3)
 	require.NoError(t, err)
-	require.Equal(t, GiveKindMismatch, result)
+	require.Equal(t, TakeInsufficient, result)
+	require.Equal(t, int64(2), held)
+
+	result, _, err = db.TakeScoreItem("guild1", "user1", "zebra", 1)
+	require.NoError(t, err)
+	require.Equal(t, TakeNotHeld, result)
+
+	result, _, err = db.TakeScoreItem("guild1", "user1", "GIRAFFE", 1)
+	require.NoError(t, err)
+	require.Equal(t, TakeApplied, result)
 
 	items, err := db.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
-	require.Len(t, items, 2)
-	require.Nil(t, items[0].Count)
-	require.Equal(t, int64(24), *items[1].Count)
+	require.Equal(t, []ScoreItem{{Name: "Horses", Count: 2}}, items, "things taken to zero are removed")
 }
 
 func TestScoreItems_ScopedByGuildAndUserInGiveOrder(t *testing.T) {
 	db := newTestDB(t)
 
-	giveApplied(t, db, "guild1", "user1", "giraffe", new(int64(1)))
-	giveApplied(t, db, "guild1", "user1", "a black zebra", nil)
-	giveApplied(t, db, "guild1", "user2", "giraffe", new(int64(5)))
-	giveApplied(t, db, "guild2", "user1", "giraffe", new(int64(9)))
+	giveApplied(t, db, "guild1", "user1", "giraffe", 1)
+	giveApplied(t, db, "guild1", "user1", "black zebras", 2)
+	giveApplied(t, db, "guild1", "user2", "giraffe", 5)
+	giveApplied(t, db, "guild2", "user1", "giraffe", 9)
+
+	result, _, err := db.TakeScoreItem("guild2", "user2", "giraffe", 1)
+	require.NoError(t, err)
+	require.Equal(t, TakeNotHeld, result)
 
 	items, err := db.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
-	require.Len(t, items, 2)
-	require.Equal(t, "giraffe", items[0].Name)
-	require.Equal(t, int64(1), *items[0].Count)
-	require.Equal(t, "a black zebra", items[1].Name)
+	require.Equal(t, []ScoreItem{{Name: "giraffe", Count: 1}, {Name: "black zebras", Count: 2}}, items)
 }
 
 func TestScoreItems_RejectsInvalidInput(t *testing.T) {
 	db := newTestDB(t)
 
-	_, err := db.GiveScoreItem("guild1", "user1", "   ", nil)
+	_, err := db.GiveScoreItem("guild1", "user1", "   ", 1)
 	require.Error(t, err)
-	_, err = db.GiveScoreItem("guild1", "user1", "horses", new(int64(0)))
+	_, err = db.GiveScoreItem("guild1", "user1", "horses", 0)
+	require.Error(t, err)
+	_, _, err = db.TakeScoreItem("guild1", "user1", "horses", -1)
 	require.Error(t, err)
 
 	items, err := db.GetScoreItems("guild1", "user1")

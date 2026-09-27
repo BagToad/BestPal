@@ -2,6 +2,7 @@ package score
 
 import (
 	"errors"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,8 +30,11 @@ type sentMessage struct {
 
 type failingStore struct{}
 
-func (failingStore) GiveScoreItem(string, string, string, *int64) (database.GiveResult, error) {
+func (failingStore) GiveScoreItem(string, string, string, int64) (database.GiveResult, error) {
 	return 0, errors.New("boom")
+}
+func (failingStore) TakeScoreItem(string, string, string, int64) (database.TakeResult, int64, error) {
+	return 0, 0, errors.New("boom")
 }
 func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) {
 	return nil, errors.New("boom")
@@ -115,16 +119,116 @@ func TestGive_AnnouncesInChannelAndAcksModeratorPrivately(t *testing.T) {
 	items, err := m.store.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, int64(24), *items[0].Count)
+	assert.Equal(t, int64(24), items[0].Count)
 }
 
-func TestGive_UncountedThingAnnouncedAsIs(t *testing.T) {
+func TestGive_CountDefaultsToOne(t *testing.T) {
 	m, c := newTestModule(t, nil)
 
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("a can of eggs")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("giraffe")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("giraffe")))
 
+	require.Len(t, c.sent, 2)
+	assert.Equal(t, "<@user1> has earned 1 giraffe!", c.sent[0].msg.Content)
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, int64(2), items[0].Count)
+}
+
+func TestGive_HugeCountsUntilTheTotalWouldOverflow(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	const discordMax = 1<<53 - 1
+
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(discordMax)))
 	require.Len(t, c.sent, 1)
-	assert.Equal(t, "<@user1> has earned a can of eggs!", c.sent[0].msg.Content)
+	assert.Equal(t, "<@user1> has earned 9007199254740991 horses!", c.sent[0].msg.Content)
+
+	_, err := m.store.GiveScoreItem("guild1", "user1", "horses", math.MaxInt64-2*discordMax)
+	require.NoError(t, err)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(discordMax)))
+	require.Len(t, c.sent, 2, "a give that fits exactly is announced")
+
+	c.edits = nil
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
+	assert.Len(t, c.sent, 2, "overflowing give is not announced")
+	require.Len(t, c.edits, 1)
+	assert.Contains(t, c.edits[0], "too many")
+
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(math.MaxInt64), items[0].Count)
+}
+
+func TestTake_AnnouncesLossAndRemovesAtZero(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(5)))
+	c.responses, c.edits = nil, nil
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("Horses"), countOpt(3)))
+
+	require.Len(t, c.sent, 2)
+	assert.Equal(t, "chan1", c.sent[1].channelID)
+	assert.Equal(t, "<@user1> has lost 3 Horses!", c.sent[1].msg.Content)
+	assert.Equal(t, []string{"user1"}, c.sent[1].msg.AllowedMentions.Users)
+	assert.NotContains(t, c.sent[1].msg.Content, "mod1")
+	require.Len(t, c.responses, 1)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, c.responses[0].Data.Flags)
+	assert.Equal(t, []string{"✅ Done."}, c.edits)
+
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, int64(2), items[0].Count)
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses")))
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses")))
+	assert.Equal(t, "<@user1> has lost 1 horses!", c.sent[3].msg.Content)
+	items, err = m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}
+
+func TestTake_MoreThanHeldOrNotHeldIsNotAnnounced(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(2)))
+	c.edits = nil
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("giraffe")))
+
+	assert.Len(t, c.sent, 1, "only the give was announced")
+	require.Len(t, c.edits, 2)
+	assert.Contains(t, c.edits[0], "only has 2 horses")
+	assert.Contains(t, c.edits[1], "doesn't have any giraffe")
+
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), items[0].Count)
+}
+
+func TestTake_CannotPostInChannelChangesNothing(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(2)))
+	i := interaction("take", "mod1", userOpt("user1"), thingOpt("horses"))
+	i.AppPermissions = discordgo.PermissionViewChannel
+
+	m.handleTake(nil, i)
+
+	assert.Len(t, c.sent, 1)
+	items, err := m.store.GetScoreItems("guild1", "user1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), items[0].Count)
+}
+
+func TestTake_SaveFailureDoesNotAnnounce(t *testing.T) {
+	m, c := newTestModule(t, failingStore{})
+
+	m.handleTake(nil, interaction("take", "mod1", userOpt("user1"), thingOpt("horses")))
+
+	assert.Empty(t, c.sent)
+	require.Len(t, c.edits, 1)
+	assert.Contains(t, c.edits[0], "Failed to save")
 }
 
 func TestGive_RejectsBlankThingWithoutAnnouncing(t *testing.T) {
@@ -177,24 +281,6 @@ func TestGive_InThreadNeedsThreadSendPermission(t *testing.T) {
 	assert.Len(t, c.sent, 1)
 }
 
-func TestGive_RepeatOrMismatchedGiveIsNotAnnounced(t *testing.T) {
-	m, c := newTestModule(t, nil)
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("a can of eggs")))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(3)))
-	require.Len(t, c.sent, 2)
-	c.edits = nil
-
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("A can of eggs")))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("a can of eggs"), countOpt(2)))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
-
-	assert.Len(t, c.sent, 2, "no new announcements")
-	require.Len(t, c.edits, 3)
-	assert.Contains(t, c.edits[0], "already has")
-	assert.Contains(t, c.edits[1], "without a count")
-	assert.Contains(t, c.edits[2], "with a count")
-}
-
 func TestGive_CountedGiveStacksAndAnnouncesTheAmountGiven(t *testing.T) {
 	m, c := newTestModule(t, nil)
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(20)))
@@ -205,7 +291,7 @@ func TestGive_CountedGiveStacksAndAnnouncesTheAmountGiven(t *testing.T) {
 	items, err := m.store.GetScoreItems("guild1", "user1")
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, int64(24), *items[0].Count)
+	assert.Equal(t, int64(24), items[0].Count)
 }
 
 func TestGive_AnnounceFailureTellsModeratorItWasSaved(t *testing.T) {
@@ -235,9 +321,8 @@ func TestGive_NoDatabase(t *testing.T) {
 func TestScore_ListsThingsForRequestedUserWithoutPinging(t *testing.T) {
 	m, c := newTestModule(t, nil)
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(24)))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("giraffe"), countOpt(1)))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("a can of eggs")))
-	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("a black zebra")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("giraffe")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("cans of eggs"), countOpt(3)))
 	c.responses = nil
 
 	m.handleScore(nil, interaction("score", "someone", userOpt("user1")))
@@ -246,7 +331,7 @@ func TestScore_ListsThingsForRequestedUserWithoutPinging(t *testing.T) {
 	resp := c.responses[0]
 	assert.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, resp.Type)
 	assert.Zero(t, resp.Data.Flags, "score is posted publicly")
-	assert.Equal(t, "<@user1> has:\n\n- 24 horses\n- 1 giraffe\n- a can of eggs\n- a black zebra", resp.Data.Content)
+	assert.Equal(t, "<@user1> has:\n\n- 24 horses\n- 1 giraffe\n- 3 cans of eggs", resp.Data.Content)
 	require.NotNil(t, resp.Data.AllowedMentions)
 	assert.Empty(t, resp.Data.AllowedMentions.Users)
 	assert.Empty(t, resp.Data.AllowedMentions.Parse)
@@ -273,21 +358,21 @@ func TestScore_LoadFailureIsEphemeral(t *testing.T) {
 func TestBuildScoreMessage_TruncatesToDiscordLimit(t *testing.T) {
 	items := make([]database.ScoreItem, 100)
 	for idx := range items {
-		items[idx] = database.ScoreItem{Name: strings.Repeat("x", maxThingLength), Count: new(int64(maxGiveCount))}
+		items[idx] = database.ScoreItem{Name: strings.Repeat("x", maxThingLength), Count: math.MaxInt64}
 	}
 
 	msg := buildScoreMessage("user1", items)
 
 	assert.LessOrEqual(t, utf8.RuneCountInString(msg), maxMessageLength)
-	assert.True(t, strings.HasPrefix(msg, "<@user1> has:\n\n- 1000000 "))
+	assert.True(t, strings.HasPrefix(msg, "<@user1> has:\n\n- 9223372036854775807 "))
 	assert.Regexp(t, `\n- …and \d+ more$`, msg)
 }
 
 func TestBuildScoreMessage_CountsCharactersNotBytes(t *testing.T) {
 	header := len("<@user1> has:\n")
 	// Multi-byte characters: well over 2000 bytes but exactly 2000 characters.
-	name := strings.Repeat("🦶", maxMessageLength-header-len("\n- "))
-	msg := buildScoreMessage("user1", []database.ScoreItem{{Name: name}})
+	name := strings.Repeat("🦶", maxMessageLength-header-len("\n- 1 "))
+	msg := buildScoreMessage("user1", []database.ScoreItem{{Name: name, Count: 1}})
 
 	assert.Equal(t, maxMessageLength, utf8.RuneCountInString(msg))
 	assert.NotContains(t, msg, "more")
@@ -296,8 +381,8 @@ func TestBuildScoreMessage_CountsCharactersNotBytes(t *testing.T) {
 func TestBuildScoreMessage_ExactFitHasNoOverflowNote(t *testing.T) {
 	header := len("<@user1> has:\n")
 	// One item whose line lands exactly on the limit.
-	name := strings.Repeat("y", maxMessageLength-header-len("\n- "))
-	msg := buildScoreMessage("user1", []database.ScoreItem{{Name: name}})
+	name := strings.Repeat("y", maxMessageLength-header-len("\n- 1 "))
+	msg := buildScoreMessage("user1", []database.ScoreItem{{Name: name, Count: 1}})
 
 	assert.Len(t, msg, maxMessageLength)
 	assert.NotContains(t, msg, "more")

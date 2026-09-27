@@ -14,14 +14,14 @@ import (
 
 const (
 	maxThingLength = 100
-	maxGiveCount   = 1_000_000
 	// Discord rejects message content longer than 2000 characters.
 	maxMessageLength = 2000
 )
 
 // store is the persistence the module needs; *database.DB satisfies it.
 type store interface {
-	GiveScoreItem(guildID, userID, name string, count *int64) (database.GiveResult, error)
+	GiveScoreItem(guildID, userID, name string, count int64) (database.GiveResult, error)
+	TakeScoreItem(guildID, userID, name string, count int64) (database.TakeResult, int64, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 }
 
@@ -48,8 +48,8 @@ func defaultDiscordOps() discordOps {
 	}
 }
 
-// Module implements /give (moderators hand out arbitrary things) and /score
-// (anyone lists what a user holds).
+// Module implements /give and /take (moderators hand out and remove arbitrary
+// things) and /score (anyone lists what a user holds).
 type Module struct {
 	config *config.Config
 	store  store
@@ -66,50 +66,58 @@ func New(deps *types.Dependencies) *Module {
 	return m
 }
 
-// Register adds the /give and /score commands to the command map
-func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+func modCommand(name, description, userDesc, thingDesc, countDesc string) *discordgo.ApplicationCommand {
 	var modPerms int64 = discordgo.PermissionBanMembers
-	guildOnly := &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild}
 	minCount := 1.0
-
-	cmds["give"] = &types.Command{
-		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name:                     "give",
-			Description:              "Give a user something",
-			DefaultMemberPermissions: &modPerms,
-			Contexts:                 guildOnly,
-			Options: []*discordgo.ApplicationCommandOption{
-				{
-					Type:        discordgo.ApplicationCommandOptionUser,
-					Name:        "user",
-					Description: "Who receives it",
-					Required:    true,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionString,
-					Name:        "thing",
-					Description: "What they receive, exactly as it should be shown (e.g. horses, a can of eggs)",
-					Required:    true,
-					MaxLength:   maxThingLength,
-				},
-				{
-					Type:        discordgo.ApplicationCommandOptionInteger,
-					Name:        "count",
-					Description: "How many (omit for a one-off thing shown as-is)",
-					Required:    false,
-					MinValue:    &minCount,
-					MaxValue:    maxGiveCount,
-				},
+	return &discordgo.ApplicationCommand{
+		Name:                     name,
+		Description:              description,
+		DefaultMemberPermissions: &modPerms,
+		Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: userDesc,
+				Required:    true,
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "thing",
+				Description: thingDesc,
+				Required:    true,
+				MaxLength:   maxThingLength,
+			},
+			{
+				// No MaxValue: Discord's own integer limit (2^53) is the cap.
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "count",
+				Description: countDesc,
+				Required:    false,
+				MinValue:    &minCount,
 			},
 		},
+	}
+}
+
+// Register adds the /give, /take and /score commands to the command map
+func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
+	cmds["give"] = &types.Command{
+		ApplicationCommand: modCommand("give", "Give a user something",
+			"Who receives it", "What they receive (e.g. horses)", "How many (defaults to 1)"),
 		HandlerFunc: m.handleGive,
+	}
+	cmds["take"] = &types.Command{
+		ApplicationCommand: modCommand("take", "Take something from a user",
+			"Who loses it", "What they lose (e.g. horses)", "How many (defaults to 1)"),
+		HandlerFunc: m.handleTake,
 	}
 
 	cmds["score"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "score",
 			Description: "See what someone has",
-			Contexts:    guildOnly,
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
 			Options: []*discordgo.ApplicationCommandOption{
 				{
 					Type:        discordgo.ApplicationCommandOptionUser,
@@ -129,8 +137,40 @@ func (m *Module) Service() types.ModuleService {
 }
 
 func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	m.handleChange(s, i, "give", func(userID, thing string, count int64) (string, string, error) {
+		result, err := m.store.GiveScoreItem(i.GuildID, userID, thing, count)
+		if err != nil || result == database.GiveOverflow {
+			return "", "❌ That would be too many. Nothing was given.", err
+		}
+		return fmt.Sprintf("<@%s> has earned %s!", userID, formatThing(thing, count)), "", nil
+	})
+}
+
+func (m *Module) handleTake(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	m.handleChange(s, i, "take", func(userID, thing string, count int64) (string, string, error) {
+		result, held, err := m.store.TakeScoreItem(i.GuildID, userID, thing, count)
+		switch {
+		case err != nil:
+			return "", "", err
+		case result == database.TakeNotHeld:
+			return "", fmt.Sprintf("ℹ️ <@%s> doesn't have any %s. Nothing was taken.", userID, thing), nil
+		case result == database.TakeInsufficient:
+			return "", fmt.Sprintf("ℹ️ <@%s> only has %s. Nothing was taken.", userID, formatThing(thing, held)), nil
+		}
+		return fmt.Sprintf("<@%s> has lost %s!", userID, formatThing(thing, count)), "", nil
+	})
+}
+
+// changeFunc applies a give or take. It returns the public announcement, or a
+// private note for the moderator when nothing changed.
+type changeFunc func(userID, thing string, count int64) (announcement, note string, err error)
+
+// handleChange runs the flow shared by /give and /take: validate, make sure
+// the announcement can be posted, apply the change, then announce it as a
+// plain channel message so nothing shows which moderator ran the command.
+func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCreate, verb string, apply changeFunc) {
 	var userID, thing string
-	var count *int64
+	var count int64 = 1
 	for _, opt := range i.ApplicationCommandData().Options {
 		switch opt.Name {
 		case "user":
@@ -138,8 +178,7 @@ func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate
 		case "thing":
 			thing = database.NormalizeScoreItemName(opt.StringValue())
 		case "count":
-			c := opt.IntValue()
-			count = &c
+			count = opt.IntValue()
 		}
 	}
 
@@ -147,57 +186,47 @@ func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.respondEphemeral(s, i, "❌ Please specify a user and a thing.")
 		return
 	}
-	if count != nil && (*count < 1 || *count > maxGiveCount) {
-		m.respondEphemeral(s, i, fmt.Sprintf("❌ Count must be between 1 and %d.", maxGiveCount))
+	if count < 1 {
+		m.respondEphemeral(s, i, "❌ Count must be at least 1.")
 		return
 	}
 	if m.store == nil {
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
 		return
 	}
-	// Check before saving so a give is never recorded without its announcement.
+	// Check before saving so a change is never recorded without its announcement.
 	if !botCanPost(s, i) {
-		m.respondEphemeral(s, i, "❌ I can't post in this channel, so nothing was given.")
+		m.respondEphemeral(s, i, "❌ I can't post in this channel, so nothing changed.")
 		return
 	}
 
-	// Defer ephemerally so only the moderator sees the acknowledgement; the
-	// public announcement is a plain channel message with no interaction
-	// attribution.
+	// Defer ephemerally so only the moderator sees the acknowledgement.
 	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
 	}); err != nil {
-		m.config.Logger.Errorf("give: failed to defer interaction: %v", err)
+		m.config.Logger.Errorf("%s: failed to defer interaction: %v", verb, err)
 		return
 	}
 
-	result, err := m.store.GiveScoreItem(i.GuildID, userID, thing, count)
+	announcement, note, err := apply(userID, thing, count)
 	if err != nil {
-		m.config.Logger.Errorf("give: failed to save %q for user %s: %v", thing, userID, err)
+		m.config.Logger.Errorf("%s: failed to save %q for user %s: %v", verb, thing, userID, err)
 		m.editResponse(s, i, "❌ Failed to save. Nothing was announced.")
 		return
 	}
-	switch result {
-	case database.GiveAlreadyHeld:
-		m.editResponse(s, i, fmt.Sprintf("ℹ️ <@%s> already has %s. Nothing was announced.", userID, thing))
-		return
-	case database.GiveKindMismatch:
-		msg := fmt.Sprintf("❌ <@%s> already has %q as a one-off thing, so give it without a count. Nothing was announced.", userID, thing)
-		if count == nil {
-			msg = fmt.Sprintf("❌ <@%s> already has a counted %q, so give it with a count. Nothing was announced.", userID, thing)
-		}
-		m.editResponse(s, i, msg)
+	if announcement == "" {
+		m.editResponse(s, i, note)
 		return
 	}
 
 	err = m.ops.SendMessage(s, i.ChannelID, &discordgo.MessageSend{
-		Content: fmt.Sprintf("<@%s> has earned %s!", userID, formatThing(thing, count)),
+		Content: announcement,
 		// Only the recipient may be pinged, whatever the thing's text contains.
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: []string{userID}},
 	})
 	if err != nil {
-		m.config.Logger.Errorf("give: saved but failed to announce in channel %s: %v", i.ChannelID, err)
+		m.config.Logger.Errorf("%s: saved but failed to announce in channel %s: %v", verb, i.ChannelID, err)
 		m.editResponse(s, i, "⚠️ Saved, but I couldn't post the announcement in this channel.")
 		return
 	}
@@ -257,13 +286,9 @@ func botCanPost(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
 	return i.AppPermissions&need == need
 }
 
-// formatThing renders a thing as announced and listed: "24 horses" when
-// counted, or the name as-is ("a can of eggs") when not.
-func formatThing(name string, count *int64) string {
-	if count == nil {
-		return name
-	}
-	return fmt.Sprintf("%d %s", *count, name)
+// formatThing renders a thing as announced and listed, e.g. "24 horses".
+func formatThing(name string, count int64) string {
+	return fmt.Sprintf("%d %s", count, name)
 }
 
 // buildScoreMessage lists a user's things, truncating to fit Discord's message
@@ -310,6 +335,6 @@ func (m *Module) respondEphemeral(s *discordgo.Session, i *discordgo.Interaction
 
 func (m *Module) editResponse(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
 	if err := m.ops.EditResponse(s, i.Interaction, &discordgo.WebhookEdit{Content: &content}); err != nil {
-		m.config.Logger.Errorf("give: failed to edit response: %v", err)
+		m.config.Logger.Errorf("score: failed to edit response: %v", err)
 	}
 }

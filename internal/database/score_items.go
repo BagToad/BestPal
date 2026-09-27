@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 )
 
-// ScoreItem is one thing a user holds in a guild. Count is nil for uncounted
-// things (e.g. "a can of eggs"), which are displayed exactly as named.
+// ScoreItem is one thing a user holds in a guild.
 type ScoreItem struct {
 	Name  string
-	Count *int64
+	Count int64
 }
 
 // GiveResult reports what GiveScoreItem did.
@@ -20,12 +20,20 @@ type GiveResult int
 const (
 	// GiveApplied means the thing was added or its count increased.
 	GiveApplied GiveResult = iota
-	// GiveAlreadyHeld means an uncounted thing was given to a user who already
-	// has it; nothing changed.
-	GiveAlreadyHeld
-	// GiveKindMismatch means the give was counted and the held thing is not (or
-	// vice versa); nothing changed.
-	GiveKindMismatch
+	// GiveOverflow means the new total would not fit in an int64; nothing changed.
+	GiveOverflow
+)
+
+// TakeResult reports what TakeScoreItem did.
+type TakeResult int
+
+const (
+	// TakeApplied means the count was reduced (and the thing removed at zero).
+	TakeApplied TakeResult = iota
+	// TakeNotHeld means the user doesn't have the thing; nothing changed.
+	TakeNotHeld
+	// TakeInsufficient means the user has fewer than requested; nothing changed.
+	TakeInsufficient
 )
 
 // NormalizeScoreItemName collapses whitespace so display names are tidy and
@@ -40,18 +48,23 @@ func scoreItemKey(name string) string {
 	return strings.ToLower(NormalizeScoreItemName(name))
 }
 
-// GiveScoreItem records a thing given to a user. A counted give adds to an
-// existing counted thing of the same name. An uncounted give of a thing the
-// user already holds, or a give whose countedness differs from the held thing,
-// changes nothing and is reported through the result. The first-given
-// spelling of the name is kept.
-func (db *DB) GiveScoreItem(guildID, userID, name string, count *int64) (GiveResult, error) {
+func validateScoreItem(name string, count int64) (string, error) {
 	name = NormalizeScoreItemName(name)
 	if name == "" {
-		return 0, fmt.Errorf("score item name is empty")
+		return "", fmt.Errorf("score item name is empty")
 	}
-	if count != nil && *count < 1 {
-		return 0, fmt.Errorf("score item count must be positive, got %d", *count)
+	if count < 1 {
+		return "", fmt.Errorf("score item count must be positive, got %d", count)
+	}
+	return name, nil
+}
+
+// GiveScoreItem adds count of a thing to a user, stacking onto an existing
+// thing of the same name. The first-given spelling of the name is kept.
+func (db *DB) GiveScoreItem(guildID, userID, name string, count int64) (GiveResult, error) {
+	name, err := validateScoreItem(name, count)
+	if err != nil {
+		return 0, err
 	}
 	key := scoreItemKey(name)
 
@@ -61,34 +74,28 @@ func (db *DB) GiveScoreItem(guildID, userID, name string, count *int64) (GiveRes
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var existing sql.NullInt64
+	var held int64
 	err = tx.QueryRow(
 		`SELECT count FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
 		guildID, userID, key,
-	).Scan(&existing)
+	).Scan(&held)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		var countArg sql.NullInt64
-		if count != nil {
-			countArg = sql.NullInt64{Int64: *count, Valid: true}
-		}
 		if _, err := tx.Exec(
 			`INSERT INTO score_items (guild_id, user_id, name, name_key, count) VALUES (?, ?, ?, ?, ?)`,
-			guildID, userID, name, key, countArg,
+			guildID, userID, name, key, count,
 		); err != nil {
 			return 0, fmt.Errorf("failed to insert score item: %w", err)
 		}
 	case err != nil:
 		return 0, fmt.Errorf("failed to look up score item: %w", err)
-	case existing.Valid != (count != nil):
-		return GiveKindMismatch, nil
-	case count == nil:
-		return GiveAlreadyHeld, nil
+	case held > math.MaxInt64-count:
+		return GiveOverflow, nil
 	default:
 		if _, err := tx.Exec(
 			`UPDATE score_items SET count = count + ?, updated_at = CURRENT_TIMESTAMP
 			 WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
-			*count, guildID, userID, key,
+			count, guildID, userID, key,
 		); err != nil {
 			return 0, fmt.Errorf("failed to update score item: %w", err)
 		}
@@ -98,6 +105,55 @@ func (db *DB) GiveScoreItem(guildID, userID, name string, count *int64) (GiveRes
 		return 0, fmt.Errorf("failed to commit give: %w", err)
 	}
 	return GiveApplied, nil
+}
+
+// TakeScoreItem removes count of a thing from a user, deleting it when none
+// are left. Taking more than the user has changes nothing; held is the amount
+// the user has (0 when not held).
+func (db *DB) TakeScoreItem(guildID, userID, name string, count int64) (result TakeResult, held int64, err error) {
+	name, err = validateScoreItem(name, count)
+	if err != nil {
+		return 0, 0, err
+	}
+	key := scoreItemKey(name)
+
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to begin take transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	err = tx.QueryRow(
+		`SELECT count FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+		guildID, userID, key,
+	).Scan(&held)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return TakeNotHeld, 0, nil
+	case err != nil:
+		return 0, 0, fmt.Errorf("failed to look up score item: %w", err)
+	case held < count:
+		return TakeInsufficient, held, nil
+	case held == count:
+		_, err = tx.Exec(
+			`DELETE FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+			guildID, userID, key,
+		)
+	default:
+		_, err = tx.Exec(
+			`UPDATE score_items SET count = count - ?, updated_at = CURRENT_TIMESTAMP
+			 WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+			count, guildID, userID, key,
+		)
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to update score item: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("failed to commit take: %w", err)
+	}
+	return TakeApplied, held, nil
 }
 
 // GetScoreItems returns everything a user holds in a guild, in the order the
@@ -116,13 +172,8 @@ func (db *DB) GetScoreItems(guildID, userID string) ([]ScoreItem, error) {
 	var items []ScoreItem
 	for rows.Next() {
 		var item ScoreItem
-		var count sql.NullInt64
-		if err := rows.Scan(&item.Name, &count); err != nil {
+		if err := rows.Scan(&item.Name, &item.Count); err != nil {
 			return nil, fmt.Errorf("failed to scan score item: %w", err)
-		}
-		if count.Valid {
-			c := count.Int64
-			item.Count = &c
 		}
 		items = append(items, item)
 	}

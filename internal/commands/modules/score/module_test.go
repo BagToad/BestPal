@@ -46,6 +46,9 @@ func (failingStore) TakeAllScoreItem(string, string, string) (database.TakeResul
 func (failingStore) SuggestScoreItemNames(string, string, string) ([]string, error) {
 	return nil, errors.New("boom")
 }
+func (failingStore) ListScoreItemNames(string, int) ([]string, error) {
+	return nil, errors.New("boom")
+}
 func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) {
 	return nil, errors.New("boom")
 }

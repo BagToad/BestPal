@@ -44,7 +44,7 @@ func TestAgentTools_ExposesExpectedTools(t *testing.T) {
 		names = append(names, tl.Name)
 		assert.True(t, tl.SkipPermission, "tool %s should skip permission", tl.Name)
 	}
-	assert.ElementsMatch(t, []string{"get_user_things", "get_self_things"}, names)
+	assert.ElementsMatch(t, []string{"get_user_things", "get_self_things", "list_things"}, names)
 
 	assert.Nil(t, (&Module{}).AgentTools(), "no tools without a database")
 }
@@ -120,4 +120,62 @@ func TestAgentTools_LoadFailure(t *testing.T) {
 
 	res := m.lookupThings("guild1", "user1", "horses")
 	assert.Equal(t, "unavailable", res.Status)
+
+	registerCaller(t, "sess-fail", agentctx.Caller{UserID: "user1", GuildID: "guild1"})
+	names := callListThingsTool(t, m, "sess-fail", map[string]any{})
+	assert.Equal(t, "unavailable", names.Status)
+}
+
+func callListThingsTool(t *testing.T, m *Module, sessionID string, args map[string]any) thingNamesResult {
+	t.Helper()
+	res, err := agentTool(t, m, "list_things").Handler(copilot.ToolInvocation{SessionID: sessionID, ToolName: "list_things", Arguments: args})
+	require.NoError(t, err)
+	var out thingNamesResult
+	require.NoError(t, json.Unmarshal([]byte(res.TextResultForLLM), &out), res.TextResultForLLM)
+	return out
+}
+
+func TestAgentTools_ListThings(t *testing.T) {
+	m, _ := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("Horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("cookies")))
+	registerCaller(t, "sess-list", agentctx.Caller{UserID: "asker", GuildID: "guild1"})
+	registerCaller(t, "sess-list-other", agentctx.Caller{UserID: "asker", GuildID: "guild2"})
+	registerCaller(t, "sess-list-dm", agentctx.Caller{UserID: "asker"})
+
+	res := callListThingsTool(t, m, "sess-list", map[string]any{})
+	assert.Equal(t, "found", res.Status)
+	assert.Equal(t, []string{"cookies", "Horses"}, res.Names, "each thing once, first-given spelling")
+
+	res = callListThingsTool(t, m, "sess-list", map[string]any{"query": "HORSE"})
+	assert.Equal(t, []string{"Horses"}, res.Names)
+
+	res = callListThingsTool(t, m, "sess-list", map[string]any{"query": "zebra"})
+	assert.Equal(t, "none", res.Status)
+
+	res = callListThingsTool(t, m, "sess-list-other", map[string]any{})
+	assert.Equal(t, "none", res.Status, "another server's things aren't visible")
+
+	res = callListThingsTool(t, m, "sess-list-dm", map[string]any{})
+	assert.Equal(t, "unavailable", res.Status)
+}
+
+func TestAgentTools_MissSuggestsSimilarNames(t *testing.T) {
+	m, _ := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses"), countOpt(4)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("seahorse")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("cookies")))
+
+	res := m.lookupThings("guild1", "user1", "horse")
+	assert.Equal(t, "none", res.Status)
+	assert.Equal(t, []string{"horses", "seahorse"}, res.Suggestions)
+
+	res = m.lookupThings("guild1", "user2", "horses")
+	assert.Equal(t, "none", res.Status)
+	assert.Empty(t, res.Suggestions, "horses isn't contained in seahorse, nor vice versa")
+
+	res = m.lookupThings("guild1", "user1", "horses")
+	assert.Equal(t, "found", res.Status)
+	assert.Empty(t, res.Suggestions)
 }

@@ -26,9 +26,13 @@ Moderators hand out "things" (horses, cookies, anything) with `/give`, and
 members check them with `/score`. When the user asks how many of a thing
 they have ("how many horses do I have", "what do I have"), call
 `get_self_things`. When they ask about someone else, call `get_user_things`
-with the ID from their message. Pass the thing's name as written; omit it to
-list everything. The same identity rules apply. A count of 0 or status
-`none` means they have none.
+with the ID from their message. Stored names can differ from the user's
+wording ("horse" vs "horses"), so if you're not sure of the exact name, call
+`list_things` first and use the matching name it returns; omit the thing to
+list everything someone has. If a lookup comes back `none` with
+suggestions, retry with the suggestion that matches what they meant. The
+same identity rules apply. A count of 0 or status `none` with no matching
+suggestion means they have none.
 
 If a tool returns suggestions or asks for disambiguation, pick the most
 likely candidate based on the user's wording and call the tool again
@@ -125,3 +129,7 @@ Assistant: You have 24 horses.
 User: how many horses does <@123456789012345678> have?
 [calls get\_user\_things, status=none]
 Assistant: They don't have any horses.
+
+User: how many horse do I have?
+[calls list\_things, finds "horses", calls get\_self\_things with "horses"]
+Assistant: You have 24 horses.

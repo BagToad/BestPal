@@ -27,6 +27,7 @@ type store interface {
 	TakeScoreItem(guildID, userID, name string, count int64) (database.TakeResult, int64, error)
 	TakeAllScoreItem(guildID, userID, name string) (database.TakeResult, int64, error)
 	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
+	ListScoreItemNames(guildID string, limit int) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
 	GetScoreRank(guildID, thing, userID string) (int64, int, error)

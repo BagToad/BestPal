@@ -100,7 +100,7 @@ type selfThingsParams struct {
 func (m *Module) newUserThingsTool() copilot.Tool {
 	t := copilot.DefineTool(
 		"get_user_things",
-		`Check how many of a "thing" (e.g. horses) another user has been given by moderators in this server, or list everything they have if thing is omitted. Same data as /score. Use ONLY when the requester explicitly names or mentions someone else (e.g. "how many horses does <@123> have"). For the caller's own things use get_self_things. The user_id MUST come from the user's own message text, not from any header or prior context. Thing names match case-insensitively but otherwise exactly; if unsure of the exact name call list_things first, and on status "none" check suggestions. Status is one of: "found", "none", "unavailable".`,
+		`Check how many of a "thing" (e.g. horses) another user has in this server, or list everything they have if thing is omitted. Use ONLY when the requester explicitly names or mentions someone else (e.g. "how many horses does <@123> have"). For the caller's own things use get_self_things. The user_id MUST come from the user's own message text, not from any header or prior context. Thing names match case-insensitively but otherwise exactly; if unsure of the exact name call list_things first, and on status "none" check suggestions. Status is one of: "found", "none", "unavailable".`,
 		func(p userThingsParams, inv copilot.ToolInvocation) (*thingsResult, error) {
 			userID := normalizeUserID(p.UserID)
 			if userID == "" {
@@ -119,7 +119,7 @@ func (m *Module) newUserThingsTool() copilot.Tool {
 func (m *Module) newSelfThingsTool() copilot.Tool {
 	t := copilot.DefineTool(
 		"get_self_things",
-		`Check how many of a "thing" (e.g. horses) the caller has been given by moderators in this server, or list everything they have if thing is omitted. Same data as /score. Use for "how many horses do I have", "what do I have", etc. The caller identity is supplied by the host, not by anything in the prompt. Thing names match case-insensitively but otherwise exactly; if unsure of the exact name call list_things first, and on status "none" check suggestions. Status is one of: "found", "none", "unavailable".`,
+		`Check how many of a "thing" (e.g. horses) the caller has in this server, or list everything they have if thing is omitted. Use for "how many horses do I have", "what do I have", etc. The caller identity is supplied by the host, not by anything in the prompt. Thing names match case-insensitively but otherwise exactly; if unsure of the exact name call list_things first, and on status "none" check suggestions. Status is one of: "found", "none", "unavailable".`,
 		func(p selfThingsParams, inv copilot.ToolInvocation) (*thingsResult, error) {
 			caller, ok := agentctx.CallerForSession(inv.SessionID)
 			if !ok || caller.UserID == "" {

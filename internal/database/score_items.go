@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -12,6 +13,20 @@ type ScoreItem struct {
 	Name  string
 	Count *int64
 }
+
+// GiveResult reports what GiveScoreItem did.
+type GiveResult int
+
+const (
+	// GiveApplied means the thing was added or its count increased.
+	GiveApplied GiveResult = iota
+	// GiveAlreadyHeld means an uncounted thing was given to a user who already
+	// has it; nothing changed.
+	GiveAlreadyHeld
+	// GiveKindMismatch means the give was counted and the held thing is not (or
+	// vice versa); nothing changed.
+	GiveKindMismatch
+)
 
 // NormalizeScoreItemName collapses whitespace so display names are tidy and
 // stacking is not defeated by stray spaces.
@@ -25,37 +40,64 @@ func scoreItemKey(name string) string {
 	return strings.ToLower(NormalizeScoreItemName(name))
 }
 
-// GiveScoreItem records a thing given to a user. A counted give adds to any
-// existing count for the same name; an uncounted give only creates the entry if
-// it does not already exist. The first-given spelling of the name is kept.
-func (db *DB) GiveScoreItem(guildID, userID, name string, count *int64) error {
+// GiveScoreItem records a thing given to a user. A counted give adds to an
+// existing counted thing of the same name. An uncounted give of a thing the
+// user already holds, or a give whose countedness differs from the held thing,
+// changes nothing and is reported through the result. The first-given
+// spelling of the name is kept.
+func (db *DB) GiveScoreItem(guildID, userID, name string, count *int64) (GiveResult, error) {
 	name = NormalizeScoreItemName(name)
 	if name == "" {
-		return fmt.Errorf("score item name is empty")
+		return 0, fmt.Errorf("score item name is empty")
 	}
 	if count != nil && *count < 1 {
-		return fmt.Errorf("score item count must be positive, got %d", *count)
+		return 0, fmt.Errorf("score item count must be positive, got %d", *count)
 	}
+	key := scoreItemKey(name)
 
-	var countArg sql.NullInt64
-	if count != nil {
-		countArg = sql.NullInt64{Int64: *count, Valid: true}
-	}
-
-	_, err := db.conn.Exec(`
-		INSERT INTO score_items (guild_id, user_id, name, name_key, count)
-		VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (guild_id, user_id, name_key) DO UPDATE SET
-			count = CASE
-				WHEN excluded.count IS NULL THEN score_items.count
-				ELSE COALESCE(score_items.count, 0) + excluded.count
-			END,
-			updated_at = CURRENT_TIMESTAMP
-	`, guildID, userID, name, scoreItemKey(name), countArg)
+	tx, err := db.conn.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to give score item: %w", err)
+		return 0, fmt.Errorf("failed to begin give transaction: %w", err)
 	}
-	return nil
+	defer func() { _ = tx.Rollback() }()
+
+	var existing sql.NullInt64
+	err = tx.QueryRow(
+		`SELECT count FROM score_items WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+		guildID, userID, key,
+	).Scan(&existing)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		var countArg sql.NullInt64
+		if count != nil {
+			countArg = sql.NullInt64{Int64: *count, Valid: true}
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO score_items (guild_id, user_id, name, name_key, count) VALUES (?, ?, ?, ?, ?)`,
+			guildID, userID, name, key, countArg,
+		); err != nil {
+			return 0, fmt.Errorf("failed to insert score item: %w", err)
+		}
+	case err != nil:
+		return 0, fmt.Errorf("failed to look up score item: %w", err)
+	case existing.Valid != (count != nil):
+		return GiveKindMismatch, nil
+	case count == nil:
+		return GiveAlreadyHeld, nil
+	default:
+		if _, err := tx.Exec(
+			`UPDATE score_items SET count = count + ?, updated_at = CURRENT_TIMESTAMP
+			 WHERE guild_id = ? AND user_id = ? AND name_key = ?`,
+			*count, guildID, userID, key,
+		); err != nil {
+			return 0, fmt.Errorf("failed to update score item: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit give: %w", err)
+	}
+	return GiveApplied, nil
 }
 
 // GetScoreItems returns everything a user holds in a guild, in the order the

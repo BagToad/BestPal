@@ -3,6 +3,7 @@ package score
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
@@ -20,7 +21,7 @@ const (
 
 // store is the persistence the module needs; *database.DB satisfies it.
 type store interface {
-	GiveScoreItem(guildID, userID, name string, count *int64) error
+	GiveScoreItem(guildID, userID, name string, count *int64) (database.GiveResult, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 }
 
@@ -154,6 +155,11 @@ func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
 		return
 	}
+	// Check before saving so a give is never recorded without its announcement.
+	if !botCanPost(s, i) {
+		m.respondEphemeral(s, i, "❌ I can't post in this channel, so nothing was given.")
+		return
+	}
 
 	// Defer ephemerally so only the moderator sees the acknowledgement; the
 	// public announcement is a plain channel message with no interaction
@@ -166,13 +172,26 @@ func (m *Module) handleGive(s *discordgo.Session, i *discordgo.InteractionCreate
 		return
 	}
 
-	if err := m.store.GiveScoreItem(i.GuildID, userID, thing, count); err != nil {
+	result, err := m.store.GiveScoreItem(i.GuildID, userID, thing, count)
+	if err != nil {
 		m.config.Logger.Errorf("give: failed to save %q for user %s: %v", thing, userID, err)
 		m.editResponse(s, i, "❌ Failed to save. Nothing was announced.")
 		return
 	}
+	switch result {
+	case database.GiveAlreadyHeld:
+		m.editResponse(s, i, fmt.Sprintf("ℹ️ <@%s> already has %s. Nothing was announced.", userID, thing))
+		return
+	case database.GiveKindMismatch:
+		msg := fmt.Sprintf("❌ <@%s> already has %q as a one-off thing, so give it without a count. Nothing was announced.", userID, thing)
+		if count == nil {
+			msg = fmt.Sprintf("❌ <@%s> already has a counted %q, so give it with a count. Nothing was announced.", userID, thing)
+		}
+		m.editResponse(s, i, msg)
+		return
+	}
 
-	err := m.ops.SendMessage(s, i.ChannelID, &discordgo.MessageSend{
+	err = m.ops.SendMessage(s, i.ChannelID, &discordgo.MessageSend{
 		Content: fmt.Sprintf("<@%s> has earned %s!", userID, formatThing(thing, count)),
 		// Only the recipient may be pinged, whatever the thing's text contains.
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: []string{userID}},
@@ -224,6 +243,20 @@ func (m *Module) handleScore(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 }
 
+// botCanPost reports whether the bot may post in the invoking channel, using
+// the permissions Discord computed for this interaction (correct for threads,
+// unlike computing them from cached overwrites).
+func botCanPost(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
+	sendBit := int64(discordgo.PermissionSendMessages)
+	if s != nil && s.State != nil {
+		if ch, err := s.State.Channel(i.ChannelID); err == nil && ch.IsThread() {
+			sendBit = discordgo.PermissionSendMessagesInThreads
+		}
+	}
+	need := discordgo.PermissionViewChannel | sendBit
+	return i.AppPermissions&need == need
+}
+
 // formatThing renders a thing as announced and listed: "24 horses" when
 // counted, or the name as-is ("a can of eggs") when not.
 func formatThing(name string, count *int64) string {
@@ -242,18 +275,22 @@ func buildScoreMessage(userID string, items []database.ScoreItem) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "<@%s> has:\n", userID)
+	// Discord's limit counts characters, not bytes.
+	length := utf8.RuneCountInString(b.String())
 	for idx, item := range items {
 		line := "\n- " + formatThing(item.Name, item.Count)
-		need := len(line)
+		lineLen := utf8.RuneCountInString(line)
+		need := lineLen
 		// Keep room for the overflow note in case the following lines don't fit.
 		if rest := len(items) - idx - 1; rest > 0 {
-			need += len(moreNote(rest))
+			need += utf8.RuneCountInString(moreNote(rest))
 		}
-		if b.Len()+need > maxMessageLength {
+		if length+need > maxMessageLength {
 			b.WriteString(moreNote(len(items) - idx))
 			break
 		}
 		b.WriteString(line)
+		length += lineLen
 	}
 	return b.String()
 }

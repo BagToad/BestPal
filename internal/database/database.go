@@ -120,7 +120,7 @@ func (db *DB) initTables() error {
 	);
 
 	CREATE TABLE IF NOT EXISTS score_items (
-		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		id         INTEGER PRIMARY KEY,
 		guild_id   TEXT NOT NULL,
 		user_id    TEXT NOT NULL,
 		name       TEXT NOT NULL,

@@ -207,6 +207,16 @@ const maxScoreItemSuggestions = 25
 // once, spelled as it was first given. Things nobody holds any more are gone
 // from the table, so they are never suggested.
 func (db *DB) SuggestScoreItemNames(guildID, userID, query string) ([]string, error) {
+	return db.scoreItemNames(guildID, userID, query, maxScoreItemSuggestions)
+}
+
+// ListScoreItemNames returns the distinct names of things currently held in a
+// guild, alphabetically, each spelled as it was first given, capped at limit.
+func (db *DB) ListScoreItemNames(guildID string, limit int) ([]string, error) {
+	return db.scoreItemNames(guildID, "", "", limit)
+}
+
+func (db *DB) scoreItemNames(guildID, userID, query string, limit int) ([]string, error) {
 	sqlQuery := `
 		SELECT name, MIN(id) AS first_id FROM score_items
 		WHERE guild_id = ? AND instr(name_key, ?) > 0`
@@ -217,11 +227,11 @@ func (db *DB) SuggestScoreItemNames(guildID, userID, query string) ([]string, er
 	}
 	// SQLite returns the bare name column from the MIN(id) row.
 	sqlQuery += ` GROUP BY name_key ORDER BY name_key LIMIT ?`
-	args = append(args, maxScoreItemSuggestions)
+	args = append(args, limit)
 
 	rows, err := db.conn.Query(sqlQuery, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to suggest score items: %w", err)
+		return nil, fmt.Errorf("failed to list score item names: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -230,12 +240,12 @@ func (db *DB) SuggestScoreItemNames(guildID, userID, query string) ([]string, er
 		var name string
 		var firstID int64
 		if err := rows.Scan(&name, &firstID); err != nil {
-			return nil, fmt.Errorf("failed to scan score item suggestion: %w", err)
+			return nil, fmt.Errorf("failed to scan score item name: %w", err)
 		}
 		names = append(names, name)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate score item suggestions: %w", err)
+		return nil, fmt.Errorf("failed to iterate score item names: %w", err)
 	}
 	return names, nil
 }

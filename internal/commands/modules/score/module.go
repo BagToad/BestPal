@@ -27,6 +27,7 @@ type store interface {
 	TakeScoreItem(guildID, userID, name string, count int64) (database.TakeResult, int64, error)
 	TakeAllScoreItem(guildID, userID, name string) (database.TakeResult, int64, error)
 	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
+	ListScoreItemNames(guildID string, limit int) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
 	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
 	GetScoreRank(guildID, thing, userID string) (int64, int, error)
@@ -58,6 +59,9 @@ func defaultDiscordOps() discordOps {
 			return err
 		},
 		IsMember: func(s *discordgo.Session, guildID, userID string) (bool, error) {
+			if s == nil {
+				return true, nil
+			}
 			if s.State != nil {
 				if _, err := s.State.Member(guildID, userID); err == nil {
 					return true, nil
@@ -89,11 +93,13 @@ type Module struct {
 	config *config.Config
 	store  store
 	ops    discordOps
+	// session is used by agent tools, which run outside an interaction.
+	session *discordgo.Session
 }
 
 // New creates a new score module
 func New(deps *types.Dependencies) *Module {
-	m := &Module{config: deps.Config, ops: defaultDiscordOps()}
+	m := &Module{config: deps.Config, ops: defaultDiscordOps(), session: deps.Session}
 	// Assign only a non-nil DB so the nil check in handlers sees a nil interface.
 	if deps.DB != nil {
 		m.store = deps.DB

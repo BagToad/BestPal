@@ -20,6 +20,7 @@ environment (see `config.example.yaml`).
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
 | `/score` | See what someone has |
 | `/leaderboard` | See who has the most of something |
+| `/things` | Pull 3 random things out of the hat |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
@@ -32,6 +33,8 @@ environment (see `config.example.yaml`).
 | `/lfg setup-looking-now` | Set up the "Looking NOW" feed channel |
 | `/lfg refresh-thread-cache` | Rebuild LFG thread cache (includes archived) |
 | `/userstats` | Show server member statistics |
+| `/give` / `/take` | Give or take things from a user |
+| `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
 
 ### Administrator (Administrator Permission)
 | Command | Description |

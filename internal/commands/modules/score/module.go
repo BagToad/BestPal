@@ -3,6 +3,7 @@ package score
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"strings"
 	"unicode/utf8"
 
@@ -29,6 +30,7 @@ type store interface {
 	SuggestScoreItemNames(guildID, userID, query string) ([]string, error)
 	ListScoreItemNames(guildID string, limit int) ([]string, error)
 	GetScoreItems(guildID, userID string) ([]database.ScoreItem, error)
+	GetScoreItemTotals(guildID string) ([]database.ScoreItem, error)
 	GetScoreLeaderboard(guildID, thing string, limit int) (string, []database.ScoreLeaderboardEntry, error)
 	GetScoreRank(guildID, thing, userID string) (int64, int, error)
 	PurgeScoreMember(guildID, userID string) error
@@ -87,19 +89,21 @@ func defaultDiscordOps() discordOps {
 
 // Module implements /give and /take (moderators hand out and remove arbitrary
 // things), /score (anyone lists what a user holds) and /leaderboard (anyone
-// ranks who holds the most of a thing). /things lets moderators rename or
-// wipe a thing server-wide.
+// ranks who holds the most of a thing). /things pulls random things out of a
+// hat. /managethings lets moderators rename or wipe a thing server-wide.
 type Module struct {
 	config *config.Config
 	store  store
 	ops    discordOps
+	// randN returns a uniform random number in [0, n); swapped out in tests.
+	randN func(n int64) int64
 	// session is used by agent tools, which run outside an interaction.
 	session *discordgo.Session
 }
 
 // New creates a new score module
 func New(deps *types.Dependencies) *Module {
-	m := &Module{config: deps.Config, ops: defaultDiscordOps(), session: deps.Session}
+	m := &Module{config: deps.Config, ops: defaultDiscordOps(), randN: rand.Int64N, session: deps.Session}
 	// Assign only a non-nil DB so the nil check in handlers sees a nil interface.
 	if deps.DB != nil {
 		m.store = deps.DB
@@ -142,7 +146,7 @@ func modCommand(name, description, userDesc, thingDesc, countDesc string) *disco
 	}
 }
 
-// Register adds the /give, /take, /things, /score and /leaderboard commands to the command map
+// Register adds the /give, /take, /managethings, /things, /score and /leaderboard commands to the command map
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	cmds["give"] = &types.Command{
 		ApplicationCommand: modCommand("give", "Give a user something",
@@ -197,6 +201,15 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 		HandlerFunc: m.handleLeaderboard,
 	}
 
+	cmds["things"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "things",
+			Description: "Pull 3 random things out of the hat",
+			Contexts:    &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
+		},
+		HandlerFunc: m.handleHat,
+	}
+
 	var modPerms int64 = discordgo.PermissionBanMembers
 	thingOption := func(desc string) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{
@@ -208,9 +221,9 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Autocomplete: true,
 		}
 	}
-	cmds["things"] = &types.Command{
+	cmds["managethings"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
-			Name:                     "things",
+			Name:                     "managethings",
 			Description:              "Clean up a thing for everyone",
 			DefaultMemberPermissions: &modPerms,
 			Contexts:                 &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild},
@@ -361,7 +374,7 @@ func (m *Module) handleChange(s *discordgo.Session, i *discordgo.InteractionCrea
 	m.editResponse(s, i, "✅ Done.")
 }
 
-// HandleAutocomplete suggests things for the /give, /take, /things and
+// HandleAutocomplete suggests things for the /give, /take, /managethings and
 // /leaderboard thing option. /take (and /give once a user is picked) suggests what that
 // user has; otherwise anything held in the server is suggested. Only things someone
 // currently holds are suggested.
@@ -616,7 +629,7 @@ func writeLeaderboardLine(b *strings.Builder, rank int, e database.ScoreLeaderbo
 	fmt.Fprintf(b, "\n%d\\. <@%s> — %d", rank, e.UserID, e.Count)
 }
 
-// handleThings runs /things rename and /things wipe. These are cleanup tools,
+// handleThings runs /managethings rename and /managethings wipe. These are cleanup tools,
 // so the result goes only to the moderator and nothing is announced.
 func (m *Module) handleThings(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	options := i.ApplicationCommandData().Options
@@ -671,6 +684,65 @@ func (m *Module) handleThings(s *discordgo.Session, i *discordgo.InteractionCrea
 	default:
 		m.respondEphemeral(s, i, "❌ Unknown subcommand.")
 	}
+}
+
+// hatPulls is how many things /things pulls out of the hat.
+const hatPulls = 3
+
+// handleHat runs /things: it pulls hatPulls things out of a hat holding every
+// thing anyone in the server has, each with an equal chance no matter how many
+// are held. Pulls that land on the same thing are shown once.
+func (m *Module) handleHat(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if m.store == nil {
+		m.respondEphemeral(s, i, "❌ Database is unavailable.")
+		return
+	}
+	totals, err := m.store.GetScoreItemTotals(i.GuildID)
+	if err != nil {
+		m.config.Logger.Errorf("things: failed to load the hat: %v", err)
+		m.respondEphemeral(s, i, "❌ Failed to reach into the hat.")
+		return
+	}
+	pulled := pullFromHat(totals, hatPulls, m.randN)
+	if len(pulled) == 0 {
+		m.respondEphemeral(s, i, "🎩 The hat is empty. Nobody has anything yet.")
+		return
+	}
+	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content:         "🎩 You reach into the hat and pull out: " + strings.Join(pulled, ", "),
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		},
+	}); err != nil {
+		m.config.Logger.Errorf("things: failed to respond: %v", err)
+	}
+}
+
+// pullFromHat draws pulls times from a hat holding one slip per distinct
+// thing, putting each slip back after it's drawn so every thing has an equal
+// chance on every pull, and returns the distinct things drawn in draw order.
+func pullFromHat(totals []database.ScoreItem, pulls int, randN func(int64) int64) []string {
+	var things []string
+	for _, t := range totals {
+		if t.Count > 0 {
+			things = append(things, t.Name)
+		}
+	}
+	if len(things) == 0 {
+		return nil
+	}
+
+	seen := map[int64]bool{}
+	var names []string
+	for range pulls {
+		idx := randN(int64(len(things)))
+		if !seen[idx] {
+			seen[idx] = true
+			names = append(names, things[idx])
+		}
+	}
+	return names
 }
 
 func peopleCount(n int) string {

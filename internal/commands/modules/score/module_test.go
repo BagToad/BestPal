@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand/v2"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,6 +50,9 @@ func (failingStore) SuggestScoreItemNames(string, string, string) ([]string, err
 func (failingStore) ListScoreItemNames(string, int) ([]string, error) {
 	return nil, errors.New("boom")
 }
+func (failingStore) GetScoreItemTotals(string) ([]database.ScoreItem, error) {
+	return nil, errors.New("boom")
+}
 func (failingStore) GetScoreItems(string, string) ([]database.ScoreItem, error) {
 	return nil, errors.New("boom")
 }
@@ -76,6 +80,7 @@ func newTestModule(t *testing.T, st store) (*Module, *capture) {
 	return &Module{
 		config: config.NewMockConfig(nil),
 		store:  st,
+		randN:  rand.Int64N,
 		ops: discordOps{
 			Respond: func(_ *discordgo.Session, _ *discordgo.Interaction, resp *discordgo.InteractionResponse) error {
 				c.responses = append(c.responses, resp)
@@ -684,7 +689,7 @@ func TestLeaderboard_EveryoneLeft(t *testing.T) {
 }
 
 func thingsCmd(sub string, opts ...*discordgo.ApplicationCommandInteractionDataOption) *discordgo.InteractionCreate {
-	return interaction("things", "mod1", &discordgo.ApplicationCommandInteractionDataOption{
+	return interaction("managethings", "mod1", &discordgo.ApplicationCommandInteractionDataOption{
 		Name: sub, Type: discordgo.ApplicationCommandOptionSubCommand, Options: opts,
 	})
 }
@@ -754,11 +759,65 @@ func TestAutocomplete_ThingsSubcommandSuggestsServerWide(t *testing.T) {
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("horses")))
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("giraffe")))
 
-	i := autocomplete("things", &discordgo.ApplicationCommandInteractionDataOption{
+	i := autocomplete("managethings", &discordgo.ApplicationCommandInteractionDataOption{
 		Name: "wipe", Type: discordgo.ApplicationCommandOptionSubCommand,
 		Options: []*discordgo.ApplicationCommandInteractionDataOption{focusedThing("h")},
 	})
 	m.HandleAutocomplete(nil, i)
 
 	assert.Equal(t, []string{"horses"}, choiceNames(t, c))
+}
+
+// seqRand returns the given slips in order, ignoring n.
+func seqRand(slips ...int64) func(int64) int64 {
+	return func(int64) int64 {
+		v := slips[0]
+		slips = slips[1:]
+		return v
+	}
+}
+
+func TestPullFromHat(t *testing.T) {
+	hat := []database.ScoreItem{{Name: "horses", Count: 300}, {Name: "cookies", Count: 1}, {Name: "gone", Count: 0}, {Name: "zebras", Count: 2}}
+
+	var sizes []int64
+	sized := func(n int64) int64 { sizes = append(sizes, n); return 0 }
+	pullFromHat(hat, 3, sized)
+	assert.Equal(t, []int64{3, 3, 3}, sizes, "one slip per thing held, regardless of count")
+
+	// Slips: 0 horses, 1 cookies, 2 zebras.
+	assert.Equal(t, []string{"zebras", "horses", "cookies"}, pullFromHat(hat, 3, seqRand(2, 0, 1)))
+	assert.Equal(t, []string{"cookies"}, pullFromHat(hat, 3, seqRand(1, 1, 1)), "three cookies show once")
+	assert.Equal(t, []string{"horses", "zebras"}, pullFromHat(hat, 3, seqRand(0, 2, 0)))
+
+	assert.Empty(t, pullFromHat(nil, 3, seqRand()))
+	assert.Empty(t, pullFromHat([]database.ScoreItem{{Name: "gone", Count: 0}}, 3, seqRand()))
+}
+
+func TestThingsHat_PullsPublicly(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user1"), thingOpt("Horses"), countOpt(2)))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses")))
+	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("cookies")))
+	c.responses = nil
+	m.randN = seqRand(1, 0, 1)
+
+	m.handleHat(nil, interaction("things", "someone"))
+
+	require.Len(t, c.responses, 1)
+	resp := c.responses[0]
+	assert.Equal(t, "🎩 You reach into the hat and pull out: cookies, Horses", resp.Data.Content)
+	assert.Zero(t, resp.Data.Flags, "posted publicly")
+	assert.NotNil(t, resp.Data.AllowedMentions, "never pings")
+}
+
+func TestThingsHat_EmptyAndFailure(t *testing.T) {
+	m, c := newTestModule(t, nil)
+	m.handleHat(nil, interaction("things", "someone"))
+	assert.Equal(t, "🎩 The hat is empty. Nobody has anything yet.", c.responses[0].Data.Content)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, c.responses[0].Data.Flags)
+
+	m, c = newTestModule(t, failingStore{})
+	m.handleHat(nil, interaction("things", "someone"))
+	assert.Equal(t, "❌ Failed to reach into the hat.", c.responses[0].Data.Content)
 }

@@ -198,6 +198,46 @@ func (db *DB) GetScoreItems(guildID, userID string) ([]ScoreItem, error) {
 	return items, nil
 }
 
+// GetScoreItemTotals returns every thing held in a guild with how many exist
+// across all members, each spelled as it was first given, in first-given
+// order. Totals saturate at math.MaxInt64 rather than overflowing.
+func (db *DB) GetScoreItemTotals(guildID string) ([]ScoreItem, error) {
+	rows, err := db.conn.Query(`
+		SELECT name, name_key, count FROM score_items
+		WHERE guild_id = ?
+		ORDER BY id ASC
+	`, guildID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get score item totals: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var totals []ScoreItem
+	index := map[string]int{}
+	for rows.Next() {
+		var name, key string
+		var count int64
+		if err := rows.Scan(&name, &key, &count); err != nil {
+			return nil, fmt.Errorf("failed to scan score item total: %w", err)
+		}
+		i, ok := index[key]
+		if !ok {
+			index[key] = len(totals)
+			totals = append(totals, ScoreItem{Name: name, Count: count})
+			continue
+		}
+		if totals[i].Count > math.MaxInt64-count {
+			totals[i].Count = math.MaxInt64
+		} else {
+			totals[i].Count += count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate score item totals: %w", err)
+	}
+	return totals, nil
+}
+
 // maxScoreItemSuggestions is Discord's cap on autocomplete choices.
 const maxScoreItemSuggestions = 25
 

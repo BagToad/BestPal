@@ -293,3 +293,21 @@ func TestScoreItems_Wipe(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, people)
 }
+
+func TestScoreItems_Totals(t *testing.T) {
+	db := newTestDB(t)
+	giveApplied(t, db, "g1", "u1", "Horses", 3)
+	giveApplied(t, db, "g1", "u2", "cookies", 1)
+	giveApplied(t, db, "g1", "u2", "horses", 4)
+	giveApplied(t, db, "g1", "u3", "zebras", math.MaxInt64)
+	giveApplied(t, db, "g1", "u4", "zebras", 5)
+	giveApplied(t, db, "g2", "u1", "horses", 100)
+
+	totals, err := db.GetScoreItemTotals("g1")
+	require.NoError(t, err)
+	require.Equal(t, []ScoreItem{{"Horses", 7}, {"cookies", 1}, {"zebras", math.MaxInt64}}, totals, "merged case-insensitively, first spelling, saturating, scoped to guild")
+
+	totals, err = db.GetScoreItemTotals("empty")
+	require.NoError(t, err)
+	require.Empty(t, totals)
+}

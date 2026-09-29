@@ -19,6 +19,7 @@ import (
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/status"
+	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -108,6 +109,7 @@ func (h *ModuleHandler) registerModules() {
 		{"scamguard", scamguard.New(h.deps)},
 		{"score", score.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
+		{"trickortreat", trickortreat.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -197,6 +199,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 			cfgMod.HandleComponent(s, i)
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
+		}
+	case strings.HasPrefix(cid, "tot:"):
+		if totMod, ok := h.GetModule("trickortreat").(*trickortreat.Module); ok {
+			totMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Trick-or-treat interaction received but trickortreat module not available")
 		}
 	case strings.HasPrefix(cid, "scamguard:"):
 		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {

@@ -43,6 +43,16 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/bucket",
+				Value:  "Check your trick-or-treat bucket\n• Use `/bucket` for yourself or `/bucket user:@username` for someone else",
+				Inline: false,
+			},
+			{
+				Name:   "/candy-leaderboard",
+				Value:  "See who has the most candy",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,

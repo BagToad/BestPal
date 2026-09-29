@@ -4,10 +4,10 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/forumcache"
+	"gamerpal/internal/igdbclient"
 	"sync"
 	"time"
 
-	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -25,7 +25,7 @@ type pendingLFGNow struct {
 // Module implements the CommandModule interface for LFG commands
 type Module struct {
 	config     *config.Config
-	igdbClient *igdb.Client
+	igdbClient *igdbclient.Client
 	forumCache *forumcache.Service
 	pendingNow sync.Map
 	service    *LfgService

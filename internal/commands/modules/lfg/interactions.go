@@ -320,7 +320,15 @@ func (m *Module) handleCreateSuggestionThread(s *discordgo.Session, i *discordgo
 	}
 
 	// Fetch the specific game by ID to ensure correctness when duplicate titles exist.
-	gamesList, err := m.igdbClient.Games.List([]int{gameID}, igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "first_release_date"))
+	var gamesList []*igdb.Game
+	err = m.igdbClient.Retry(func() error {
+		gamesSvc, err := m.igdbClient.Games()
+		if err != nil {
+			return err
+		}
+		gamesList, err = gamesSvc.List([]int{gameID}, igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "first_release_date"))
+		return err
+	})
 	if err != nil || len(gamesList) == 0 || gamesList[0] == nil {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseUpdateMessage, Data: &discordgo.InteractionResponseData{Content: "❌ Unable to fetch game details."}})
 		return

@@ -2,6 +2,7 @@ package games
 
 import (
 	"fmt"
+	"gamerpal/internal/igdbclient"
 	"strings"
 
 	"github.com/Henry-Sarabia/igdb/v2"
@@ -14,7 +15,7 @@ type GameSearchResult struct {
 
 // ExactMatchWithSuggestions searches for a game by name and returns an exact match if found,
 // along with a list of suggested games for use if an exact match is not found.
-func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameSearchResult, error) {
+func ExactMatchWithSuggestions(igdbClient *igdbclient.Client, gameName string) (*GameSearchResult, error) {
 	if igdbClient == nil {
 		return nil, fmt.Errorf("igdb client is nil")
 	}
@@ -24,25 +25,48 @@ func ExactMatchWithSuggestions(igdbClient *igdb.Client, gameName string) (*GameS
 		return nil, fmt.Errorf("empty game name")
 	}
 
+	// Wrap IGDB calls with auto-retry on auth failure.
+	// Reset accumulator vars at the top of the closure so a retry attempt
+	// starts clean and doesn't double-append results from the first attempt.
 	var games []*igdb.Game
+	var searchErr error
 
-	exacts, _ := igdbClient.Games.Index(
-		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
-		igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`"%s"`, gameName)),
-		igdb.SetLimit(10),
-	)
-	games = append(games, exacts...)
+	err := igdbClient.Retry(func() error {
+		games = nil
+		searchErr = nil
 
-	searchGames, err := igdbClient.Games.Search(gameName,
-		igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
-		igdb.SetLimit(10),
-		igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`*"%s"*`, gameName)),
-	)
+		gamesSvc, err := igdbClient.Games()
+		if err != nil {
+			return err
+		}
+
+		exacts, _ := gamesSvc.Index(
+			igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+			igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`"%s"`, gameName)),
+			igdb.SetLimit(10),
+		)
+		games = append(games, exacts...)
+
+		searchGames, err := gamesSvc.Search(gameName,
+			igdb.SetFields("id", "name", "summary", "websites", "multiplayer_modes", "cover", "release_dates", "first_release_date"),
+			igdb.SetLimit(10),
+			igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, fmt.Sprintf(`*"%s"*`, gameName)),
+		)
+		if err != nil {
+			searchErr = fmt.Errorf("igdb search error: %w", err)
+			return err
+		}
+
+		games = append(games, searchGames...)
+		return nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("igdb search error: %w", err)
+		return nil, err
 	}
-
-	games = append(games, searchGames...)
+	if searchErr != nil {
+		return nil, searchErr
+	}
 
 	var exact *igdb.Game
 	suggestions := make([]*igdb.Game, 0, len(games))

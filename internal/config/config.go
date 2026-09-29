@@ -243,9 +243,5 @@ func validateConfig(cfg *Config) error {
 		cfg.Logger.Warn("igdb_client_secret is not set (set GAMERPAL_IGDB_CLIENT_SECRET environment variable)")
 	}
 
-	if cfg.v.GetString("igdb_client_token") == "" {
-		cfg.Logger.Warn("igdb_client_token is not set (set GAMERPAL_IGDB_CLIENT_TOKEN environment variable)")
-	}
-
 	return nil
 }

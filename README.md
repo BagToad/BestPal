@@ -21,6 +21,8 @@ environment (see `config.example.yaml`).
 | `/score` | See what someone has |
 | `/leaderboard` | See who has the most of something |
 | `/things` | Pull 3 random things out of the hat |
+| `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
+| `/candy-leaderboard` | See who has the most candy |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
@@ -41,6 +43,8 @@ environment (see `config.example.yaml`).
 |---------|-------------|
 | `/prune-inactive` | Remove users with no roles (dry-run by default) |
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
+| `/spawn-bowl` | Put out a trick-or-treat candy bowl now (Manage Server) |
+| `/reset-bowl` | Refill and reopen a candy bowl by message ID or link (Manage Server) |
 
 ### Moderator (requires Ban Members)
 | Command | Description |

@@ -430,6 +430,31 @@ func (gc *GuildConfig) GetCopilotAgentModel() string {
 	return "gpt-5.5"
 }
 
+// Trick or Treat
+// -----
+
+// GetTrickOrTreatEnabled reports whether candy bowls spawn on their own.
+func (gc *GuildConfig) GetTrickOrTreatEnabled() bool {
+	return gc.resolveBool(KeyTrickOrTreatEnabled)
+}
+
+// GetTrickOrTreatChannels returns the channels candy bowls spawn in.
+func (gc *GuildConfig) GetTrickOrTreatChannels() []string {
+	if v, ok := gc.override(KeyTrickOrTreatChannels); ok {
+		return splitTrimCSV(v)
+	}
+	return splitTrimCSV(strings.Join(gc.v.GetStringSlice(KeyTrickOrTreatChannels), ","))
+}
+
+// GetTrickOrTreatSpawnInterval returns the average time between spawn rolls,
+// defaulting to one hour.
+func (gc *GuildConfig) GetTrickOrTreatSpawnInterval() time.Duration {
+	if d := gc.resolveDuration(KeyTrickOrTreatSpawnInterval); d > 0 {
+		return d
+	}
+	return time.Hour
+}
+
 // splitTrimCSV splits a comma-separated string, trimming entries and dropping
 // empties. Returns nil when nothing remains.
 func splitTrimCSV(s string) []string {

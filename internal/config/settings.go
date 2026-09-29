@@ -51,6 +51,10 @@ const (
 	KeyCopilotAgentBrainRefreshInterval = "copilot_agent_brain_refresh_interval"
 	KeyCopilotAgentBrainMaxItems        = "copilot_agent_brain_max_items"
 	KeyCopilotAgentBrainMaxChars        = "copilot_agent_brain_max_chars"
+
+	KeyTrickOrTreatEnabled       = "trick_or_treat_enabled"
+	KeyTrickOrTreatChannels      = "trick_or_treat_channels"
+	KeyTrickOrTreatSpawnInterval = "trick_or_treat_spawn_interval"
 )
 
 // Kind is the value type of a setting. The config panel maps each Kind onto the
@@ -75,13 +79,14 @@ const (
 type Category string
 
 const (
-	CategoryChannels  Category = "Server Channels"
-	CategoryIntro     Category = "Introductions"
-	CategoryLFG       Category = "Looking for Game"
-	CategoryNewPals   Category = "New Pals"
-	CategoryScamGuard Category = "ScamGuard"
-	CategoryAgent     Category = "Agent"
-	CategoryMisc      Category = "Moderation & Misc"
+	CategoryChannels     Category = "Server Channels"
+	CategoryIntro        Category = "Introductions"
+	CategoryLFG          Category = "Looking for Game"
+	CategoryNewPals      Category = "New Pals"
+	CategoryScamGuard    Category = "ScamGuard"
+	CategoryAgent        Category = "Agent"
+	CategoryTrickOrTreat Category = "Trick or Treat"
+	CategoryMisc         Category = "Moderation & Misc"
 )
 
 // categoryOrder is the canonical display order of categories in the panel.
@@ -92,6 +97,7 @@ var categoryOrder = []Category{
 	CategoryNewPals,
 	CategoryScamGuard,
 	CategoryAgent,
+	CategoryTrickOrTreat,
 	CategoryMisc,
 }
 

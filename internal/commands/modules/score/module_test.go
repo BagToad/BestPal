@@ -778,18 +778,20 @@ func seqRand(slips ...int64) func(int64) int64 {
 }
 
 func TestPullFromHat(t *testing.T) {
-	hat := []database.ScoreItem{{Name: "horses", Count: 3}, {Name: "cookies", Count: 1}, {Name: "zebras", Count: 2}}
+	hat := []database.ScoreItem{{Name: "horses", Count: 300}, {Name: "cookies", Count: 1}, {Name: "gone", Count: 0}, {Name: "zebras", Count: 2}}
 
-	// Slips 0-2 are horses, 3 is cookies, 4-5 are zebras.
-	assert.Equal(t, []string{"zebras", "horses", "cookies"}, pullFromHat(hat, 3, seqRand(5, 0, 3)))
-	assert.Equal(t, []string{"horses"}, pullFromHat(hat, 3, seqRand(0, 1, 2)), "three horses show once")
-	assert.Equal(t, []string{"horses", "zebras"}, pullFromHat(hat, 3, seqRand(1, 1, 4, 0)), "a slip already drawn is redrawn")
+	var sizes []int64
+	sized := func(n int64) int64 { sizes = append(sizes, n); return 0 }
+	pullFromHat(hat, 3, sized)
+	assert.Equal(t, []int64{3, 3, 3}, sizes, "one slip per thing held, regardless of count")
 
-	assert.Equal(t, []string{"cookies"}, pullFromHat([]database.ScoreItem{{Name: "cookies", Count: 1}}, 3, seqRand(0)), "fewer slips than pulls")
+	// Slips: 0 horses, 1 cookies, 2 zebras.
+	assert.Equal(t, []string{"zebras", "horses", "cookies"}, pullFromHat(hat, 3, seqRand(2, 0, 1)))
+	assert.Equal(t, []string{"cookies"}, pullFromHat(hat, 3, seqRand(1, 1, 1)), "three cookies show once")
+	assert.Equal(t, []string{"horses", "zebras"}, pullFromHat(hat, 3, seqRand(0, 2, 0)))
+
 	assert.Empty(t, pullFromHat(nil, 3, seqRand()))
-
-	huge := []database.ScoreItem{{Name: "a", Count: math.MaxInt64}, {Name: "b", Count: math.MaxInt64}}
-	assert.Equal(t, []string{"a"}, pullFromHat(huge, 3, seqRand(0, 1, math.MaxInt64-1)), "saturated totals don't overflow")
+	assert.Empty(t, pullFromHat([]database.ScoreItem{{Name: "gone", Count: 0}}, 3, seqRand()))
 }
 
 func TestThingsHat_PullsPublicly(t *testing.T) {
@@ -798,7 +800,7 @@ func TestThingsHat_PullsPublicly(t *testing.T) {
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("horses")))
 	m.handleGive(nil, interaction("give", "mod1", userOpt("user2"), thingOpt("cookies")))
 	c.responses = nil
-	m.randN = seqRand(3, 0, 2)
+	m.randN = seqRand(1, 0, 1)
 
 	m.handleHat(nil, interaction("things", "someone"))
 

@@ -3,7 +3,6 @@ package score
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/rand/v2"
 	"strings"
 	"unicode/utf8"
@@ -691,8 +690,8 @@ func (m *Module) handleThings(s *discordgo.Session, i *discordgo.InteractionCrea
 const hatPulls = 3
 
 // handleHat runs /things: it pulls hatPulls things out of a hat holding every
-// thing anyone in the server has, one slip per thing held, so common things
-// come up more. Pulls that land on the same thing are shown once.
+// thing anyone in the server has, each with an equal chance no matter how many
+// are held. Pulls that land on the same thing are shown once.
 func (m *Module) handleHat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if m.store == nil {
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
@@ -720,54 +719,30 @@ func (m *Module) handleHat(s *discordgo.Session, i *discordgo.InteractionCreate)
 	}
 }
 
-// pullFromHat draws up to pulls slips without putting them back, where each
-// thing has one slip per unit held, and returns the distinct things drawn in
-// draw order.
+// pullFromHat draws pulls times from a hat holding one slip per distinct
+// thing, putting each slip back after it's drawn so every thing has an equal
+// chance on every pull, and returns the distinct things drawn in draw order.
 func pullFromHat(totals []database.ScoreItem, pulls int, randN func(int64) int64) []string {
-	var total int64
+	var things []string
 	for _, t := range totals {
 		if t.Count > 0 {
-			if total > math.MaxInt64-t.Count {
-				total = math.MaxInt64
-			} else {
-				total += t.Count
-			}
+			things = append(things, t.Name)
 		}
 	}
-	if int64(pulls) > total {
-		pulls = int(total)
+	if len(things) == 0 {
+		return nil
 	}
 
-	drawn := map[int64]bool{}
-	seen := map[int]bool{}
+	seen := map[int64]bool{}
 	var names []string
-	for len(drawn) < pulls {
-		slip := randN(total)
-		if drawn[slip] {
-			continue
-		}
-		drawn[slip] = true
-		idx := slipOwner(totals, slip)
-		if idx >= 0 && !seen[idx] {
+	for range pulls {
+		idx := randN(int64(len(things)))
+		if !seen[idx] {
 			seen[idx] = true
-			names = append(names, totals[idx].Name)
+			names = append(names, things[idx])
 		}
 	}
 	return names
-}
-
-// slipOwner returns the index of the thing that slip number slip belongs to.
-func slipOwner(totals []database.ScoreItem, slip int64) int {
-	for idx, t := range totals {
-		if t.Count <= 0 {
-			continue
-		}
-		if slip < t.Count {
-			return idx
-		}
-		slip -= t.Count
-	}
-	return -1
 }
 
 func peopleCount(n int) string {

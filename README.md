@@ -45,6 +45,7 @@ environment (see `config.example.yaml`).
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
 | `/spawn-bowl` | Put out a trick-or-treat candy bowl now (Manage Server) |
 | `/reset-bowl` | Refill and reopen a candy bowl by message ID or link (Manage Server) |
+| `/debug-empty-bowl` | Debug: instantly empty an active candy bowl so TRICK! shows (Administrator) |
 
 ### Moderator (requires Ban Members)
 | Command | Description |

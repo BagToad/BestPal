@@ -463,6 +463,46 @@ func TestResetBowl(t *testing.T) {
 	assert.Equal(t, "❌ I don't know a candy bowl with that message ID.", lastResponse(t, c).Data.Content)
 }
 
+func TestDebugEmptyBowl(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	m.HandleComponent(nil, click(treatButtonID, bowl, "alice"))
+
+	opt := &discordgo.ApplicationCommandInteractionDataOption{Name: "message_id", Type: discordgo.ApplicationCommandOptionString, Value: bowl}
+	cmd := command("debug-empty-bowl", "mod", opt)
+	cmd.Member.Permissions = discordgo.PermissionManageGuild
+	m.handleDebugEmpty(nil, cmd)
+	assert.Equal(t, "❌ You must be an Administrator to use debug commands.", lastResponse(t, c).Data.Content)
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, lastResponse(t, c).Data.Flags)
+	b, _, _, err := db.GetBowl(bowl)
+	require.NoError(t, err)
+	assert.Equal(t, 9, b.Remaining)
+
+	cmd = command("debug-empty-bowl", "admin", opt)
+	cmd.Member.Permissions = discordgo.PermissionAdministrator
+	opt.Value = "https://discord.com/channels/guild1/chan1/" + bowl
+	m.handleDebugEmpty(nil, cmd)
+	assert.Equal(t, "🎃 Bowl emptied. TRICK! is live for the next 30 minutes.", lastResponse(t, c).Data.Content)
+	edit := lastEdit(t, c)
+	assert.Equal(t, "bowl_0.png", edit.Files[0].Name)
+	assert.Equal(t, "TRICK!", button(t, *edit.Components).Label)
+	b, _, _, err = db.GetBowl(bowl)
+	require.NoError(t, err)
+	assert.Equal(t, 0, b.Remaining)
+	assert.Equal(t, testNow.Add(30*time.Minute).Unix(), b.ExpiresAt.Unix())
+
+	// Tricks work right away; alice can still trick after her treat.
+	m.HandleComponent(nil, click(trickButtonID, bowl, "alice"))
+	assert.Contains(t, lastResponse(t, c).Data.Content, "TRICK!")
+
+	require.NoError(t, db.ArchiveBowl(bowl))
+	m.handleDebugEmpty(nil, cmd)
+	assert.Equal(t, "❌ Couldn't find an active candy bowl with that message ID.", lastResponse(t, c).Data.Content)
+	opt.Value = "nope"
+	m.handleDebugEmpty(nil, cmd)
+	assert.Equal(t, "❌ That doesn't look like a message ID or link.", lastResponse(t, c).Data.Content)
+}
+
 func TestBowlEmbed_TrimsOldestLogLines(t *testing.T) {
 	var log []database.BowlLogEntry
 	for n := range 200 {

@@ -44,6 +44,7 @@ type store interface {
 	ExpiredBowls(now time.Time) ([]database.Bowl, error)
 	ArchiveBowl(messageID string) error
 	ResetBowl(messageID string) (database.Bowl, bool, error)
+	EmptyBowl(messageID string, now time.Time, trickWindow time.Duration) (database.Bowl, bool, error)
 	ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
 	ApplyTrick(messageID, userID string, now time.Time, apply func(database.TrickTx) (string, error)) (database.TrickResult, error)
 	GetBucket(guildID, userID string) (database.TOTUser, []database.Souvenir, int, error)
@@ -161,10 +162,12 @@ func (m *Module) forgetLock(messageID string) {
 	delete(m.locks, messageID)
 }
 
-// Register adds /bucket, /candy-leaderboard, /spawn-bowl and /reset-bowl.
+// Register adds /bucket, /candy-leaderboard, /spawn-bowl, /reset-bowl and
+// /debug-empty-bowl.
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	guildOnly := &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild}
 	var adminPerms int64 = discordgo.PermissionManageGuild
+	var administrator int64 = discordgo.PermissionAdministrator
 
 	cmds["bucket"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
@@ -216,6 +219,21 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			}},
 		},
 		HandlerFunc: m.handleReset,
+	}
+	cmds["debug-empty-bowl"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "debug-empty-bowl",
+			Description:              "Debug: empty an active candy bowl so TRICK! shows now",
+			Contexts:                 guildOnly,
+			DefaultMemberPermissions: &administrator,
+			Options: []*discordgo.ApplicationCommandOption{{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "message_id",
+				Description: "The active bowl's message ID or link",
+				Required:    true,
+			}},
+		},
+		HandlerFunc: m.handleDebugEmpty,
 	}
 }
 
@@ -696,6 +714,57 @@ func (m *Module) handleReset(s *discordgo.Session, i *discordgo.InteractionCreat
 		return
 	}
 	m.respondEphemeral(s, i, fmt.Sprintf("🎃 Bowl refilled with %d candies and reopened.", database.BowlSize))
+}
+
+// handleDebugEmpty instantly empties an active bowl: 0 candies, bowl_0.png,
+// TRICK! button, and a fresh 30-minute trick window.
+func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Checked here as well as in DefaultMemberPermissions, which server
+	// owners can override per role.
+	if i.Member == nil || i.Member.Permissions&discordgo.PermissionAdministrator == 0 {
+		m.respondEphemeral(s, i, "❌ You must be an Administrator to use debug commands.")
+		return
+	}
+	if m.store == nil {
+		m.respondEphemeral(s, i, "❌ Database is unavailable.")
+		return
+	}
+	var raw string
+	for _, opt := range i.ApplicationCommandData().Options {
+		if opt.Name == "message_id" {
+			raw = fmt.Sprint(opt.Value)
+		}
+	}
+	messageID := parseMessageID(raw)
+	if messageID == "" {
+		m.respondEphemeral(s, i, "❌ That doesn't look like a message ID or link.")
+		return
+	}
+
+	lock := m.bowlLock(messageID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	if b, _, ok, err := m.store.GetBowl(messageID); err == nil && ok && b.GuildID != i.GuildID {
+		m.respondEphemeral(s, i, "❌ Couldn't find an active candy bowl with that message ID.")
+		return
+	}
+	_, ok, err := m.store.EmptyBowl(messageID, m.now(), trickWindow)
+	if err != nil {
+		m.config.Logger.Errorf("trick-or-treat: debug empty failed: %v", err)
+		m.respondEphemeral(s, i, "❌ Failed to empty that bowl.")
+		return
+	}
+	if !ok {
+		m.respondEphemeral(s, i, "❌ Couldn't find an active candy bowl with that message ID.")
+		return
+	}
+	if err := m.renderBowl(s, messageID, true); err != nil {
+		m.config.Logger.Errorf("trick-or-treat: failed to redraw emptied bowl %s: %v", messageID, err)
+		m.respondEphemeral(s, i, "⚠️ The bowl is empty, but I couldn't update its message.")
+		return
+	}
+	m.respondEphemeral(s, i, "🎃 Bowl emptied. TRICK! is live for the next 30 minutes.")
 }
 
 // Scheduled work

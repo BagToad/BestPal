@@ -360,6 +360,23 @@ func (db *DB) ArchiveBowl(messageID string) error {
 	return nil
 }
 
+// EmptyBowl is the admin debug shortcut: it sets an active bowl to zero
+// candies and starts the TRICK window from now. ok is false when there is no
+// active bowl with that message ID.
+func (db *DB) EmptyBowl(messageID string, now time.Time, trickWindow time.Duration) (Bowl, bool, error) {
+	res, err := db.conn.Exec(
+		`UPDATE tot_bowls SET candies_remaining = 0, expires_at = ? WHERE message_id = ? AND is_active = 1`,
+		now.Add(trickWindow).Unix(), messageID)
+	if err != nil {
+		return Bowl{}, false, fmt.Errorf("failed to empty bowl: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Bowl{}, false, nil
+	}
+	b, ok, err := getBowl(db.conn, messageID)
+	return b, ok, err
+}
+
 // ResetBowl refills a bowl, reopens it, and clears who clicked it and its
 // log. ok is false when the bowl is unknown.
 func (db *DB) ResetBowl(messageID string) (Bowl, bool, error) {

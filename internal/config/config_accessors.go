@@ -279,6 +279,11 @@ func (c *Config) GetIntroFeedBoosterRateLimitHours() int {
 	return c.PrimaryGuild().GetIntroFeedBoosterRateLimitHours()
 }
 
+// GetIntroCooldownRoleID returns the role ID assigned to users while they are on intro cooldown.
+func (c *Config) GetIntroCooldownRoleID() string {
+	return c.PrimaryGuild().GetIntroCooldownRoleID()
+}
+
 // Translate language configuration
 // -----
 

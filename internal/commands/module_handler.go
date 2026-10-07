@@ -78,6 +78,9 @@ func NewModuleHandler(cfg *internalConfig.Config, session *discordgo.Session) *M
 	}
 
 	h.registerModules()
+	if agentModule, ok := h.GetModule("agentadapter").(*agentadapter.Module); ok {
+		h.deps.Agent = agentModule.Agent()
+	}
 
 	return h
 }
@@ -203,6 +206,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 			scamMod.HandleComponent(s, i)
 		} else {
 			h.config.Logger.Warn("Scamguard interaction received but scamguard module not available")
+		}
+	case strings.HasPrefix(cid, "intro:lookup-games"):
+		if introMod, ok := h.GetModule("intro").(*intro.Module); ok {
+			introMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Intro interaction received but intro module not available")
 		}
 	default:
 		// LFG module handles all other component interactions

@@ -55,6 +55,7 @@ environment (see `config.example.yaml`).
 ### Service / Background Modules (No direct slash commands)
 | Module | Purpose |
 |--------|---------|
+| `intro` | Hourly intro-availability role reconciliation and role removal on new intro creation |
 | `welcome` | Scheduled member welcome tasks |
 | `say` | Dispatch scheduled anonymous messages |
 
@@ -90,6 +91,7 @@ Each module provides:
 ### Services
 | Module | Service Functionality |
 |--------|-----------------------|
+| `intro` | Intro feed forwarding plus hourly intro-availability role automation |
 | `say` | Scheduled message dispatch |
 | `welcome` | New member welcome workflow |
 

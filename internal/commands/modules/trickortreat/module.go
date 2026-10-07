@@ -430,6 +430,21 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 	}
 }
 
+// announceEmpty posts a public reply to a bowl that just ran out, so the
+// channel knows TRICK! is live. Mentions are rendered but don't ping.
+func (m *Module) announceEmpty(s *discordgo.Session, b database.Bowl, lastUserID string) {
+	failIfMissing := false
+	_, err := m.ops.SendMessage(s, b.ChannelID, &discordgo.MessageSend{
+		Content: fmt.Sprintf("🎃 %s grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%d:t> (<t:%d:R>).",
+			mention(lastUserID), b.ExpiresAt.Unix(), b.ExpiresAt.Unix()),
+		Reference:       &discordgo.MessageReference{MessageID: b.MessageID, ChannelID: b.ChannelID, GuildID: b.GuildID, FailIfNotExists: &failIfMissing},
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	})
+	if err != nil {
+		m.config.Logger.Errorf("trick-or-treat: failed to announce empty bowl %s: %v", b.MessageID, err)
+	}
+}
+
 // treatLogLine is the action log entry for a grab that left remaining
 // candies in the bowl.
 func treatLogLine(userID string, remaining, bonus int) string {
@@ -484,6 +499,9 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 	m.respondEphemeral(s, i, msg)
 	if err := m.renderBowl(s, messageID, true); err != nil {
 		m.config.Logger.Errorf("trick-or-treat: failed to update bowl %s: %v", messageID, err)
+	}
+	if res.Bowl.Remaining == 0 {
+		m.announceEmpty(s, res.Bowl, userID)
 	}
 }
 
@@ -805,6 +823,7 @@ func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 	m.respondEphemeral(s, i, "🎃 Bowl emptied. TRICK! is live for the next 30 minutes.")
+	m.announceEmpty(s, b, adminID)
 }
 
 // Scheduled work

@@ -496,6 +496,11 @@ func TestDebugEmptyBowl(t *testing.T) {
 	assert.Equal(t, "<@admin> grabbed a treat! (8 left)", log[1].Text)
 	assert.Equal(t, "<@admin> grabbed the last treat! (0 left)", log[9].Text)
 	assert.Contains(t, (*edit.Embeds)[0].Description, "grabbed the last treat!")
+	ann := c.sent[len(c.sent)-1]
+	assert.Equal(t, "chan1", c.sentTo[len(c.sentTo)-1])
+	assert.Equal(t, bowl, ann.Reference.MessageID)
+	assert.Equal(t, fmt.Sprintf("🎃 <@admin> grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%[1]d:t> (<t:%[1]d:R>).", b.ExpiresAt.Unix()), ann.Content)
+	assert.Empty(t, ann.AllowedMentions.Parse)
 
 	// Tricks work right away; alice can still trick after her treat.
 	m.HandleComponent(nil, click(trickButtonID, bowl, "alice"))
@@ -516,8 +521,10 @@ func TestDebugEmptyBowl_LastTreat(t *testing.T) {
 		&discordgo.ApplicationCommandInteractionDataOption{Name: "message_id", Type: discordgo.ApplicationCommandOptionString, Value: bowl},
 		&discordgo.ApplicationCommandInteractionDataOption{Name: "mode", Type: discordgo.ApplicationCommandOptionString, Value: debugModeLastTreat})
 	cmd.Member.Permissions = discordgo.PermissionAdministrator
+	sentBefore := len(c.sent)
 	m.handleDebugEmpty(nil, cmd)
 	assert.Contains(t, lastResponse(t, c).Data.Content, "One treat left")
+	assert.Len(t, c.sent, sentBefore, "no announcement until the bowl is actually empty")
 	edit := lastEdit(t, c)
 	assert.Equal(t, "bowl_1.png", edit.Files[0].Name)
 	assert.Equal(t, "Grab a Treat!", button(t, *edit.Components).Label)
@@ -535,6 +542,9 @@ func TestDebugEmptyBowl_LastTreat(t *testing.T) {
 	assert.Equal(t, "bowl_0.png", edit.Files[0].Name)
 	assert.Equal(t, "TRICK!", button(t, *edit.Components).Label)
 	assert.Contains(t, (*edit.Embeds)[0].Description, "<@admin> grabbed the last treat! (0 left)")
+	require.Len(t, c.sent, sentBefore+1)
+	assert.Contains(t, c.sent[sentBefore].Content, "<@admin> grabbed the last treat. The bowl is empty! **TRICK!** is live")
+	assert.Equal(t, bowl, c.sent[sentBefore].Reference.MessageID)
 
 	m.handleDebugEmpty(nil, cmd)
 	assert.Equal(t, "❌ That bowl is already empty. Use `/reset-bowl` to refill it first.", lastResponse(t, c).Data.Content)

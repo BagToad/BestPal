@@ -490,6 +490,12 @@ func TestDebugEmptyBowl(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, b.Remaining)
 	assert.Equal(t, testNow.Add(30*time.Minute).Unix(), b.ExpiresAt.Unix())
+	_, log, _, err := db.GetBowl(bowl)
+	require.NoError(t, err)
+	require.Len(t, log, 10)
+	assert.Equal(t, "<@admin> grabbed a treat! (8 left)", log[1].Text)
+	assert.Equal(t, "<@admin> grabbed the last treat! (0 left)", log[9].Text)
+	assert.Contains(t, (*edit.Embeds)[0].Description, "grabbed the last treat!")
 
 	// Tricks work right away; alice can still trick after her treat.
 	m.HandleComponent(nil, click(trickButtonID, bowl, "alice"))
@@ -501,6 +507,37 @@ func TestDebugEmptyBowl(t *testing.T) {
 	opt.Value = "nope"
 	m.handleDebugEmpty(nil, cmd)
 	assert.Equal(t, "❌ That doesn't look like a message ID or link.", lastResponse(t, c).Data.Content)
+}
+
+func TestDebugEmptyBowl_LastTreat(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	cmd := command("debug-empty-bowl", "admin",
+		&discordgo.ApplicationCommandInteractionDataOption{Name: "message_id", Type: discordgo.ApplicationCommandOptionString, Value: bowl},
+		&discordgo.ApplicationCommandInteractionDataOption{Name: "mode", Type: discordgo.ApplicationCommandOptionString, Value: debugModeLastTreat})
+	cmd.Member.Permissions = discordgo.PermissionAdministrator
+	m.handleDebugEmpty(nil, cmd)
+	assert.Contains(t, lastResponse(t, c).Data.Content, "One treat left")
+	edit := lastEdit(t, c)
+	assert.Equal(t, "bowl_1.png", edit.Files[0].Name)
+	assert.Equal(t, "Grab a Treat!", button(t, *edit.Components).Label)
+	b, log, _, err := db.GetBowl(bowl)
+	require.NoError(t, err)
+	assert.Equal(t, 1, b.Remaining)
+	assert.True(t, b.ExpiresAt.IsZero())
+	require.Len(t, log, 9)
+
+	// The admin was never recorded as a participant, so they can grab the
+	// last treat themselves and empty the bowl the real way.
+	m.HandleComponent(nil, click(treatButtonID, bowl, "admin"))
+	assert.Contains(t, lastResponse(t, c).Data.Content, "You grabbed a treat!")
+	edit = lastEdit(t, c)
+	assert.Equal(t, "bowl_0.png", edit.Files[0].Name)
+	assert.Equal(t, "TRICK!", button(t, *edit.Components).Label)
+	assert.Contains(t, (*edit.Embeds)[0].Description, "<@admin> grabbed the last treat! (0 left)")
+
+	m.handleDebugEmpty(nil, cmd)
+	assert.Equal(t, "❌ That bowl is already empty. Use `/reset-bowl` to refill it first.", lastResponse(t, c).Data.Content)
 }
 
 func TestBowlEmbed_TrimsOldestLogLines(t *testing.T) {

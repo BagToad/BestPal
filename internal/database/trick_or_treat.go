@@ -360,21 +360,46 @@ func (db *DB) ArchiveBowl(messageID string) error {
 	return nil
 }
 
-// EmptyBowl is the admin debug shortcut: it sets an active bowl to zero
-// candies and starts the TRICK window from now. ok is false when there is no
+// DrainBowl is the admin debug shortcut: it takes candies out of an active
+// bowl until leave remain, writing one action log line per candy removed (as
+// a real grab would). logLine gets the count left after each removal. When
+// leave is 0 the TRICK window starts from now. Nothing is removed when the
+// bowl already has leave or fewer candies. ok is false when there is no
 // active bowl with that message ID.
-func (db *DB) EmptyBowl(messageID string, now time.Time, trickWindow time.Duration) (Bowl, bool, error) {
-	res, err := db.conn.Exec(
-		`UPDATE tot_bowls SET candies_remaining = 0, expires_at = ? WHERE message_id = ? AND is_active = 1`,
-		now.Add(trickWindow).Unix(), messageID)
+func (db *DB) DrainBowl(messageID string, now time.Time, trickWindow time.Duration, leave int, logLine func(remaining int) string) (Bowl, bool, error) {
+	tx, err := db.conn.Begin()
 	if err != nil {
-		return Bowl{}, false, fmt.Errorf("failed to empty bowl: %w", err)
+		return Bowl{}, false, fmt.Errorf("failed to begin drain: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	defer func() { _ = tx.Rollback() }()
+
+	b, ok, err := getBowl(tx, messageID)
+	if err != nil {
+		return Bowl{}, false, err
+	}
+	if !ok || !b.Active {
 		return Bowl{}, false, nil
 	}
-	b, ok, err := getBowl(db.conn, messageID)
-	return b, ok, err
+	for b.Remaining > leave {
+		b.Remaining--
+		if err := appendBowlLog(tx, messageID, now, logLine(b.Remaining)); err != nil {
+			return Bowl{}, false, err
+		}
+	}
+	var expires any
+	if b.Remaining == 0 {
+		b.ExpiresAt = now.Add(trickWindow)
+		expires = b.ExpiresAt.Unix()
+	}
+	if _, err := tx.Exec(
+		`UPDATE tot_bowls SET candies_remaining = ?, expires_at = COALESCE(?, expires_at) WHERE message_id = ?`,
+		b.Remaining, expires, messageID); err != nil {
+		return Bowl{}, false, fmt.Errorf("failed to drain bowl: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Bowl{}, false, fmt.Errorf("failed to commit drain: %w", err)
+	}
+	return b, true, nil
 }
 
 // ResetBowl refills a bowl, reopens it, and clears who clicked it and its

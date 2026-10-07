@@ -44,7 +44,7 @@ type store interface {
 	ExpiredBowls(now time.Time) ([]database.Bowl, error)
 	ArchiveBowl(messageID string) error
 	ResetBowl(messageID string) (database.Bowl, bool, error)
-	EmptyBowl(messageID string, now time.Time, trickWindow time.Duration) (database.Bowl, bool, error)
+	DrainBowl(messageID string, now time.Time, trickWindow time.Duration, leave int, logLine func(remaining int) string) (database.Bowl, bool, error)
 	ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
 	ApplyTrick(messageID, userID string, now time.Time, apply func(database.TrickTx) (string, error)) (database.TrickResult, error)
 	GetBucket(guildID, userID string) (database.TOTUser, []database.Souvenir, int, error)
@@ -231,6 +231,14 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 				Name:        "message_id",
 				Description: "The active bowl's message ID or link",
 				Required:    true,
+			}, {
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "mode",
+				Description: "Empty it now (default), or leave the last treat for a real click",
+				Choices: []*discordgo.ApplicationCommandOptionChoice{
+					{Name: "Empty now (TRICK! is live)", Value: debugModeEmpty},
+					{Name: "Leave last treat (grab it yourself)", Value: debugModeLastTreat},
+				},
 			}},
 		},
 		HandlerFunc: m.handleDebugEmpty,
@@ -422,6 +430,19 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 	}
 }
 
+// treatLogLine is the action log entry for a grab that left remaining
+// candies in the bowl.
+func treatLogLine(userID string, remaining, bonus int) string {
+	line := mention(userID) + " grabbed a treat!"
+	if remaining == 0 {
+		line = mention(userID) + " grabbed the last treat!"
+	}
+	if bonus > 0 {
+		line += fmt.Sprintf(" (+%d bonus)", bonus)
+	}
+	return line + fmt.Sprintf(" (%d left)", remaining)
+}
+
 func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	userID := interactionUserID(i)
 	messageID := i.Message.ID
@@ -430,14 +451,7 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 	defer lock.Unlock()
 
 	res, err := m.store.ClaimTreat(messageID, userID, m.now(), trickWindow, func(r database.TreatResult) string {
-		line := mention(userID) + " grabbed a treat!"
-		if r.Bowl.Remaining == 0 {
-			line = mention(userID) + " grabbed the last treat!"
-		}
-		if r.Bonus > 0 {
-			line += fmt.Sprintf(" (+%d bonus)", r.Bonus)
-		}
-		return line + fmt.Sprintf(" (%d left)", r.Bowl.Remaining)
+		return treatLogLine(userID, r.Bowl.Remaining, r.Bonus)
 	})
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: treat failed: %v", err)
@@ -716,8 +730,15 @@ func (m *Module) handleReset(s *discordgo.Session, i *discordgo.InteractionCreat
 	m.respondEphemeral(s, i, fmt.Sprintf("🎃 Bowl refilled with %d candies and reopened.", database.BowlSize))
 }
 
-// handleDebugEmpty instantly empties an active bowl: 0 candies, bowl_0.png,
-// TRICK! button, and a fresh 30-minute trick window.
+const (
+	debugModeEmpty     = "empty"
+	debugModeLastTreat = "last-treat"
+)
+
+// handleDebugEmpty drains an active bowl the way real grabs would, logging a
+// grab by the admin for each candy removed. The default mode empties it
+// (bowl_0.png, TRICK! button, fresh 30-minute trick window); last-treat leaves
+// one candy so a real "Grab a Treat!" click empties it organically.
 func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	// Checked here as well as in DefaultMemberPermissions, which server
 	// owners can override per role.
@@ -730,10 +751,18 @@ func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 	var raw string
+	mode := debugModeEmpty
 	for _, opt := range i.ApplicationCommandData().Options {
-		if opt.Name == "message_id" {
+		switch opt.Name {
+		case "message_id":
 			raw = fmt.Sprint(opt.Value)
+		case "mode":
+			mode = fmt.Sprint(opt.Value)
 		}
+	}
+	leave := 0
+	if mode == debugModeLastTreat {
+		leave = 1
 	}
 	messageID := parseMessageID(raw)
 	if messageID == "" {
@@ -749,7 +778,10 @@ func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.Interaction
 		m.respondEphemeral(s, i, "❌ Couldn't find an active candy bowl with that message ID.")
 		return
 	}
-	_, ok, err := m.store.EmptyBowl(messageID, m.now(), trickWindow)
+	adminID := interactionUserID(i)
+	b, ok, err := m.store.DrainBowl(messageID, m.now(), trickWindow, leave, func(remaining int) string {
+		return treatLogLine(adminID, remaining, 0)
+	})
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: debug empty failed: %v", err)
 		m.respondEphemeral(s, i, "❌ Failed to empty that bowl.")
@@ -759,9 +791,17 @@ func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.Interaction
 		m.respondEphemeral(s, i, "❌ Couldn't find an active candy bowl with that message ID.")
 		return
 	}
+	if b.Remaining < leave {
+		m.respondEphemeral(s, i, "❌ That bowl is already empty. Use `/reset-bowl` to refill it first.")
+		return
+	}
 	if err := m.renderBowl(s, messageID, true); err != nil {
 		m.config.Logger.Errorf("trick-or-treat: failed to redraw emptied bowl %s: %v", messageID, err)
 		m.respondEphemeral(s, i, "⚠️ The bowl is empty, but I couldn't update its message.")
+		return
+	}
+	if leave > 0 {
+		m.respondEphemeral(s, i, "🍬 One treat left. Click **Grab a Treat!** (from an account that hasn't grabbed from this bowl yet) to empty it like a real player would.")
 		return
 	}
 	m.respondEphemeral(s, i, "🎃 Bowl emptied. TRICK! is live for the next 30 minutes.")

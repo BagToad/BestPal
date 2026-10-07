@@ -435,14 +435,19 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 func (m *Module) announceEmpty(s *discordgo.Session, b database.Bowl, lastUserID string) {
 	failIfMissing := false
 	_, err := m.ops.SendMessage(s, b.ChannelID, &discordgo.MessageSend{
-		Content: fmt.Sprintf("🎃 %s grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%d:t> (<t:%d:R>).",
-			mention(lastUserID), b.ExpiresAt.Unix(), b.ExpiresAt.Unix()),
+		Content: fmt.Sprintf("🎃 %s grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%d:t> (<t:%d:R>). [Go to the bowl](%s)",
+			mention(lastUserID), b.ExpiresAt.Unix(), b.ExpiresAt.Unix(), bowlLink(b)),
 		Reference:       &discordgo.MessageReference{MessageID: b.MessageID, ChannelID: b.ChannelID, GuildID: b.GuildID, FailIfNotExists: &failIfMissing},
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
+		Flags:           discordgo.MessageFlagsSuppressEmbeds,
 	})
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: failed to announce empty bowl %s: %v", b.MessageID, err)
 	}
+}
+
+func bowlLink(b database.Bowl) string {
+	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", b.GuildID, b.ChannelID, b.MessageID)
 }
 
 // treatLogLine is the action log entry for a grab that left remaining

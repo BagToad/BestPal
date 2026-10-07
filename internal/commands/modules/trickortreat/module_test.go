@@ -499,7 +499,8 @@ func TestDebugEmptyBowl(t *testing.T) {
 	ann := c.sent[len(c.sent)-1]
 	assert.Equal(t, "chan1", c.sentTo[len(c.sentTo)-1])
 	assert.Equal(t, bowl, ann.Reference.MessageID)
-	assert.Equal(t, fmt.Sprintf("🎃 <@admin> grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%[1]d:t> (<t:%[1]d:R>).", b.ExpiresAt.Unix()), ann.Content)
+	assert.Equal(t, fmt.Sprintf("🎃 <@admin> grabbed the last treat. The bowl is empty! **TRICK!** is live until <t:%[1]d:t> (<t:%[1]d:R>). [Go to the bowl](https://discord.com/channels/guild1/chan1/%[2]s)", b.ExpiresAt.Unix(), bowl), ann.Content)
+	assert.Equal(t, discordgo.MessageFlagsSuppressEmbeds, ann.Flags)
 	assert.Empty(t, ann.AllowedMentions.Parse)
 
 	// Tricks work right away; alice can still trick after her treat.

@@ -3,6 +3,7 @@ package intro
 import (
 	"fmt"
 	"gamerpal/internal/commands/types"
+	"gamerpal/internal/permissions"
 	"gamerpal/internal/utils"
 	"time"
 
@@ -420,7 +421,7 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 	// Check if user is a moderator (admin) - they can bypass the cooldown
 	isModerator := false
 	if i.Member != nil {
-		isModerator = utils.HasAdminPermissions(s, i)
+		isModerator = permissions.HasAdminPermissions(permissions.AdminPermissionsOptions{Session: s, UserID: i.Member.User.ID, ChannelID: i.ChannelID})
 	}
 
 	// Attempt to bump to feed

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/database"
-	"gamerpal/internal/utils"
+	"gamerpal/internal/permissions"
 	"os"
 	"time"
 
@@ -46,7 +46,7 @@ func (m *Module) Service() types.ModuleService {
 
 // handleFetchIntros handles the /fetch-intros command
 func (m *Module) handleFetchIntros(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	if !utils.IsSuperAdmin(i.Member.User.ID, m.deps.Config) {
+	if !permissions.IsSuperAdmin(permissions.SuperAdminOptions{UserID: i.Member.User.ID, Config: m.deps.Config}) {
 		_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseChannelMessageWithSource,
 			Data: &discordgo.InteractionResponseData{

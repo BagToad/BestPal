@@ -703,6 +703,30 @@ func (db *DB) ApplyTrick(messageID, userID string, now time.Time, apply func(Tri
 	return res, nil
 }
 
+// AdjustCandies adds delta (which may be negative) to a user's candies,
+// never going below zero. It returns the amount actually applied and the new
+// balance.
+func (db *DB) AdjustCandies(guildID, userID string, delta int64) (int64, int64, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, 0, fmt.Errorf("failed to begin candy adjustment: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	t := &trickTx{tx: tx, guildID: guildID}
+	applied, err := t.AddCandies(userID, delta)
+	if err != nil {
+		return 0, 0, err
+	}
+	u, err := t.User(userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("failed to commit candy adjustment: %w", err)
+	}
+	return applied, u.Candies, nil
+}
+
 // GetBucket returns a user's trick-or-treat state, souvenirs, and rank by
 // candies (users tied on candies share a rank).
 func (db *DB) GetBucket(guildID, userID string) (TOTUser, []Souvenir, int, error) {

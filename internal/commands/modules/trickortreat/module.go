@@ -48,6 +48,7 @@ type store interface {
 	ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
 	ApplyTrick(messageID, userID string, now time.Time, apply func(database.TrickTx) (string, error)) (database.TrickResult, error)
 	GetBucket(guildID, userID string) (database.TOTUser, []database.Souvenir, int, error)
+	AdjustCandies(guildID, userID string, delta int64) (int64, int64, error)
 	CandyLeaderboard(guildID string, limit int) ([]database.CandyLeaderboardEntry, error)
 }
 
@@ -162,8 +163,8 @@ func (m *Module) forgetLock(messageID string) {
 	delete(m.locks, messageID)
 }
 
-// Register adds /bucket, /candy-leaderboard, /spawn-bowl, /reset-bowl and
-// /debug-empty-bowl.
+// Register adds /bucket, /candy-leaderboard, /spawn-bowl, /reset-bowl,
+// /add-candy and /debug-empty-bowl.
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	guildOnly := &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild}
 	var adminPerms int64 = discordgo.PermissionManageGuild
@@ -219,6 +220,26 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			}},
 		},
 		HandlerFunc: m.handleReset,
+	}
+	cmds["add-candy"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "add-candy",
+			Description:              "Add candy to (or take candy from) someone's bucket",
+			Contexts:                 guildOnly,
+			DefaultMemberPermissions: &administrator,
+			Options: []*discordgo.ApplicationCommandOption{{
+				Type:        discordgo.ApplicationCommandOptionUser,
+				Name:        "user",
+				Description: "Whose bucket to change",
+				Required:    true,
+			}, {
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "amount",
+				Description: "Candies to add (negative to take away)",
+				Required:    true,
+			}},
+		},
+		HandlerFunc: m.handleAddCandy,
 	}
 	cmds["debug-empty-bowl"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
@@ -751,6 +772,69 @@ func (m *Module) handleReset(s *discordgo.Session, i *discordgo.InteractionCreat
 		return
 	}
 	m.respondEphemeral(s, i, fmt.Sprintf("🎃 Bowl refilled with %d candies and reopened.", database.BowlSize))
+}
+
+// handleAddCandy lets an Administrator add or remove candies from a user's
+// bucket. Balances never go below zero.
+func (m *Module) handleAddCandy(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Checked here as well as in DefaultMemberPermissions, which server
+	// owners can override per role.
+	if i.Member == nil || i.Member.Permissions&discordgo.PermissionAdministrator == 0 {
+		m.respondEphemeral(s, i, "❌ You must be an Administrator to use this command.")
+		return
+	}
+	if m.store == nil {
+		m.respondEphemeral(s, i, "❌ Database is unavailable.")
+		return
+	}
+	var userID string
+	var amount int64
+	for _, opt := range i.ApplicationCommandData().Options {
+		switch opt.Name {
+		case "user":
+			userID = fmt.Sprint(opt.Value)
+		case "amount":
+			amount = opt.IntValue()
+		}
+	}
+	if userID == "" {
+		m.respondEphemeral(s, i, "❌ Pick a user.")
+		return
+	}
+	if amount == 0 {
+		m.respondEphemeral(s, i, "❌ Amount can't be zero.")
+		return
+	}
+	if r := i.ApplicationCommandData().Resolved; r != nil {
+		if u, ok := r.Users[userID]; ok && u.Bot {
+			m.respondEphemeral(s, i, "❌ Bots don't trick-or-treat.")
+			return
+		}
+	}
+
+	applied, balance, err := m.store.AdjustCandies(i.GuildID, userID, amount)
+	if err != nil {
+		m.config.Logger.Errorf("trick-or-treat: add-candy failed: %v", err)
+		m.respondEphemeral(s, i, "❌ Failed to update that bucket.")
+		return
+	}
+	var msg string
+	switch {
+	case applied > 0:
+		msg = fmt.Sprintf("✅ Added **%d** %s to <@%s>'s bucket. They now have **%d**.", applied, candyWord(applied), userID, balance)
+	case applied < 0:
+		msg = fmt.Sprintf("✅ Took **%d** %s from <@%s>'s bucket. They now have **%d**.", -applied, candyWord(-applied), userID, balance)
+	default:
+		msg = fmt.Sprintf("<@%s>'s bucket is already empty, so there was nothing to take.", userID)
+	}
+	m.respondEphemeral(s, i, msg)
+}
+
+func candyWord(n int64) string {
+	if n == 1 {
+		return "candy"
+	}
+	return "candies"
 }
 
 const (

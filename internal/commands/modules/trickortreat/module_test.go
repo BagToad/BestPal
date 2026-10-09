@@ -569,3 +569,45 @@ func TestHandleComponent_NoStore(t *testing.T) {
 	m.HandleComponent(nil, click(treatButtonID, "x", "u"))
 	assert.Equal(t, "❌ Database is unavailable.", lastResponse(t, c).Data.Content)
 }
+
+func TestAddCandy(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	user := func(id string) *discordgo.ApplicationCommandInteractionDataOption {
+		return &discordgo.ApplicationCommandInteractionDataOption{Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: id}
+	}
+	amount := func(n float64) *discordgo.ApplicationCommandInteractionDataOption {
+		return &discordgo.ApplicationCommandInteractionDataOption{Name: "amount", Type: discordgo.ApplicationCommandOptionInteger, Value: n}
+	}
+	run := func(perms int64, opts ...*discordgo.ApplicationCommandInteractionDataOption) string {
+		cmd := command("add-candy", "admin", opts...)
+		cmd.Member.Permissions = perms
+		m.handleAddCandy(nil, cmd)
+		resp := lastResponse(t, c)
+		assert.Equal(t, discordgo.MessageFlagsEphemeral, resp.Data.Flags)
+		return resp.Data.Content
+	}
+	balance := func() int64 {
+		u, _, _, err := db.GetBucket("guild1", "bob")
+		require.NoError(t, err)
+		return u.Candies
+	}
+
+	assert.Equal(t, "❌ You must be an Administrator to use this command.",
+		run(discordgo.PermissionManageGuild, user("bob"), amount(5)))
+	assert.Equal(t, int64(0), balance())
+
+	assert.Equal(t, "✅ Added **5** candies to <@bob>'s bucket. They now have **5**.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(5)))
+	assert.Equal(t, "✅ Added **1** candy to <@bob>'s bucket. They now have **6**.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(1)))
+	assert.Equal(t, "✅ Took **2** candies from <@bob>'s bucket. They now have **4**.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(-2)))
+	assert.Equal(t, "✅ Took **4** candies from <@bob>'s bucket. They now have **0**.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(-100)))
+	assert.Equal(t, "<@bob>'s bucket is already empty, so there was nothing to take.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(-1)))
+	assert.Equal(t, "❌ Amount can't be zero.",
+		run(discordgo.PermissionAdministrator, user("bob"), amount(0)))
+	assert.Equal(t, int64(0), balance())
+	assert.Empty(t, lastResponse(t, c).Data.AllowedMentions.Users, "no pings")
+}

@@ -570,20 +570,21 @@ func TestHandleComponent_NoStore(t *testing.T) {
 	assert.Equal(t, "❌ Database is unavailable.", lastResponse(t, c).Data.Content)
 }
 
-func TestAddCandy(t *testing.T) {
+func TestCandyCommand(t *testing.T) {
 	m, c, db := newTestModule(t, nil)
-	user := func(id string) *discordgo.ApplicationCommandInteractionDataOption {
-		return &discordgo.ApplicationCommandInteractionDataOption{Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: id}
-	}
-	amount := func(n float64) *discordgo.ApplicationCommandInteractionDataOption {
-		return &discordgo.ApplicationCommandInteractionDataOption{Name: "amount", Type: discordgo.ApplicationCommandOptionInteger, Value: n}
-	}
-	run := func(perms int64, opts ...*discordgo.ApplicationCommandInteractionDataOption) string {
-		cmd := command("add-candy", "admin", opts...)
+	run := func(perms int64, sub, userID string, n float64) string {
+		cmd := command("candy", "mod", &discordgo.ApplicationCommandInteractionDataOption{
+			Name: sub, Type: discordgo.ApplicationCommandOptionSubCommand,
+			Options: []*discordgo.ApplicationCommandInteractionDataOption{
+				{Name: "user", Type: discordgo.ApplicationCommandOptionUser, Value: userID},
+				{Name: "amount", Type: discordgo.ApplicationCommandOptionInteger, Value: n},
+			},
+		})
 		cmd.Member.Permissions = perms
-		m.handleAddCandy(nil, cmd)
+		m.handleCandy(nil, cmd)
 		resp := lastResponse(t, c)
 		assert.Equal(t, discordgo.MessageFlagsEphemeral, resp.Data.Flags)
+		assert.Empty(t, resp.Data.AllowedMentions.Users, "no pings")
 		return resp.Data.Content
 	}
 	balance := func() int64 {
@@ -591,23 +592,18 @@ func TestAddCandy(t *testing.T) {
 		require.NoError(t, err)
 		return u.Candies
 	}
+	const mod = discordgo.PermissionBanMembers
 
-	assert.Equal(t, "❌ You must be an Administrator to use this command.",
-		run(discordgo.PermissionManageGuild, user("bob"), amount(5)))
+	assert.Equal(t, "❌ You must be a moderator to use this command.",
+		run(discordgo.PermissionManageMessages, "add", "bob", 5))
 	assert.Equal(t, int64(0), balance())
 
-	assert.Equal(t, "✅ Added **5** candies to <@bob>'s bucket. They now have **5**.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(5)))
+	assert.Equal(t, "✅ Added **5** candies to <@bob>'s bucket. They now have **5**.", run(mod, "add", "bob", 5))
 	assert.Equal(t, "✅ Added **1** candy to <@bob>'s bucket. They now have **6**.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(1)))
-	assert.Equal(t, "✅ Took **2** candies from <@bob>'s bucket. They now have **4**.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(-2)))
-	assert.Equal(t, "✅ Took **4** candies from <@bob>'s bucket. They now have **0**.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(-100)))
-	assert.Equal(t, "<@bob>'s bucket is already empty, so there was nothing to take.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(-1)))
-	assert.Equal(t, "❌ Amount can't be zero.",
-		run(discordgo.PermissionAdministrator, user("bob"), amount(0)))
+		run(discordgo.PermissionAdministrator, "add", "bob", 1))
+	assert.Equal(t, "✅ Removed **2** candies from <@bob>'s bucket. They now have **4**.", run(mod, "remove", "bob", 2))
+	assert.Equal(t, "✅ Removed **4** candies from <@bob>'s bucket. They now have **0**.", run(mod, "remove", "bob", 100))
+	assert.Equal(t, "<@bob>'s bucket is already empty, so there was nothing to remove.", run(mod, "remove", "bob", 1))
+	assert.Equal(t, "❌ Pick a user and an amount of at least 1.", run(mod, "add", "bob", 0))
 	assert.Equal(t, int64(0), balance())
-	assert.Empty(t, lastResponse(t, c).Data.AllowedMentions.Users, "no pings")
 }

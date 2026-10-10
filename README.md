@@ -21,11 +21,14 @@ environment (see `config.example.yaml`).
 | `/score` | See what someone has |
 | `/leaderboard` | See who has the most of something |
 | `/things` | Pull 3 random things out of the hat |
+| `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
+| `/candy-leaderboard` | See who has the most candy |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
 |---------|-------------|
 | `/say` | Send an anonymous message to a channel |
+| `/candy add` / `/candy remove` | Add or remove trick-or-treat candies in someone's bucket (never below zero) |
 | `/schedulesay` | Schedule an anonymous message |
 | `/listscheduledsays` | List next scheduled messages |
 | `/cancelscheduledsay` | Cancel a scheduled message by ID |
@@ -41,6 +44,9 @@ environment (see `config.example.yaml`).
 |---------|-------------|
 | `/prune-inactive` | Remove users with no roles (dry-run by default) |
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
+| `/spawn-bowl` | Put out a trick-or-treat candy bowl now (Manage Server) |
+| `/reset-bowl` | Refill and reopen a candy bowl by message ID or link (Manage Server) |
+| `/debug-empty-bowl` | Debug: drain an active candy bowl, logging grabs like real players. `mode`: empty now so TRICK! shows (default), or leave the last treat to grab yourself (Administrator) |
 
 ### Moderator (requires Ban Members)
 | Command | Description |

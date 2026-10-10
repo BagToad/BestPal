@@ -2,6 +2,7 @@ package trickortreat
 
 import (
 	"fmt"
+	"strings"
 
 	"gamerpal/internal/database"
 )
@@ -100,24 +101,44 @@ func souvenir(itemType, flavor, log string) func(database.TrickTx, string, func(
 
 func bonus(n int, source, flavor, log string) func(database.TrickTx, string, func(int) int) (trickResult, error) {
 	return func(tx database.TrickTx, userID string, _ func(int) int) (trickResult, error) {
-		if err := tx.GrantBonus(userID, n, source); err != nil {
+		current, err := tx.GrantBonus(userID, n, source)
+		if err != nil {
 			return trickResult{}, err
 		}
-		word := "Candies"
-		if n == 1 {
-			word = "Candy"
+		if current > n {
+			return trickResult{Flavor: storyOnly(flavor), Effects: []string{fmt.Sprintf("Your bigger +%d Bonus %s stays for your next claim", current, bonusWord(current))}, Log: log}, nil
 		}
-		return trickResult{Flavor: flavor, Effects: []string{fmt.Sprintf("+%d Bonus %s on your next claim", n, word)}, Log: log}, nil
+		return trickResult{Flavor: flavor, Effects: []string{fmt.Sprintf("+%d Bonus %s on your next claim", n, bonusWord(n))}, Log: log}, nil
 	}
 }
 
 func timeout(n int, source, flavor, log string) func(database.TrickTx, string, func(int) int) (trickResult, error) {
 	return func(tx database.TrickTx, userID string, _ func(int) int) (trickResult, error) {
-		if err := tx.GrantTimeout(userID, n, source); err != nil {
+		current, err := tx.GrantTimeout(userID, n, source)
+		if err != nil {
 			return trickResult{}, err
+		}
+		if current > n {
+			return trickResult{Flavor: storyOnly(flavor), Effects: []string{"Already timed out for the next " + spawns(current)}, Log: log}, nil
 		}
 		return trickResult{Flavor: flavor, Effects: []string{"Timed out for the next " + spawns(n)}, Log: log}, nil
 	}
+}
+
+// storyOnly trims a bonus or timeout flavor to its first sentence, dropping
+// the rolled effect when a bigger existing one was kept instead.
+func storyOnly(flavor string) string {
+	if i := strings.Index(flavor, "!"); i >= 0 {
+		return flavor[:i+1]
+	}
+	return flavor
+}
+
+func bonusWord(n int) string {
+	if n == 1 {
+		return "Candy"
+	}
+	return "Candies"
 }
 
 func spawns(n int) string {

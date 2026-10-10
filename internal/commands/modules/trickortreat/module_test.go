@@ -310,6 +310,38 @@ func TestTrick_OutcomeEffects(t *testing.T) {
 	assert.Equal(t, []database.Souvenir{{Type: souvenirEggshell, Quantity: 1}}, items)
 }
 
+func TestTrick_SmallerGrantReportsKeptEffect(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	b1, b2 := spawn(t, m), spawn(t, m)
+	emptyBowl(t, m, b1)
+	emptyBowl(t, m, b2)
+	pick := func(id int) {
+		m.randN = func(n int) int {
+			if n == len(trickOutcomes) {
+				return id - 1
+			}
+			return 0
+		}
+	}
+
+	pick(14)
+	m.HandleComponent(nil, click(trickButtonID, b1, "x"))
+	pick(7)
+	m.HandleComponent(nil, click(trickButtonID, b2, "x"))
+	assert.Contains(t, lastResponse(t, c).Data.Content, "Your bigger +3 Bonus Candies stays for your next claim")
+	assert.NotContains(t, lastResponse(t, c).Data.Content, "+1")
+
+	pick(10)
+	m.HandleComponent(nil, click(trickButtonID, b1, "y"))
+	pick(9)
+	m.HandleComponent(nil, click(trickButtonID, b2, "y"))
+	assert.Equal(t, "🎃 **TRICK!** — <@y>\nYou tripped over your laces!\n\n⚡ **Outcome:** Already timed out for the next 2 candy bowls", lastResponse(t, c).Data.Content)
+
+	u, _, _, err := db.GetBucket("guild1", "y")
+	require.NoError(t, err)
+	assert.Equal(t, 2, u.TimeoutCharges)
+}
+
 func TestClosedBowl_ClickClearsButtons(t *testing.T) {
 	m, c, db := newTestModule(t, nil)
 	bowl := spawn(t, m)
@@ -351,6 +383,25 @@ func TestExpireTick_ArchivesAfterTrickWindow(t *testing.T) {
 	assert.Equal(t, discordgo.InteractionResponseUpdateMessage, lastResponse(t, c).Type)
 }
 
+func TestExpireTick_StaleSweepDoesNotCloseResetBowl(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	emptyBowl(t, m, bowl)
+	m.now = func() time.Time { return testNow.Add(trickWindow) }
+
+	// The sweep listed the bowl as expired, then /reset-bowl ran first.
+	_, ok, err := db.ResetBowl("guild1", bowl)
+	require.NoError(t, err)
+	require.True(t, ok)
+	edits := len(c.edits)
+	require.NoError(t, m.archiveBowl(m.session, bowl))
+
+	b, _, _, err := db.GetBowl(bowl)
+	require.NoError(t, err)
+	assert.True(t, b.Active, "the reset bowl stays open")
+	assert.Len(t, c.edits, edits, "its message is left alone")
+}
+
 func TestSpawnTick(t *testing.T) {
 	m, c, _ := newTestModule(t, map[string]any{
 		config.KeyTrickOrTreatEnabled:  true,
@@ -385,6 +436,16 @@ func TestSpawnTick(t *testing.T) {
 	rolls = []float64{0.5, 0, 0}
 	require.NoError(t, m.spawnTick())
 	assert.Equal(t, []string{"a", "c", "b"}, c.sentTo)
+}
+
+func TestSpawnTick_DuplicateChannelGetsOneBowl(t *testing.T) {
+	m, c, _ := newTestModule(t, map[string]any{
+		config.KeyTrickOrTreatEnabled:  true,
+		config.KeyTrickOrTreatChannels: []string{"a", "a"},
+	})
+	m.nextSpawnRoll = testNow
+	require.NoError(t, m.spawnTick())
+	assert.Equal(t, []string{"a"}, c.sentTo)
 }
 
 func TestSpawnTick_Disabled(t *testing.T) {
@@ -454,6 +515,17 @@ func TestResetBowl(t *testing.T) {
 	edit := lastEdit(t, c)
 	assert.Equal(t, "bowl_10.png", edit.Files[0].Name)
 	assert.Equal(t, "Grab a Treat!", button(t, *edit.Components).Label)
+
+	require.NoError(t, db.ArchiveBowl(bowl))
+	other := command("reset-bowl", "admin", opt)
+	other.GuildID = "guild2"
+	edits := len(c.edits)
+	m.handleReset(nil, other)
+	assert.Equal(t, "❌ I don't know a candy bowl with that message ID.", lastResponse(t, c).Data.Content)
+	b, _, _, err := db.GetBowl(bowl)
+	require.NoError(t, err)
+	assert.False(t, b.Active, "another guild can't reopen the bowl")
+	assert.Len(t, c.edits, edits)
 
 	opt.Value = "not an id"
 	m.handleReset(nil, command("reset-bowl", "admin", opt))

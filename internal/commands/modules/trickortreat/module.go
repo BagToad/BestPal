@@ -43,8 +43,8 @@ type store interface {
 	GetBowl(messageID string) (database.Bowl, []database.BowlLogEntry, bool, error)
 	ActiveBowlChannels(guildID string) (map[string]bool, error)
 	ExpiredBowls(now time.Time) ([]database.Bowl, error)
-	ArchiveBowl(messageID string) error
-	ResetBowl(messageID string) (database.Bowl, bool, error)
+	ArchiveExpiredBowl(messageID string, now time.Time) (bool, error)
+	ResetBowl(guildID, messageID string) (database.Bowl, bool, error)
 	DrainBowl(messageID string, now time.Time, trickWindow time.Duration, leave int, logLine func(remaining int) string) (database.Bowl, bool, error)
 	ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
 	ApplyTrick(messageID, userID string, now time.Time, apply func(database.TrickTx) (string, error)) (database.TrickResult, error)
@@ -422,9 +422,12 @@ func (m *Module) spawnBowl(s *discordgo.Session, guildID, channelID string) (str
 	return msg.ID, nil
 }
 
-// archiveBowl closes a bowl: buttons removed, log frozen.
+// archiveBowl closes a bowl whose TRICK window has ended: buttons removed,
+// log frozen. It does nothing if the bowl was reset or already closed since
+// the sweep listed it. Callers must hold the bowl's lock.
 func (m *Module) archiveBowl(s *discordgo.Session, messageID string) error {
-	if err := m.store.ArchiveBowl(messageID); err != nil {
+	ok, err := m.store.ArchiveExpiredBowl(messageID, m.now())
+	if err != nil || !ok {
 		return err
 	}
 	defer m.forgetLock(messageID)
@@ -773,7 +776,7 @@ func (m *Module) handleReset(s *discordgo.Session, i *discordgo.InteractionCreat
 	lock.Lock()
 	defer lock.Unlock()
 
-	b, ok, err := m.store.ResetBowl(messageID)
+	b, ok, err := m.store.ResetBowl(i.GuildID, messageID)
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: reset failed: %v", err)
 		m.respondEphemeral(s, i, "❌ Failed to reset that bowl.")
@@ -985,7 +988,10 @@ func (m *Module) spawnTick() error {
 		}
 		if _, err := m.spawnBowl(m.session, gc.GuildID(), ch); err != nil {
 			errs = append(errs, fmt.Errorf("channel %s: %w", ch, err))
+			continue
 		}
+		// The channel list may repeat a channel; one bowl per channel.
+		active[ch] = true
 	}
 	return errors.Join(errs...)
 }

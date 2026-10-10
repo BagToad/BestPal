@@ -167,10 +167,12 @@ type TrickTx interface {
 	// returns the change actually applied.
 	AddCandies(userID string, delta int64) (int64, error)
 	AddSouvenir(userID, itemType string) error
-	// GrantBonus keeps the larger of the current and new bonus.
-	GrantBonus(userID string, bonus int, source string) error
-	// GrantTimeout keeps the larger of the current and new timeout charges.
-	GrantTimeout(userID string, charges int, source string) error
+	// GrantBonus keeps the larger of the current and new bonus and returns
+	// the bonus now in effect.
+	GrantBonus(userID string, bonus int, source string) (int, error)
+	// GrantTimeout keeps the larger of the current and new timeout charges
+	// and returns the charges now in effect.
+	GrantTimeout(userID string, charges int, source string) (int, error)
 	// EmptyHandedParticipants lists users who clicked this bowl without
 	// getting a treat from it, excluding exclude.
 	EmptyHandedParticipants(exclude string) ([]string, error)
@@ -360,6 +362,24 @@ func (db *DB) ArchiveBowl(messageID string) error {
 	return nil
 }
 
+// ArchiveExpiredBowl marks a bowl inactive only if it is still active and its
+// TRICK window has ended at now, so a stale expiry sweep can't close a bowl
+// that was reset in the meantime. ok is false when nothing was archived.
+func (db *DB) ArchiveExpiredBowl(messageID string, now time.Time) (bool, error) {
+	res, err := db.conn.Exec(
+		`UPDATE tot_bowls SET is_active = 0
+		 WHERE message_id = ? AND is_active = 1 AND expires_at IS NOT NULL AND expires_at <= ?`,
+		messageID, now.Unix())
+	if err != nil {
+		return false, fmt.Errorf("failed to archive bowl: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to archive bowl: %w", err)
+	}
+	return n > 0, nil
+}
+
 // DrainBowl is the admin debug shortcut: it takes candies out of an active
 // bowl until leave remain, writing one action log line per candy removed (as
 // a real grab would). logLine gets the count left after each removal. When
@@ -403,8 +423,8 @@ func (db *DB) DrainBowl(messageID string, now time.Time, trickWindow time.Durati
 }
 
 // ResetBowl refills a bowl, reopens it, and clears who clicked it and its
-// log. ok is false when the bowl is unknown.
-func (db *DB) ResetBowl(messageID string) (Bowl, bool, error) {
+// log. ok is false when the bowl is unknown in guildID.
+func (db *DB) ResetBowl(guildID, messageID string) (Bowl, bool, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return Bowl{}, false, fmt.Errorf("failed to begin reset: %w", err)
@@ -412,8 +432,8 @@ func (db *DB) ResetBowl(messageID string) (Bowl, bool, error) {
 	defer func() { _ = tx.Rollback() }()
 
 	res, err := tx.Exec(
-		`UPDATE tot_bowls SET candies_remaining = ?, is_active = 1, expires_at = NULL WHERE message_id = ?`,
-		BowlSize, messageID)
+		`UPDATE tot_bowls SET candies_remaining = ?, is_active = 1, expires_at = NULL WHERE message_id = ? AND guild_id = ?`,
+		BowlSize, messageID, guildID)
 	if err != nil {
 		return Bowl{}, false, fmt.Errorf("failed to reset bowl: %w", err)
 	}
@@ -583,30 +603,40 @@ func (t *trickTx) AddSouvenir(userID, itemType string) error {
 	return nil
 }
 
-func (t *trickTx) GrantBonus(userID string, bonus int, source string) error {
+func (t *trickTx) GrantBonus(userID string, bonus int, source string) (int, error) {
 	if err := ensureTOTUser(t.tx, t.guildID, userID); err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := t.tx.Exec(
 		`UPDATE tot_users SET bonus_candy = ?, bonus_source = ?
 		 WHERE guild_id = ? AND user_id = ? AND bonus_candy < ?`,
 		bonus, source, t.guildID, userID, bonus); err != nil {
-		return fmt.Errorf("failed to grant bonus: %w", err)
+		return 0, fmt.Errorf("failed to grant bonus: %w", err)
 	}
-	return nil
+	var current int
+	if err := t.tx.QueryRow(`SELECT bonus_candy FROM tot_users WHERE guild_id = ? AND user_id = ?`,
+		t.guildID, userID).Scan(&current); err != nil {
+		return 0, fmt.Errorf("failed to read bonus: %w", err)
+	}
+	return current, nil
 }
 
-func (t *trickTx) GrantTimeout(userID string, charges int, source string) error {
+func (t *trickTx) GrantTimeout(userID string, charges int, source string) (int, error) {
 	if err := ensureTOTUser(t.tx, t.guildID, userID); err != nil {
-		return err
+		return 0, err
 	}
 	if _, err := t.tx.Exec(
 		`UPDATE tot_users SET timeout_charges = ?, timeout_source = ?
 		 WHERE guild_id = ? AND user_id = ? AND timeout_charges < ?`,
 		charges, source, t.guildID, userID, charges); err != nil {
-		return fmt.Errorf("failed to grant timeout: %w", err)
+		return 0, fmt.Errorf("failed to grant timeout: %w", err)
 	}
-	return nil
+	var current int
+	if err := t.tx.QueryRow(`SELECT timeout_charges FROM tot_users WHERE guild_id = ? AND user_id = ?`,
+		t.guildID, userID).Scan(&current); err != nil {
+		return 0, fmt.Errorf("failed to read timeout: %w", err)
+	}
+	return current, nil
 }
 
 func (t *trickTx) EmptyHandedParticipants(exclude string) ([]string, error) {

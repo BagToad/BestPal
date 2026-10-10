@@ -73,7 +73,8 @@ func TestTOT_TimeoutUsesOneChargePerBowl(t *testing.T) {
 	}
 	emptyBowl(t, db, "b1")
 	_, err := db.ApplyTrick("b1", "u", totNow, func(tx TrickTx) (string, error) {
-		return "", tx.GrantTimeout("u", 2, "Barking Guard Dog")
+		_, err := tx.GrantTimeout("u", 2, "Barking Guard Dog")
+		return "", err
 	})
 	require.NoError(t, err)
 
@@ -104,10 +105,12 @@ func TestTOT_BonusPaysOutOnNextClaim(t *testing.T) {
 	require.NoError(t, db.CreateBowl("g", "c", "b2", totNow))
 	emptyBowl(t, db, "b1")
 	_, err := db.ApplyTrick("b1", "u", totNow, func(tx TrickTx) (string, error) {
-		if err := tx.GrantBonus("u", 3, "Full-Sized Bar House"); err != nil {
+		if _, err := tx.GrantBonus("u", 3, "Full-Sized Bar House"); err != nil {
 			return "", err
 		}
-		return "", tx.GrantBonus("u", 1, "Ding Dong Ditch")
+		current, err := tx.GrantBonus("u", 1, "Ding Dong Ditch")
+		assert.Equal(t, 3, current, "the smaller grant reports the kept bonus")
+		return "", err
 	})
 	require.NoError(t, err)
 
@@ -239,7 +242,14 @@ func TestTOT_ExpireAndReset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, map[string]bool{"c2": true}, active)
 
-	b, ok, err := db.ResetBowl("m")
+	_, ok, err := db.ResetBowl("other-guild", "m")
+	require.NoError(t, err)
+	assert.False(t, ok, "another guild can't reset this bowl")
+	b, _, _, err := db.GetBowl("m")
+	require.NoError(t, err)
+	assert.False(t, b.Active, "a cross-guild reset leaves the bowl alone")
+
+	b, ok, err = db.ResetBowl("g", "m")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.True(t, b.Active)
@@ -250,7 +260,7 @@ func TestTOT_ExpireAndReset(t *testing.T) {
 	assert.Empty(t, log)
 	assert.Equal(t, TreatClaimed, claim(t, db, "m", "fillera").Status, "participants are cleared")
 
-	_, ok, err = db.ResetBowl("nope")
+	_, ok, err = db.ResetBowl("g", "nope")
 	require.NoError(t, err)
 	assert.False(t, ok)
 }

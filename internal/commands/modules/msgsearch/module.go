@@ -20,7 +20,7 @@ const exportTimeout = 13 * time.Minute
 // Module provides /search, a moderator export of Discord's guild message search.
 type Module struct {
 	config  *config.Config
-	running sync.Map // userID -> struct{}; one export per moderator at a time
+	running sync.Map // guildID -> struct{}; one export per server at a time to share the search rate limit
 }
 
 // New creates the search module.
@@ -182,11 +182,11 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	if _, busy := m.running.LoadOrStore(userID, struct{}{}); busy {
-		m.edit(s, i, "⏳ You already have a search export running. Wait for it to finish first.")
+	if _, busy := m.running.LoadOrStore(i.GuildID, struct{}{}); busy {
+		m.edit(s, i, "⏳ A search export is already running in this server. Try again in a bit.")
 		return
 	}
-	defer m.running.Delete(userID)
+	defer m.running.Delete(i.GuildID)
 
 	isAdmin := i.Member.Permissions&discordgo.PermissionAdministrator != 0
 	channels := newChannelResolver(s)

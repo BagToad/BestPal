@@ -194,7 +194,7 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 		return isAdmin || channels.memberCanRead(userID, channelID)
 	}
 	if req.Params.ChannelID != "" && !canView(req.Params.ChannelID) {
-		m.edit(s, i, "❌ You can't read that channel, so you can't export it.")
+		m.edit(s, i, "🤷 No messages matched that search.")
 		return
 	}
 
@@ -203,12 +203,12 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	m.edit(s, i, "🔎 Searching…")
 	var lastEdit time.Time
-	progress := func(page, last int) {
+	progress := func(page, _ int) {
 		if time.Since(lastEdit) < 3*time.Second {
 			return
 		}
 		lastEdit = time.Now()
-		m.edit(s, i, fmt.Sprintf("🔎 Fetching page %d of %d…", page, last))
+		m.edit(s, i, fmt.Sprintf("🔎 Fetching page %d…", page))
 	}
 
 	fetcher := pageFetcher{search: discordSearch(s), sleep: sleepCtx}
@@ -223,9 +223,11 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 
 	channels.addThreads(res.Threads)
-	visible, hidden := filterVisible(res.Messages, canView)
+	// Results the moderator can't read are dropped silently: nothing shown to
+	// them (counts, totals, page numbers) may reveal that anything was removed.
+	visible := filterVisible(res.Messages, canView)
 	if len(visible) == 0 {
-		m.edit(s, i, "🤷 Every matching message is in channels you can't read.")
+		m.edit(s, i, "🤷 No messages matched that search.")
 		return
 	}
 
@@ -240,7 +242,7 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	summary := exportSummary(req, res, len(visible), hidden)
+	summary := exportSummary(req, res, len(visible))
 	content := summary
 	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
@@ -262,24 +264,19 @@ func filterList(summary []string) string {
 	return strings.Join(summary, ", ")
 }
 
-func exportSummary(req *searchRequest, res *exportResult, rows, hidden int) string {
+// exportSummary must not include totals or page counts from Discord, since
+// those include results the moderator isn't allowed to see.
+func exportSummary(req *searchRequest, res *exportResult, rows int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "✅ Exported **%d** messages from pages **%d-%d** (%d total matches, %d pages).\n",
-		rows, res.FirstPage, res.LastPage, res.TotalResults, res.TotalPages)
+	fmt.Fprintf(&b, "✅ Exported **%d** messages from pages **%d-%d**.\n", rows, res.FirstPage, res.LastPage)
 	fmt.Fprintf(&b, "Filters: %s", filterList(req.Summary))
-	if res.TotalResults > MaxPages*PageSize {
-		fmt.Fprintf(&b, "\n⚠️ Discord only lets bots page through the first %d results. Narrow the search (dates, channel, author) to reach the rest.", MaxPages*PageSize)
-	}
 	if res.Truncated {
-		b.WriteString("\n⚠️ Hit the time limit before the last page. Run again with `page_start` set to the next page to continue.")
-	}
-	if hidden > 0 {
-		fmt.Fprintf(&b, "\n🔒 Left out %d messages from channels you can't read.", hidden)
+		fmt.Fprintf(&b, "\n⚠️ Hit the time limit before the last page. Run again with `page_start:%d` to continue.", res.LastPage+1)
 	}
 	return b.String()
 }
 
-func filterVisible(msgs []*discordgo.Message, canView func(string) bool) (visible []*discordgo.Message, hidden int) {
+func filterVisible(msgs []*discordgo.Message, canView func(string) bool) (visible []*discordgo.Message) {
 	allowed := map[string]bool{}
 	for _, msg := range msgs {
 		ok, seen := allowed[msg.ChannelID]
@@ -289,11 +286,9 @@ func filterVisible(msgs []*discordgo.Message, canView func(string) bool) (visibl
 		}
 		if ok {
 			visible = append(visible, msg)
-		} else {
-			hidden++
 		}
 	}
-	return visible, hidden
+	return visible
 }
 
 func (m *Module) edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {

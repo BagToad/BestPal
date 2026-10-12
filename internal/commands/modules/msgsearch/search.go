@@ -218,8 +218,10 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 	if res.TotalPages == 0 {
 		return res, nil
 	}
+	// Treated as "no results" rather than an error so the page count (which
+	// includes messages the caller may not be allowed to see) is never revealed.
 	if pageStart > res.TotalPages {
-		return nil, fmt.Errorf("page_start %d is past the last page (%d pages of results)", pageStart, res.TotalPages)
+		return res, nil
 	}
 
 	last := res.TotalPages

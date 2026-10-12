@@ -81,10 +81,11 @@ func TestCollectClampsPageEndToLastPage(t *testing.T) {
 	assert.Len(t, res.Messages, 30)
 }
 
-func TestCollectPageStartPastEnd(t *testing.T) {
+func TestCollectPageStartPastEndIsEmptyNotError(t *testing.T) {
 	f := newFake(30)
-	_, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 5, 0, nil)
-	assert.ErrorContains(t, err, "past the last page")
+	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 5, 0, nil)
+	require.NoError(t, err)
+	assert.Empty(t, res.Messages)
 }
 
 func TestCollectStopsOnEmptyPageWhenTotalOverstated(t *testing.T) {
@@ -285,9 +286,8 @@ func TestPackageExport(t *testing.T) {
 func TestFilterVisible(t *testing.T) {
 	msgs := []*discordgo.Message{{ID: "1", ChannelID: "ok"}, {ID: "2", ChannelID: "secret"}, {ID: "3", ChannelID: "ok"}}
 	calls := 0
-	visible, hidden := filterVisible(msgs, func(id string) bool { calls++; return id == "ok" })
+	visible := filterVisible(msgs, func(id string) bool { calls++; return id == "ok" })
 	assert.Len(t, visible, 2)
-	assert.Equal(t, 1, hidden)
 	assert.Equal(t, 2, calls, "permission lookups are cached per channel")
 }
 
@@ -333,4 +333,14 @@ func TestRegister(t *testing.T) {
 		assert.False(t, o.Required, o.Name)
 		assert.LessOrEqual(t, len(o.Description), 100, o.Name)
 	}
+}
+
+func TestExportSummaryDoesNotLeakTotals(t *testing.T) {
+	res := &exportResult{TotalResults: 9999, TotalPages: 400, FirstPage: 1, LastPage: 3, Truncated: true}
+	out := exportSummary(&searchRequest{}, res, 12)
+	assert.Contains(t, out, "**12** messages")
+	assert.Contains(t, out, "page_start:4")
+	assert.NotContains(t, out, "9999")
+	assert.NotContains(t, out, "400")
+	assert.NotContains(t, strings.ToLower(out), "can't read")
 }

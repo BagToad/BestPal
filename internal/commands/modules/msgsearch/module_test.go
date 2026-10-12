@@ -344,3 +344,58 @@ func TestExportSummaryDoesNotLeakTotals(t *testing.T) {
 	assert.NotContains(t, out, "400")
 	assert.NotContains(t, strings.ToLower(out), "can't read")
 }
+
+func TestMemberCanRead(t *testing.T) {
+	const read = discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory
+	channels := map[string]*discordgo.Channel{
+		"pub":       {ID: "pub", Type: discordgo.ChannelTypeGuildText},
+		"secret":    {ID: "secret", Type: discordgo.ChannelTypeGuildText},
+		"viewonly":  {ID: "viewonly", Type: discordgo.ChannelTypeGuildText},
+		"pubthread": {ID: "pubthread", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "pub"},
+		"privin":    {ID: "privin", Type: discordgo.ChannelTypeGuildPrivateThread, ParentID: "pub"},
+		"privout":   {ID: "privout", Type: discordgo.ChannelTypeGuildPrivateThread, ParentID: "pub"},
+		"secretpub": {ID: "secretpub", Type: discordgo.ChannelTypeGuildPublicThread, ParentID: "secret"},
+		"orphan":    {ID: "orphan", Type: discordgo.ChannelTypeGuildPrivateThread},
+		"errparent": {ID: "errparent", Type: discordgo.ChannelTypeGuildText},
+	}
+	newR := func(parentPerms map[string]int64) (*channelResolver, *int) {
+		memberCalls := 0
+		r := newResolver()
+		r.lookup = func(id string) *discordgo.Channel { return channels[id] }
+		r.permissions = func(_, id string) (int64, error) {
+			if id == "errparent" {
+				return 0, fmt.Errorf("boom")
+			}
+			return parentPerms[id], nil
+		}
+		r.threadMember = func(threadID, _ string) bool { memberCalls++; return threadID == "privin" }
+		return r, &memberCalls
+	}
+
+	r, calls := newR(map[string]int64{"pub": read, "secret": 0, "viewonly": discordgo.PermissionViewChannel})
+	cases := map[string]bool{
+		"pub": true, "secret": false, "viewonly": false, "pubthread": true,
+		"privin": true, "privout": false, "secretpub": false, "orphan": false,
+		"errparent": false, "missing": false,
+	}
+	for id, want := range cases {
+		assert.Equal(t, want, r.memberCanRead("u", id), id)
+	}
+	assert.False(t, r.memberCanRead("u", "privout"))
+	assert.Equal(t, 2, *calls, "thread membership is checked once per private thread")
+
+	r, calls = newR(map[string]int64{"pub": read | discordgo.PermissionManageThreads})
+	assert.True(t, r.memberCanRead("u", "privout"), "Manage Threads can read every private thread")
+	assert.Equal(t, 0, *calls)
+
+	r, _ = newR(map[string]int64{"secret": discordgo.PermissionAdministrator})
+	assert.True(t, r.memberCanRead("u", "secretpub"))
+}
+
+func TestAddThreadsFillsFailedLookups(t *testing.T) {
+	r := newResolver()
+	r.lookup = func(string) *discordgo.Channel { return nil }
+	assert.Nil(t, r.channel("t1"))
+	r.addThreads(map[string]*discordgo.Channel{"t1": {ID: "t1", Name: "thread"}})
+	assert.Equal(t, "thread", r.channel("t1").Name)
+}

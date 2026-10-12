@@ -297,36 +297,64 @@ func (m *Module) edit(s *discordgo.Session, i *discordgo.InteractionCreate, cont
 	}
 }
 
-// channelResolver caches channel lookups (state, then search-response threads, then REST).
+// channelResolver caches channel lookups (state, then search-response threads, then REST)
+// and per-user read access. Lookups are injectable for tests.
 type channelResolver struct {
-	s     *discordgo.Session
-	cache map[string]*discordgo.Channel
-	perms map[string]bool
+	lookup       func(channelID string) *discordgo.Channel
+	permissions  func(userID, channelID string) (int64, error)
+	threadMember func(threadID, userID string) bool
+
+	cache        map[string]*discordgo.Channel
+	perms        map[string]int64
+	permsErr     map[string]bool
+	threadAccess map[string]bool
 }
 
 func newChannelResolver(s *discordgo.Session) *channelResolver {
-	return &channelResolver{s: s, cache: map[string]*discordgo.Channel{}, perms: map[string]bool{}}
+	r := newResolver()
+	r.lookup = func(id string) *discordgo.Channel {
+		var ch *discordgo.Channel
+		if s.State != nil {
+			ch, _ = s.State.Channel(id)
+		}
+		if ch == nil {
+			ch, _ = s.Channel(id)
+		}
+		return ch
+	}
+	r.permissions = func(userID, channelID string) (int64, error) {
+		return s.UserChannelPermissions(userID, channelID)
+	}
+	r.threadMember = func(threadID, userID string) bool {
+		// 404 (not a member) and any other error both deny.
+		tm, err := s.ThreadMember(threadID, userID, false)
+		return err == nil && tm != nil
+	}
+	return r
+}
+
+func newResolver() *channelResolver {
+	return &channelResolver{
+		cache:        map[string]*discordgo.Channel{},
+		perms:        map[string]int64{},
+		permsErr:     map[string]bool{},
+		threadAccess: map[string]bool{},
+	}
 }
 
 func (r *channelResolver) addThreads(threads map[string]*discordgo.Channel) {
 	for id, th := range threads {
-		if _, ok := r.cache[id]; !ok {
+		if r.cache[id] == nil {
 			r.cache[id] = th
 		}
 	}
 }
 
 func (r *channelResolver) channel(id string) *discordgo.Channel {
-	if ch, ok := r.cache[id]; ok {
+	if ch, ok := r.cache[id]; ok && ch != nil {
 		return ch
 	}
-	var ch *discordgo.Channel
-	if r.s.State != nil {
-		ch, _ = r.s.State.Channel(id)
-	}
-	if ch == nil {
-		ch, _ = r.s.Channel(id)
-	}
+	ch := r.lookup(id)
 	r.cache[id] = ch
 	return ch
 }
@@ -345,19 +373,56 @@ func (r *channelResolver) info(id string) channelInfo {
 	return info
 }
 
-// memberCanRead reports whether the user can view and read history in a channel.
-// Threads inherit permissions from their parent channel. Lookup failures deny.
+func (r *channelResolver) permsFor(userID, channelID string) (int64, bool) {
+	if p, ok := r.perms[channelID]; ok {
+		return p, true
+	}
+	if r.permsErr[channelID] {
+		return 0, false
+	}
+	p, err := r.permissions(userID, channelID)
+	if err != nil {
+		r.permsErr[channelID] = true
+		return 0, false
+	}
+	r.perms[channelID] = p
+	return p, true
+}
+
+// memberCanRead reports whether the user can view and read history in a channel,
+// mirroring Discord's rules. Threads use their parent channel's permissions;
+// private threads additionally need Manage Threads or thread membership.
+// Anything that can't be resolved is denied.
 func (r *channelResolver) memberCanRead(userID, channelID string) bool {
+	ch := r.channel(channelID)
+	if ch == nil {
+		return false
+	}
 	permID := channelID
-	if ch := r.channel(channelID); ch != nil && ch.IsThread() && ch.ParentID != "" {
+	if ch.IsThread() {
+		if ch.ParentID == "" {
+			return false
+		}
 		permID = ch.ParentID
 	}
-	if ok, cached := r.perms[permID]; cached {
-		return ok
+	p, ok := r.permsFor(userID, permID)
+	if !ok {
+		return false
+	}
+	if p&discordgo.PermissionAdministrator != 0 {
+		return true
 	}
 	const need = discordgo.PermissionViewChannel | discordgo.PermissionReadMessageHistory
-	p, err := r.s.UserChannelPermissions(userID, permID)
-	ok := err == nil && (p&discordgo.PermissionAdministrator != 0 || p&need == need)
-	r.perms[permID] = ok
-	return ok
+	if p&need != need {
+		return false
+	}
+	if ch.Type != discordgo.ChannelTypeGuildPrivateThread || p&discordgo.PermissionManageThreads != 0 {
+		return true
+	}
+	allowed, cached := r.threadAccess[channelID]
+	if !cached {
+		allowed = r.threadMember(channelID, userID)
+		r.threadAccess[channelID] = allowed
+	}
+	return allowed
 }

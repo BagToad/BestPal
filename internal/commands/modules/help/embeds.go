@@ -67,6 +67,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/search",
+				Value:  "Search server messages and export the results as a CSV spreadsheet\n• Use `/search content:text author:@user` (all filters optional)\n• Use `page_start:2 page_end:5` to export only a range of pages (25 results per page)",
+				Inline: false,
+			},
+			{
 				Name:   "/say",
 				Value:  "Send an anonymous message to a specified channel\n• Use `/say channel:#general message:Hello everyone!` to send a message",
 				Inline: false,

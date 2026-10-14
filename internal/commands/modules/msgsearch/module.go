@@ -273,7 +273,7 @@ func exportSummary(req *searchRequest, res *exportResult, rows int) string {
 	fmt.Fprintf(&b, "✅ Exported **%d** messages from pages **%d-%d**.\n", rows, res.FirstPage, res.LastPage)
 	fmt.Fprintf(&b, "Filters: %s", filterList(req.Summary))
 	if res.Truncated {
-		fmt.Fprintf(&b, "\n⚠️ Hit the time limit before the last page. Run again with `page_start:%d` to continue.", res.LastPage+1)
+		b.WriteString("\n⚠️ Hit the time limit before the last page, so this export is incomplete. Narrow the search with `after`/`before` dates (or other filters) and export it in sections.")
 	}
 	return b.String()
 }

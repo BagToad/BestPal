@@ -401,7 +401,7 @@ func TestExportSummaryDoesNotLeakTotals(t *testing.T) {
 	res := &exportResult{TotalResults: 9999, FirstPage: 1, LastPage: 3, Truncated: true}
 	out := exportSummary(&searchRequest{}, res, 12)
 	assert.Contains(t, out, "**12** messages")
-	assert.Contains(t, out, "page_start:4")
+	assert.Contains(t, out, "`after`/`before`")
 	assert.NotContains(t, out, "9999")
 	assert.NotContains(t, out, "400")
 	assert.NotContains(t, strings.ToLower(out), "can't read")

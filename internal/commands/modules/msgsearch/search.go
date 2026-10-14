@@ -142,12 +142,10 @@ func (f pageFetcher) fetchPage(ctx context.Context, guildID string, p searchPara
 		if attempt >= maxIndexRetries {
 			return nil, errors.New("Discord is still indexing this server for search; try again in a few minutes")
 		}
+		// Honor Discord's delay; sleep is bounded by the export deadline in ctx.
 		wait := notReady.RetryAfter
 		if wait < time.Second {
 			wait = time.Second
-		}
-		if wait > 10*time.Second {
-			wait = 10 * time.Second
 		}
 		if err := f.sleep(ctx, wait); err != nil {
 			return nil, err
@@ -204,7 +202,7 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 
 	seen := map[string]bool{}
 	var rows []*discordgo.Message
-	add := func(resp *searchResponse) int {
+	add := func(resp *searchResponse) {
 		var fresh []*discordgo.Message
 		for _, group := range resp.Messages {
 			for _, msg := range group {
@@ -218,7 +216,6 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 		if len(fresh) > 0 {
 			rows = append(rows, visible(fresh, resp.Threads)...)
 		}
-		return len(fresh)
 	}
 
 	first, err := f.fetchPage(ctx, guildID, p, 1)
@@ -228,9 +225,10 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 	res.TotalResults = first.TotalResults
 	rawPages := totalPages(first.TotalResults)
 	// Even if every result were visible, page_start would be past the end.
-	if rawPages == 0 || skip >= first.TotalResults || add(first) == 0 {
+	if rawPages == 0 || skip >= first.TotalResults {
 		return res, nil
 	}
+	add(first)
 
 	for page := 2; page <= rawPages; page++ {
 		if need != 0 && len(rows) >= need {
@@ -252,10 +250,9 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 			// No page number: raw Discord pages include hidden results.
 			return nil, fmt.Errorf("fetching more results: %w", err)
 		}
-		// Discord can report more results than it returns; an empty page means we are done.
-		if add(resp) == 0 {
-			break
-		}
+		// Discord warns that a short or empty page doesn't mean the results are
+		// exhausted, so keep going through the whole reported page range.
+		add(resp)
 	}
 
 	end := len(rows)

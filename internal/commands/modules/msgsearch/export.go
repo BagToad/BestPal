@@ -31,13 +31,13 @@ type channelInfo struct {
 // channelNamer resolves a channel ID to a display name (and parent for threads).
 type channelNamer func(channelID string) channelInfo
 
-// sanitizeCell neutralizes spreadsheet formula injection (=, +, -, @, tab, CR).
+// sanitizeCell neutralizes spreadsheet formula injection (=, +, -, @, tab, CR, LF).
 func sanitizeCell(s string) string {
 	if s == "" {
 		return s
 	}
 	switch s[0] {
-	case '=', '+', '-', '@', '\t', '\r':
+	case '=', '+', '-', '@', '\t', '\r', '\n':
 		return "'" + s
 	}
 	return s

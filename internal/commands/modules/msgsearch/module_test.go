@@ -137,13 +137,29 @@ func TestCollectAllHiddenIsEmpty(t *testing.T) {
 	assert.Empty(t, res.Messages)
 }
 
-func TestCollectStopsOnEmptyPageWhenTotalOverstated(t *testing.T) {
+func TestCollectContinuesPastEmptyPages(t *testing.T) {
+	// Discord may return an empty page mid-range; later pages must still be read.
+	f := newFake(80)
+	search := func(ctx context.Context, g string, q url.Values) (*searchResponse, error) {
+		resp, err := f.search(ctx, g, q)
+		if q.Get("offset") == "25" {
+			resp.Messages = nil
+		}
+		return resp, err
+	}
+	res, err := pageFetcher{search: search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []int{0, 25, 50, 75}, f.offsets)
+	assert.Len(t, res.Messages, 55)
+}
+
+func TestCollectReadsReportedRangeWhenTotalOverstated(t *testing.T) {
 	f := newFake(30)
-	f.total = 500
+	f.total = 100
 	res, err := collectAll(f, 1, 0)
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 30)
-	assert.Equal(t, []int{0, 25, 50}, f.offsets)
+	assert.Equal(t, []int{0, 25, 50, 75}, f.offsets)
 }
 
 func TestCollectCapsAtMaxPages(t *testing.T) {
@@ -262,6 +278,7 @@ func TestSanitizeCell(t *testing.T) {
 	assert.Equal(t, "'+1", sanitizeCell("+1"))
 	assert.Equal(t, "'-1", sanitizeCell("-1"))
 	assert.Equal(t, "'@everyone", sanitizeCell("@everyone"))
+	assert.Equal(t, "'\n=HYPERLINK(\"x\")", sanitizeCell("\n=HYPERLINK(\"x\")"))
 	assert.Equal(t, "hello", sanitizeCell("hello"))
 	assert.Equal(t, "", sanitizeCell(""))
 }
@@ -460,4 +477,20 @@ func TestAddThreadsFillsFailedLookups(t *testing.T) {
 	assert.Nil(t, r.channel("t1"))
 	r.addThreads([]*discordgo.Channel{{ID: "t1", Name: "thread"}})
 	assert.Equal(t, "thread", r.channel("t1").Name)
+}
+
+func TestFetchPageHonorsLongRetryAfter(t *testing.T) {
+	calls := 0
+	search := func(context.Context, string, url.Values) (*searchResponse, error) {
+		calls++
+		if calls == 1 {
+			return nil, &indexNotReadyError{RetryAfter: 45 * time.Second}
+		}
+		return &searchResponse{}, nil
+	}
+	var waits []time.Duration
+	sleep := func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
+	_, err := pageFetcher{search: search, sleep: sleep}.fetchPage(context.Background(), "g", searchParams{}, 1)
+	require.NoError(t, err)
+	assert.Equal(t, []time.Duration{45 * time.Second}, waits)
 }

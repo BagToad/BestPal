@@ -203,35 +203,37 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 
 	m.edit(s, i, "🔎 Searching…")
 	var lastEdit time.Time
-	progress := func(page, _ int) {
+	progress := func(rows int) {
 		if time.Since(lastEdit) < 3*time.Second {
 			return
 		}
 		lastEdit = time.Now()
-		m.edit(s, i, fmt.Sprintf("🔎 Fetching page %d…", page))
+		m.edit(s, i, fmt.Sprintf("🔎 Searching… %d matching messages so far", rows))
+	}
+	// Results the moderator can't read are dropped before paging, so nothing
+	// shown to them (counts, page numbers, progress) reveals that anything was removed.
+	visible := func(msgs []*discordgo.Message, threads []*discordgo.Channel) []*discordgo.Message {
+		channels.addThreads(threads)
+		return filterVisible(msgs, canView)
 	}
 
 	fetcher := pageFetcher{search: discordSearch(s), sleep: sleepCtx}
-	res, err := fetcher.collect(ctx, i.GuildID, req.Params, req.PageStart, req.PageEnd, progress)
+	res, err := fetcher.collect(ctx, i.GuildID, req.Params, req.PageStart, req.PageEnd, visible, progress)
 	if err != nil {
 		m.edit(s, i, "❌ Search failed: "+err.Error())
 		return
 	}
-	if res.TotalResults == 0 || len(res.Messages) == 0 {
+	if len(res.Messages) == 0 {
+		if res.Truncated {
+			m.edit(s, i, fmt.Sprintf("⏱️ Hit the time limit before reaching page %d. Narrow the search (dates, channel, author) and try again.", req.PageStart))
+			return
+		}
 		m.edit(s, i, "🤷 No messages matched that search.")
 		return
 	}
+	visibleRows := res.Messages
 
-	channels.addThreads(res.Threads)
-	// Results the moderator can't read are dropped silently: nothing shown to
-	// them (counts, totals, page numbers) may reveal that anything was removed.
-	visible := filterVisible(res.Messages, canView)
-	if len(visible) == 0 {
-		m.edit(s, i, "🤷 No messages matched that search.")
-		return
-	}
-
-	data, err := buildCSV(i.GuildID, visible, channels.info)
+	data, err := buildCSV(i.GuildID, visibleRows, channels.info)
 	if err != nil {
 		m.edit(s, i, "❌ Failed to build the spreadsheet: "+err.Error())
 		return
@@ -242,7 +244,7 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	summary := exportSummary(req, res, len(visible))
+	summary := exportSummary(req, res, len(visibleRows))
 	content := summary
 	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Content: &content,
@@ -254,7 +256,7 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 	}
 
 	_ = utils.LogToChannel(m.config, s, fmt.Sprintf("🔎 <@%s> exported %d search results (pages %d-%d).\nFilters: %s",
-		userID, len(visible), res.FirstPage, res.LastPage, filterList(req.Summary)))
+		userID, len(visibleRows), res.FirstPage, res.LastPage, filterList(req.Summary)))
 }
 
 func filterList(summary []string) string {
@@ -342,10 +344,10 @@ func newResolver() *channelResolver {
 	}
 }
 
-func (r *channelResolver) addThreads(threads map[string]*discordgo.Channel) {
-	for id, th := range threads {
-		if r.cache[id] == nil {
-			r.cache[id] = th
+func (r *channelResolver) addThreads(threads []*discordgo.Channel) {
+	for _, th := range threads {
+		if th != nil && r.cache[th.ID] == nil {
+			r.cache[th.ID] = th
 		}
 	}
 }

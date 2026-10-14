@@ -25,6 +25,7 @@ type fakeIndex struct {
 	ids      []string
 	offsets  []int
 	notReady int // number of 202 responses before serving
+	hidden   func(i int) bool
 }
 
 func (f *fakeIndex) search(_ context.Context, _ string, q url.Values) (*searchResponse, error) {
@@ -36,7 +37,11 @@ func (f *fakeIndex) search(_ context.Context, _ string, q url.Values) (*searchRe
 	f.offsets = append(f.offsets, offset)
 	resp := &searchResponse{TotalResults: f.total}
 	for i := offset; i < offset+PageSize && i < len(f.ids); i++ {
-		resp.Messages = append(resp.Messages, []*discordgo.Message{{ID: f.ids[i], ChannelID: "c1"}})
+		ch := "c1"
+		if f.hidden != nil && f.hidden(i) {
+			ch = "secret"
+		}
+		resp.Messages = append(resp.Messages, []*discordgo.Message{{ID: f.ids[i], ChannelID: ch}})
 	}
 	return resp, nil
 }
@@ -51,12 +56,19 @@ func newFake(n int) *fakeIndex {
 
 func noSleep(context.Context, time.Duration) error { return nil }
 
+func collectAll(f *fakeIndex, start, end int) (*exportResult, error) {
+	return pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, start, end, nil, nil)
+}
+
+func hideSecret(msgs []*discordgo.Message, _ []*discordgo.Channel) []*discordgo.Message {
+	return filterVisible(msgs, func(id string) bool { return id != "secret" })
+}
+
 func TestCollectAllPages(t *testing.T) {
 	f := newFake(60)
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil)
+	res, err := collectAll(f, 1, 0)
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 60)
-	assert.Equal(t, 3, res.TotalPages)
 	assert.Equal(t, 1, res.FirstPage)
 	assert.Equal(t, 3, res.LastPage)
 	assert.Equal(t, []int{0, 25, 50}, f.offsets)
@@ -65,17 +77,18 @@ func TestCollectAllPages(t *testing.T) {
 
 func TestCollectPageRange(t *testing.T) {
 	f := newFake(200)
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 2, 3, nil)
+	res, err := collectAll(f, 2, 3)
 	require.NoError(t, err)
-	assert.Equal(t, []int{25, 50}, f.offsets)
+	assert.Equal(t, []int{0, 25, 50}, f.offsets, "visible paging always starts at Discord's first page and stops once page_end is filled")
 	assert.Len(t, res.Messages, 50)
 	assert.Equal(t, "m25", res.Messages[0].ID)
+	assert.Equal(t, 2, res.FirstPage)
 	assert.Equal(t, 3, res.LastPage)
 }
 
 func TestCollectClampsPageEndToLastPage(t *testing.T) {
 	f := newFake(30)
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 50, nil)
+	res, err := collectAll(f, 1, 50)
 	require.NoError(t, err)
 	assert.Equal(t, 2, res.LastPage)
 	assert.Len(t, res.Messages, 30)
@@ -83,7 +96,43 @@ func TestCollectClampsPageEndToLastPage(t *testing.T) {
 
 func TestCollectPageStartPastEndIsEmptyNotError(t *testing.T) {
 	f := newFake(30)
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 5, 0, nil)
+	res, err := collectAll(f, 5, 0)
+	require.NoError(t, err)
+	assert.Empty(t, res.Messages)
+	assert.Equal(t, []int{0}, f.offsets)
+}
+
+func TestCollectPagesOverVisibleResultsOnly(t *testing.T) {
+	// Every 3rd result is hidden: 150 raw results -> 100 visible.
+	f := newFake(150)
+	f.hidden = func(i int) bool { return i%3 == 0 }
+	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 2, 3, hideSecret, nil)
+	require.NoError(t, err)
+	require.Len(t, res.Messages, 50, "pages 2-3 are full pages of visible results")
+	for _, m := range res.Messages {
+		assert.Equal(t, "c1", m.ChannelID)
+	}
+	// Visible result #25 (0-based) is raw index 38.
+	assert.Equal(t, "m38", res.Messages[0].ID)
+	assert.Equal(t, 2, res.FirstPage)
+	assert.Equal(t, 3, res.LastPage)
+
+	all, err := pageFetcher{search: newFake(150).search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, hideSecret, nil)
+	require.NoError(t, err)
+	assert.Len(t, all.Messages, 150)
+
+	f = newFake(150)
+	f.hidden = func(i int) bool { return i%3 == 0 }
+	all, err = pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, hideSecret, nil)
+	require.NoError(t, err)
+	assert.Len(t, all.Messages, 100)
+	assert.Equal(t, 4, all.LastPage, "page count reflects visible results, not Discord's total")
+}
+
+func TestCollectAllHiddenIsEmpty(t *testing.T) {
+	f := newFake(60)
+	f.hidden = func(int) bool { return true }
+	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, hideSecret, nil)
 	require.NoError(t, err)
 	assert.Empty(t, res.Messages)
 }
@@ -91,7 +140,7 @@ func TestCollectPageStartPastEndIsEmptyNotError(t *testing.T) {
 func TestCollectStopsOnEmptyPageWhenTotalOverstated(t *testing.T) {
 	f := newFake(30)
 	f.total = 500
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil)
+	res, err := collectAll(f, 1, 0)
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 30)
 	assert.Equal(t, []int{0, 25, 50}, f.offsets)
@@ -109,7 +158,7 @@ func TestCollectRetriesWhileIndexing(t *testing.T) {
 	f.notReady = 3
 	var waits []time.Duration
 	sleep := func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
-	res, err := pageFetcher{search: f.search, sleep: sleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil)
+	res, err := pageFetcher{search: f.search, sleep: sleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 10)
 	assert.Equal(t, []time.Duration{2 * time.Second, 2 * time.Second, 2 * time.Second}, waits)
@@ -118,30 +167,43 @@ func TestCollectRetriesWhileIndexing(t *testing.T) {
 func TestCollectGivesUpWhenNeverIndexed(t *testing.T) {
 	f := newFake(10)
 	f.notReady = 1000
-	_, err := pageFetcher{search: f.search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil)
+	_, err := collectAll(f, 1, 0)
 	assert.ErrorContains(t, err, "still indexing")
 }
 
-func TestCollectTruncatesOnDeadline(t *testing.T) {
-	f := newFake(100)
+func TestCollectTruncatesToWholeVisiblePages(t *testing.T) {
+	// 1 in 5 hidden: after 3 raw pages there are 60 visible rows -> 2 whole pages kept.
+	f := newFake(500)
+	f.hidden = func(i int) bool { return i%5 == 0 }
 	ctx, cancel := context.WithCancel(context.Background())
-	progress := func(page, _ int) {
-		if page == 2 {
+	calls := 0
+	progress := func(rows int) {
+		calls++
+		if calls == 3 {
 			cancel()
 		}
 	}
-	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(ctx, "g", searchParams{}, 1, 0, progress)
+	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(ctx, "g", searchParams{}, 1, 0, hideSecret, progress)
 	require.NoError(t, err)
 	assert.True(t, res.Truncated)
-	assert.Equal(t, 2, res.LastPage)
 	assert.Len(t, res.Messages, 50)
+	assert.Equal(t, 2, res.LastPage)
+}
+
+func TestCollectTruncatedBeforePageStartIsEmpty(t *testing.T) {
+	f := newFake(500)
+	ctx, cancel := context.WithCancel(context.Background())
+	res, err := pageFetcher{search: f.search, sleep: noSleep}.collect(ctx, "g", searchParams{}, 10, 0, nil, func(int) { cancel() })
+	require.NoError(t, err)
+	assert.True(t, res.Truncated)
+	assert.Empty(t, res.Messages)
 }
 
 func TestCollectDedupes(t *testing.T) {
 	search := func(_ context.Context, _ string, q url.Values) (*searchResponse, error) {
 		return &searchResponse{TotalResults: 50, Messages: [][]*discordgo.Message{{{ID: "same"}}}}, nil
 	}
-	res, err := pageFetcher{search: search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil)
+	res, err := pageFetcher{search: search, sleep: noSleep}.collect(context.Background(), "g", searchParams{}, 1, 0, nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, res.Messages, 1)
 }
@@ -336,7 +398,7 @@ func TestRegister(t *testing.T) {
 }
 
 func TestExportSummaryDoesNotLeakTotals(t *testing.T) {
-	res := &exportResult{TotalResults: 9999, TotalPages: 400, FirstPage: 1, LastPage: 3, Truncated: true}
+	res := &exportResult{TotalResults: 9999, FirstPage: 1, LastPage: 3, Truncated: true}
 	out := exportSummary(&searchRequest{}, res, 12)
 	assert.Contains(t, out, "**12** messages")
 	assert.Contains(t, out, "page_start:4")
@@ -396,6 +458,6 @@ func TestAddThreadsFillsFailedLookups(t *testing.T) {
 	r := newResolver()
 	r.lookup = func(string) *discordgo.Channel { return nil }
 	assert.Nil(t, r.channel("t1"))
-	r.addThreads(map[string]*discordgo.Channel{"t1": {ID: "t1", Name: "thread"}})
+	r.addThreads([]*discordgo.Channel{{ID: "t1", Name: "thread"}})
 	assert.Equal(t, "thread", r.channel("t1").Name)
 }

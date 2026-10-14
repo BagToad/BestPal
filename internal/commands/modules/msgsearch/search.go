@@ -157,13 +157,15 @@ func (f pageFetcher) fetchPage(ctx context.Context, guildID string, p searchPara
 
 type exportResult struct {
 	Messages     []*discordgo.Message
-	Threads      map[string]*discordgo.Channel
-	TotalResults int
-	TotalPages   int
+	TotalResults int // raw count from Discord; may include hidden results, never show it
 	FirstPage    int
-	LastPage     int // last page actually fetched
+	LastPage     int // last visible page exported
 	Truncated    bool
 }
+
+// visibleFunc returns the messages from one search page the caller may see.
+// Threads from the same response are passed so private threads can be resolved.
+type visibleFunc func(msgs []*discordgo.Message, threads []*discordgo.Channel) []*discordgo.Message
 
 // totalPages converts a result count into reachable pages.
 func totalPages(total int) int {
@@ -177,68 +179,66 @@ func totalPages(total int) int {
 	return pages
 }
 
-// collect fetches pages pageStart..pageEnd (pageEnd 0 = through the last page).
-// It stops early, marking the result truncated, if ctx expires mid-export.
-func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams, pageStart, pageEnd int, progress func(page, last int)) (*exportResult, error) {
+// collect exports visible pages pageStart..pageEnd (pageEnd 0 = through the last page).
+// Pages are counted over visible results only, so page numbers and row counts
+// never reveal how many results were hidden. That means Discord's pages are
+// always read from the first one. If ctx expires mid-export, the result is
+// trimmed to whole visible pages and marked truncated.
+func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams, pageStart, pageEnd int, visible visibleFunc, progress func(rows int)) (*exportResult, error) {
 	if pageStart < 1 {
 		pageStart = 1
 	}
 	if pageEnd != 0 && pageEnd < pageStart {
 		return nil, fmt.Errorf("page_end (%d) must be greater than or equal to page_start (%d)", pageEnd, pageStart)
 	}
+	if visible == nil {
+		visible = func(msgs []*discordgo.Message, _ []*discordgo.Channel) []*discordgo.Message { return msgs }
+	}
 
-	res := &exportResult{Threads: map[string]*discordgo.Channel{}, FirstPage: pageStart}
+	res := &exportResult{FirstPage: pageStart}
+	skip := (pageStart - 1) * PageSize
+	need := 0 // visible rows needed to fill page_end; 0 = all
+	if pageEnd != 0 {
+		need = pageEnd * PageSize
+	}
+
 	seen := map[string]bool{}
+	var rows []*discordgo.Message
 	add := func(resp *searchResponse) int {
-		added := 0
+		var fresh []*discordgo.Message
 		for _, group := range resp.Messages {
 			for _, msg := range group {
 				if msg == nil || seen[msg.ID] {
 					continue
 				}
 				seen[msg.ID] = true
-				res.Messages = append(res.Messages, msg)
-				added++
+				fresh = append(fresh, msg)
 			}
 		}
-		for _, th := range resp.Threads {
-			if th != nil {
-				res.Threads[th.ID] = th
-			}
+		if len(fresh) > 0 {
+			rows = append(rows, visible(fresh, resp.Threads)...)
 		}
-		return added
+		return len(fresh)
 	}
 
-	first, err := f.fetchPage(ctx, guildID, p, pageStart)
+	first, err := f.fetchPage(ctx, guildID, p, 1)
 	if err != nil {
 		return nil, err
 	}
 	res.TotalResults = first.TotalResults
-	res.TotalPages = totalPages(first.TotalResults)
-	if res.TotalPages == 0 {
-		return res, nil
-	}
-	// Treated as "no results" rather than an error so the page count (which
-	// includes messages the caller may not be allowed to see) is never revealed.
-	if pageStart > res.TotalPages {
+	rawPages := totalPages(first.TotalResults)
+	// Even if every result were visible, page_start would be past the end.
+	if rawPages == 0 || skip >= first.TotalResults || add(first) == 0 {
 		return res, nil
 	}
 
-	last := res.TotalPages
-	if pageEnd != 0 && pageEnd < last {
-		last = pageEnd
-	}
-
-	if add(first) == 0 {
-		res.LastPage = pageStart
-		return res, nil
-	}
-	res.LastPage = pageStart
-	if progress != nil {
-		progress(pageStart, last)
-	}
-
-	for page := pageStart + 1; page <= last; page++ {
+	for page := 2; page <= rawPages; page++ {
+		if need != 0 && len(rows) >= need {
+			break
+		}
+		if progress != nil {
+			progress(len(rows))
+		}
 		if ctx.Err() != nil {
 			res.Truncated = true
 			break
@@ -249,17 +249,27 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 				res.Truncated = true
 				break
 			}
-			return nil, fmt.Errorf("page %d: %w", page, err)
-		}
-		res.LastPage = page
-		if progress != nil {
-			progress(page, last)
+			return nil, fmt.Errorf("search page %d: %w", page, err)
 		}
 		// Discord can report more results than it returns; an empty page means we are done.
 		if add(resp) == 0 {
 			break
 		}
 	}
+
+	end := len(rows)
+	if res.Truncated {
+		// Only whole pages, so "continue at page_start:N" picks up exactly where this left off.
+		end -= end % PageSize
+	}
+	if need != 0 && end > need {
+		end = need
+	}
+	if skip >= end {
+		return res, nil
+	}
+	res.Messages = rows[skip:end]
+	res.LastPage = pageStart + (len(res.Messages)+PageSize-1)/PageSize - 1
 	return res, nil
 }
 

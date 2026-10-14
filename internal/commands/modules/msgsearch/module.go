@@ -1,10 +1,8 @@
 package msgsearch
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
@@ -244,31 +242,19 @@ func (m *Module) handleSearch(s *discordgo.Session, i *discordgo.InteractionCrea
 		return
 	}
 
-	payload, err := io.ReadAll(file.Reader)
-	if err != nil {
-		m.edit(s, i, "❌ "+err.Error())
-		return
-	}
-
-	// The deferred response is ephemeral (progress and errors stay private);
-	// the finished export is posted publicly as a follow-up.
 	summary := exportSummary(req, res, len(visible))
-	if _, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content:         summary,
-		Files:           []*discordgo.File{{Name: file.Name, ContentType: file.ContentType, Reader: bytes.NewReader(payload)}},
-		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	content := summary
+	if _, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Content: &content,
+		Files:   []*discordgo.File{file},
 	}); err != nil {
 		m.config.Logger.Errorf("search: upload failed: %v", err)
 		m.edit(s, i, "❌ Couldn't upload the export: "+err.Error())
 		return
 	}
-	m.edit(s, i, "✅ Export posted.")
 
-	logMsg := fmt.Sprintf("🔎 <@%s> exported %d search results (pages %d-%d) in <#%s>.\nFilters: %s",
-		userID, len(visible), res.FirstPage, res.LastPage, i.ChannelID, filterList(req.Summary))
-	if err := utils.LogToChannelWithEmbedAndFile(m.config, s, logMsg, file.Name, bytes.NewReader(payload)); err != nil {
-		m.config.Logger.Errorf("search: log upload failed: %v", err)
-	}
+	_ = utils.LogToChannel(m.config, s, fmt.Sprintf("🔎 <@%s> exported %d search results (pages %d-%d).\nFilters: %s",
+		userID, len(visible), res.FirstPage, res.LastPage, filterList(req.Summary)))
 }
 
 func filterList(summary []string) string {

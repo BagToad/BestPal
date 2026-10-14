@@ -36,6 +36,7 @@ environment (see `config.example.yaml`).
 | `/lfg setup-looking-now` | Set up the "Looking NOW" feed channel |
 | `/lfg refresh-thread-cache` | Rebuild LFG thread cache (includes archived) |
 | `/userstats` | Show server member statistics |
+| `/search` | Search server messages (Discord search API) and export result pages as a CSV spreadsheet; `page_start`/`page_end` pick a page range (25 results/page) |
 | `/give` / `/take` | Give or take things from a user |
 | `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
 

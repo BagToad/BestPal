@@ -10,6 +10,7 @@ import (
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
+	"gamerpal/internal/commands/modules/msgsearch"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/ping"
 	"gamerpal/internal/commands/modules/poll"
@@ -110,6 +111,7 @@ func (h *ModuleHandler) registerModules() {
 		{"score", score.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
 		{"trickortreat", trickortreat.New(h.deps)},
+		{"msgsearch", msgsearch.New(h.deps)},
 	}
 
 	for _, m := range modules {

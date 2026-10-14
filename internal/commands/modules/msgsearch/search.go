@@ -249,7 +249,8 @@ func (f pageFetcher) collect(ctx context.Context, guildID string, p searchParams
 				res.Truncated = true
 				break
 			}
-			return nil, fmt.Errorf("search page %d: %w", page, err)
+			// No page number: raw Discord pages include hidden results.
+			return nil, fmt.Errorf("fetching more results: %w", err)
 		}
 		// Discord can report more results than it returns; an empty page means we are done.
 		if add(resp) == 0 {

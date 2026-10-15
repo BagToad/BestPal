@@ -4,8 +4,8 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 	"gamerpal/internal/forumcache"
+	"gamerpal/internal/igdbclient"
 
-	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -59,7 +59,7 @@ type CommandModule interface {
 type Dependencies struct {
 	Config     *config.Config
 	DB         *database.DB
-	IGDBClient *igdb.Client
+	IGDBClient *igdbclient.Client
 	Session    *discordgo.Session
 	ForumCache *forumcache.Service
 }

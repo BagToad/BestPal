@@ -204,7 +204,7 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 // It checks eligibility and forwards to the feed if appropriate.
 // Silently skips if user is on cooldown (for automatic forwarding).
 func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
-	if s.deps.Session == nil || s.deps.DB == nil {
+	if s.deps.Session == nil || s.deps.DB == nil || thread == nil {
 		return
 	}
 
@@ -255,6 +255,17 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	s.deps.Config.Logger.Infof("Forwarded intro thread %s by %s to feed", thread.ID, thread.OwnerID)
+
+	// Post auto-post in the intro thread
+	autoIntroComment := newAutoIntroComment(thread.GuildID, feedChannelID)
+	_, err = s.deps.Session.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
+		Flags:      discordgo.MessageFlagsIsComponentsV2,
+		Components: autoIntroComment.components(),
+	})
+	if err != nil {
+		s.deps.Config.Logger.Warnf("Failed to post auto-post to intro thread %s: %v", thread.ID, err)
+		// Don't fail the overall function; feed post was successful
+	}
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.

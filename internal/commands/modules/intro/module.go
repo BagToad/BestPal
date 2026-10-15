@@ -428,7 +428,7 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 	}
 
 	// Attempt to bump to feed
-	err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isAdmin)
+	warning, err := m.feedService.BumpIntroToFeed(i.GuildID, meta.ID, user.ID, displayName, meta.Name, isAdmin)
 	if err != nil {
 		_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
 			Content: new(fmt.Sprintf("❌ %s", err.Error())),
@@ -436,9 +436,11 @@ func (m *Module) handleBumpIntro(s *discordgo.Session, i *discordgo.InteractionC
 		return
 	}
 
-	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{
-		Content: new("✅ Your introduction has been posted to the feed!"),
-	})
+	content := "✅ Your introduction has been posted to the feed!"
+	if warning != "" {
+		content += "\n⚠️ " + warning
+	}
+	_, _ = introEdit(s, i.Interaction, &discordgo.WebhookEdit{Content: &content})
 }
 
 // chooseEphemeralFlag returns the ephemeral flag if true, else 0.

@@ -44,15 +44,16 @@ func (s *IntroFeedService) memberIsBooster(member *discordgo.Member) bool {
 }
 
 // ForwardThreadToFeed posts a notification about a new/bumped intro thread to the feed channel.
-// Returns the message ID of the feed post, or an error.
-func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName string, tagIDs []string, isBump bool) (string, error) {
+// Returns the feed message ID and latest persisted successful post time, or a send error.
+// A zero post time means recording/reading history failed; the feed post still succeeded.
+func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName string, tagIDs []string, isBump bool) (string, time.Time, error) {
 	feedChannelID := s.deps.Config.GetIntroFeedChannelID()
 	if feedChannelID == "" {
-		return "", fmt.Errorf("intro feed channel not configured")
+		return "", time.Time{}, fmt.Errorf("intro feed channel not configured")
 	}
 
 	if s.deps.Session == nil {
-		return "", fmt.Errorf("discord session not available")
+		return "", time.Time{}, fmt.Errorf("discord session not available")
 	}
 
 	// Build the thread URL
@@ -131,18 +132,23 @@ func (s *IntroFeedService) ForwardThreadToFeed(guildID, threadID, userID, displa
 
 	msg, err := s.deps.Session.ChannelMessageSendEmbed(feedChannelID, embed)
 	if err != nil {
-		return "", fmt.Errorf("failed to send feed message: %w", err)
+		return "", time.Time{}, fmt.Errorf("failed to send feed message: %w", err)
 	}
 
-	// Record this in the database
+	// Only expose a timestamp after this successful feed post is recorded.
+	// Read the same user-scoped latest success that reconciliation uses, not time.Now().
+	var postedAt time.Time
 	if s.deps.DB != nil {
 		if err := s.deps.DB.RecordIntroFeedPost(userID, threadID, msg.ID, isBump); err != nil {
 			s.deps.Config.Logger.Warnf("Failed to record intro feed post: %v", err)
-			// Don't return error - the message was sent successfully
+		} else if latest, err := s.deps.DB.GetLastIntroFeedPostTime(userID); err != nil {
+			s.deps.Config.Logger.Warnf("Failed to read intro feed post time: %v", err)
+		} else {
+			postedAt = latest
 		}
 	}
 
-	return msg.ID, nil
+	return msg.ID, postedAt, nil
 }
 
 // HandleNewIntroThread is called when a new thread is created in the intro forum.
@@ -185,7 +191,7 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 	}
 
 	// Forward to feed
-	_, err = s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName, thread.Name, thread.AppliedTags, false)
+	_, postedAt, err := s.ForwardThreadToFeed(thread.GuildID, thread.ID, thread.OwnerID, displayName, thread.Name, thread.AppliedTags, false)
 	if err != nil {
 		s.deps.Config.Logger.Errorf("Failed to forward intro to feed: %v", err)
 		return
@@ -202,6 +208,10 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 
 	// Post auto-post in the intro thread
 	autoIntroComment := newAutoIntroComment(thread.GuildID, feedChannelID)
+	if !isAdmin {
+		reset := expectedCooldownReset(postedAt, s.cooldownHoursForMember(member), introCooldownSchedule)
+		autoIntroComment.preamble = withExpectedCooldownReset(autoIntroComment.preamble, reset)
+	}
 	_, err = s.deps.Session.ChannelMessageSendComplex(thread.ID, &discordgo.MessageSend{
 		Flags:      discordgo.MessageFlagsIsComponentsV2,
 		Components: autoIntroComment.components(),
@@ -213,8 +223,9 @@ func (s *IntroFeedService) HandleNewIntroThread(thread *discordgo.Channel) {
 }
 
 // BumpIntroToFeed manually bumps an intro thread to the feed channel.
-// Unlike automatic forwarding, this returns an error/message to show the user.
-func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, isAdmin bool) error {
+// Returns a warning when only the helper refresh fails, so the command still confirms
+// the successful feed post rather than suggesting a duplicate-producing retry.
+func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayName, threadName string, isAdmin bool) (string, error) {
 	// Fetch the thread to get applied tags
 	var tagIDs []string
 	if s.deps.Session != nil {
@@ -225,18 +236,22 @@ func (s *IntroFeedService) BumpIntroToFeed(guildID, threadID, userID, displayNam
 	}
 
 	// Forward to feed
-	_, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName, tagIDs, true)
+	_, postedAt, err := s.ForwardThreadToFeed(guildID, threadID, userID, displayName, threadName, tagIDs, true)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Start the cooldown only after the bump is successfully forwarded.
 	if !isAdmin {
 		if err := s.addIntroCooldownRoleIfMissing(guildID, userID); err != nil {
-			return fmt.Errorf("failed to add intro cooldown role: %w", err)
+			return "", fmt.Errorf("failed to add intro cooldown role: %w", err)
 		}
 	}
-	return nil
+	if err := s.refreshIntroCooldownReset(guildID, threadID, userID, postedAt, isAdmin); err != nil {
+		s.deps.Config.Logger.Warnf("[IntroCooldown] Feed bump succeeded but helper refresh failed (thread=%s): %v", threadID, err)
+		return "The feed post succeeded, but the intro helper's cooldown timestamp could not be updated.", nil
+	}
+	return "", nil
 }
 
 // GetUserLatestIntroThread looks up the user's latest intro thread from the cache
@@ -383,7 +398,7 @@ func (s *IntroFeedService) getUserAvatarURL(guildID, userID string) string {
 
 func (s *IntroFeedService) ScheduledFuncs() map[string]func() error {
 	return map[string]func() error{
-		"@hourly": s.reconcileIntroCooldownRole,
+		introCooldownCron: s.reconcileIntroCooldownRole,
 	}
 }
 

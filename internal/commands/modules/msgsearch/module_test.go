@@ -288,11 +288,19 @@ func TestBuildCSV(t *testing.T) {
 	msgs := []*discordgo.Message{
 		{
 			ID: "100", ChannelID: "t1", Content: "=cmd|' /C calc'!A0, \"quoted\"\nnew line 🫃",
-			Timestamp:        time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC),
-			EditedTimestamp:  &edited,
-			Author:           &discordgo.User{ID: "u1", Username: "noodle", GlobalName: "Noodle"},
-			Attachments:      []*discordgo.MessageAttachment{{URL: "https://cdn/a.png"}, {URL: "https://cdn/b.png"}},
-			Embeds:           []*discordgo.MessageEmbed{{URL: "https://example.com"}},
+			Timestamp:       time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC),
+			EditedTimestamp: &edited,
+			Author:          &discordgo.User{ID: "u1", Username: "noodle", GlobalName: "Noodle"},
+			Attachments:     []*discordgo.MessageAttachment{{URL: "https://cdn/a.png"}, {URL: "https://cdn/b.png"}},
+			Embeds: []*discordgo.MessageEmbed{{
+				URL:         "https://example.com",
+				Title:       "Voice channel joined",
+				Description: "<@123> joined **Presentation Night**",
+				Author:      &discordgo.MessageEmbedAuthor{Name: "Dyno"},
+				Fields:      []*discordgo.MessageEmbedField{{Name: "User ID", Value: "123"}},
+				Footer:      &discordgo.MessageEmbedFooter{Text: "VC Logs"},
+				Image:       &discordgo.MessageEmbedImage{URL: "https://cdn.example.com/event.png"},
+			}},
 			StickerItems:     []*discordgo.StickerItem{{Name: "wave"}},
 			MessageReference: &discordgo.MessageReference{MessageID: "99"},
 			Pinned:           true,
@@ -338,7 +346,7 @@ func TestBuildCSV(t *testing.T) {
 	assert.True(t, strings.HasPrefix(col(r, "content"), "'=cmd"))
 	assert.Contains(t, col(r, "content"), "\"quoted\"\nnew line 🫃")
 	assert.Equal(t, "https://cdn/a.png\nhttps://cdn/b.png", col(r, "attachments"))
-	assert.Equal(t, "https://example.com", col(r, "embeds"))
+	assert.Equal(t, "Title: Voice channel joined\nDescription: <@123> joined **Presentation Night**\nAuthor: Dyno\nUser ID: 123\nFooter: VC Logs\nURL: https://example.com\nImage: https://cdn.example.com/event.png", col(r, "embeds"))
 	assert.Equal(t, "wave", col(r, "stickers"))
 	assert.Equal(t, "99", col(r, "reply_to_message_id"))
 	assert.Equal(t, "true", col(r, "pinned"))

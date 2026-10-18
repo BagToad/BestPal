@@ -66,6 +66,50 @@ func messageContent(m *discordgo.Message) string {
 	return "[forwarded] " + strings.Join(parts, "\n")
 }
 
+func formatEmbed(e *discordgo.MessageEmbed) string {
+	if e == nil {
+		return ""
+	}
+
+	parts := make([]string, 0, 6+len(e.Fields))
+	if e.Title != "" {
+		parts = append(parts, "Title: "+e.Title)
+	}
+	if e.Description != "" {
+		parts = append(parts, "Description: "+e.Description)
+	}
+	if e.Author != nil && e.Author.Name != "" {
+		parts = append(parts, "Author: "+e.Author.Name)
+	}
+	for _, field := range e.Fields {
+		if field == nil {
+			continue
+		}
+		if field.Name == "" {
+			parts = append(parts, field.Value)
+			continue
+		}
+		parts = append(parts, field.Name+": "+field.Value)
+	}
+	if e.Footer != nil && e.Footer.Text != "" {
+		parts = append(parts, "Footer: "+e.Footer.Text)
+	}
+	if e.URL != "" {
+		parts = append(parts, "URL: "+e.URL)
+	}
+	if e.Image != nil && e.Image.URL != "" {
+		parts = append(parts, "Image: "+e.Image.URL)
+	}
+	if e.Thumbnail != nil && e.Thumbnail.URL != "" {
+		parts = append(parts, "Thumbnail: "+e.Thumbnail.URL)
+	}
+
+	if len(parts) == 0 {
+		return "[" + string(e.Type) + " embed]"
+	}
+	return strings.Join(parts, "\n")
+}
+
 func messageRow(guildID string, m *discordgo.Message, names channelNamer) []string {
 	var authorID, username, display, isBot string
 	if m.Author != nil {
@@ -83,16 +127,8 @@ func messageRow(guildID string, m *discordgo.Message, names channelNamer) []stri
 	}
 	embeds := make([]string, 0, len(m.Embeds))
 	for _, e := range m.Embeds {
-		if e == nil {
-			continue
-		}
-		switch {
-		case e.URL != "":
-			embeds = append(embeds, e.URL)
-		case e.Title != "":
-			embeds = append(embeds, e.Title)
-		default:
-			embeds = append(embeds, "["+string(e.Type)+" embed]")
+		if formatted := formatEmbed(e); formatted != "" {
+			embeds = append(embeds, formatted)
 		}
 	}
 	stickers := make([]string, 0, len(m.StickerItems))

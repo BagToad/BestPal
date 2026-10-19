@@ -179,6 +179,10 @@ type TrickTx interface {
 	// LowestEarner returns the user with the fewest candies, excluding
 	// exclude, breaking ties randomly. ok is false when there is nobody.
 	LowestEarner(exclude string) (userID string, ok bool, err error)
+	// CandyRank returns the user's candy leaderboard rank, with ties sharing
+	// a rank as in CandyLeaderboard. ok is false when the user has no candy
+	// and so isn't on the leaderboard.
+	CandyRank(userID string) (rank int, ok bool, err error)
 }
 
 func unixOrZero(v sql.NullInt64) time.Time {
@@ -673,6 +677,23 @@ func (t *trickTx) LowestEarner(exclude string) (string, bool, error) {
 		return "", false, fmt.Errorf("failed to find lowest earner: %w", err)
 	}
 	return id, true, nil
+}
+
+func (t *trickTx) CandyRank(userID string) (int, bool, error) {
+	u, err := t.User(userID)
+	if err != nil {
+		return 0, false, err
+	}
+	if u.Candies <= 0 {
+		return 0, false, nil
+	}
+	var ahead int
+	if err := t.tx.QueryRow(
+		`SELECT COUNT(*) FROM tot_users WHERE guild_id = ? AND candies > ?`,
+		t.guildID, u.Candies).Scan(&ahead); err != nil {
+		return 0, false, fmt.Errorf("failed to find candy rank: %w", err)
+	}
+	return ahead + 1, true, nil
 }
 
 // TrickResult is the outcome of ApplyTrick.

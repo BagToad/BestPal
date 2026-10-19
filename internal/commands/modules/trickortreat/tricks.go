@@ -46,11 +46,62 @@ type trickResult struct {
 	Target string
 }
 
-// trickOutcome is one row of the 20-outcome TRICK table.
+// trickOutcome is one row of the TRICK table.
 type trickOutcome struct {
 	ID   int
 	Name string
 	Run  func(tx database.TrickTx, userID string, randN func(int) int) (trickResult, error)
+}
+
+const lightsOutID = 21
+
+// trickEligibility limits outcomes, by ID, to the users it allows.
+var trickEligibility = map[int]func(tx database.TrickTx, userID string) (bool, error){
+	lightsOutID: notTopRanked,
+}
+
+// lightsOutMaxRank is the lowest leaderboard rank barred from Lights Out.
+const lightsOutMaxRank = 3
+
+// notTopRanked keeps an outcome away from the top of the candy leaderboard.
+func notTopRanked(tx database.TrickTx, userID string) (bool, error) {
+	rank, ok, err := tx.CandyRank(userID)
+	if err != nil {
+		return false, err
+	}
+	return !ok || rank > lightsOutMaxRank, nil
+}
+
+// pickTrick rolls an outcome for the user. An outcome the user isn't
+// eligible for is swapped for an even roll among the rest, so every outcome
+// they can get stays equally likely.
+func pickTrick(tx database.TrickTx, userID string, randN func(int) int) (trickOutcome, error) {
+	o := trickOutcomes[randN(len(trickOutcomes))]
+	eligible, limited := trickEligibility[o.ID]
+	if !limited {
+		return o, nil
+	}
+	ok, err := eligible(tx, userID)
+	if err != nil || ok {
+		return o, err
+	}
+	var rest []trickOutcome
+	for _, c := range trickOutcomes {
+		if c.ID == o.ID {
+			continue
+		}
+		if eligible, limited := trickEligibility[c.ID]; limited {
+			ok, err := eligible(tx, userID)
+			if err != nil {
+				return trickOutcome{}, err
+			}
+			if !ok {
+				continue
+			}
+		}
+		rest = append(rest, c)
+	}
+	return rest[randN(len(rest))], nil
 }
 
 func candies(n int64) string {
@@ -284,6 +335,16 @@ var trickOutcomes = []trickOutcome{
 		"You snagged your costume on a thorny bush! 🧵", "Tore their costume! 🧵")},
 	{20, "Empty Wrapper", souvenir(souvenirGhostlyWrapper,
 		"Someone snuck an empty wrapper into your bucket! 👻", "Got an empty wrapper! 👻")},
+	{lightsOutID, "Lights Out Special", func(tx database.TrickTx, userID string, _ func(int) int) (trickResult, error) {
+		if _, err := tx.AddCandies(userID, 10); err != nil {
+			return trickResult{}, err
+		}
+		return trickResult{
+			Flavor:  fmt.Sprintf("🎃 LIGHTS OUT SPECIAL! The homeowner was turning off their porch light for the night and didn't want any leftover candy. They dumped the entire remaining bowl right into %s's bucket!", mention(userID)),
+			Effects: []string{candyEffect(10, mention(userID))},
+			Log:     "Got the lights out special! 💡",
+		}, nil
+	}},
 }
 
 func mention(userID string) string { return "<@" + userID + ">" }

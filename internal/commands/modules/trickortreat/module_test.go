@@ -243,7 +243,7 @@ func TestTrick_RespondsPubliclyWithPings(t *testing.T) {
 
 func TestTrick_EveryOutcomeRuns(t *testing.T) {
 	m, c, _ := newTestModule(t, nil)
-	require.Len(t, trickOutcomes, 20)
+	require.Len(t, trickOutcomes, 21)
 	for k, o := range trickOutcomes {
 		require.Equal(t, k+1, o.ID)
 	}
@@ -308,6 +308,48 @@ func TestTrick_OutcomeEffects(t *testing.T) {
 	_, items, _, err := db.GetBucket("guild1", "filler5")
 	require.NoError(t, err)
 	assert.Equal(t, []database.Souvenir{{Type: souvenirEggshell, Quantity: 1}}, items)
+}
+
+func TestTrick_LightsOutSpecial(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	emptyBowl(t, m, bowl)
+	// Fillers hold 1 candy each; a tie for 3rd still counts as top 3.
+	for u, n := range map[string]int64{"top1": 9, "top2": 7, "top3a": 5, "top3b": 5, "fifth": 4} {
+		_, _, err := db.AdjustCandies("guild1", u, n)
+		require.NoError(t, err)
+	}
+
+	var rolls []int
+	m.randN = func(n int) int {
+		rolls = append(rolls, n)
+		if n == len(trickOutcomes) {
+			return lightsOutID - 1
+		}
+		return 15 // Porch Pumpkin Stash among the other 20
+	}
+
+	for _, top := range []string{"top1", "top3b"} {
+		rolls = nil
+		m.HandleComponent(nil, click(trickButtonID, bowl, top))
+		assert.Equal(t, []int{len(trickOutcomes), len(trickOutcomes) - 1}, rolls, "%s rerolls among the rest", top)
+		assert.Contains(t, lastResponse(t, c).Data.Content, "hidden stash of 2 candies", top)
+	}
+
+	rolls = nil
+	m.HandleComponent(nil, click(trickButtonID, bowl, "fifth"))
+	assert.Equal(t, []int{len(trickOutcomes)}, rolls, "no reroll below the top 3")
+	assert.Equal(t, "🎃 **TRICK!** — <@fifth>\n🎃 LIGHTS OUT SPECIAL! The homeowner was turning off their porch light for the night and didn't want any leftover candy. They dumped the entire remaining bowl right into <@fifth>'s bucket!\n\n⚡ **Outcome:** +10 Candies to <@fifth>", lastResponse(t, c).Data.Content)
+	assert.Contains(t, (*lastEdit(t, c).Embeds)[0].Description, "<@fifth> triggered a TRICK: Got the lights out special! 💡")
+
+	m.HandleComponent(nil, click(trickButtonID, bowl, "nobody"))
+	assert.Contains(t, lastResponse(t, c).Data.Content, "LIGHTS OUT SPECIAL", "users with no candy can get it")
+
+	for u, want := range map[string]int64{"top1": 11, "top3b": 7, "fifth": 14, "nobody": 10} {
+		got, _, _, err := db.GetBucket("guild1", u)
+		require.NoError(t, err)
+		assert.Equal(t, want, got.Candies, u)
+	}
 }
 
 func TestTrick_SmallerGrantReportsKeptEffect(t *testing.T) {

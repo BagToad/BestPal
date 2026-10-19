@@ -560,8 +560,10 @@ func (m *Module) handleTrick(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	var result trickResult
 	res, err := m.store.ApplyTrick(messageID, userID, m.now(), func(tx database.TrickTx) (string, error) {
-		outcome := trickOutcomes[m.randN(len(trickOutcomes))]
-		var err error
+		outcome, err := pickTrick(tx, userID, m.randN)
+		if err != nil {
+			return "", err
+		}
 		result, err = outcome.Run(tx, userID, m.randN)
 		if err != nil {
 			return "", err

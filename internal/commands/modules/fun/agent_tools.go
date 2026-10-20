@@ -12,6 +12,11 @@ var coinflipFaces = [2]string{"🫃", "🫄"}
 // coinflipIntn picks a face; swapped out in tests.
 var coinflipIntn = rand.Intn
 
+// flipCoin returns one of coinflipFaces at random.
+func flipCoin() string {
+	return coinflipFaces[coinflipIntn(len(coinflipFaces))]
+}
+
 type coinflipResult struct {
 	Result string `json:"result"`
 }
@@ -27,7 +32,7 @@ func newCoinflipTool() copilot.Tool {
 		"coinflip",
 		`Flip a coin. Use when someone asks you to flip a coin, call heads or tails, or make a random 50/50 pick. Takes no arguments. The result is either 🫃 or 🫄; report it exactly as returned and do not pick it yourself.`,
 		func(_ empty, _ copilot.ToolInvocation) (*coinflipResult, error) {
-			return &coinflipResult{Result: coinflipFaces[coinflipIntn(len(coinflipFaces))]}, nil
+			return &coinflipResult{Result: flipCoin()}, nil
 		},
 	)
 	t.SkipPermission = true

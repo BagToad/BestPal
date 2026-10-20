@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"gamerpal/internal/commands/types"
+
+	"github.com/bwmarrin/discordgo"
+
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,4 +49,21 @@ func TestCoinflipTool_RealRandomOnlyReturnsFaces(t *testing.T) {
 		seen[out.Result] = true
 	}
 	assert.Equal(t, map[string]bool{"🫃": true, "🫄": true}, seen)
+}
+
+func TestCoinflipCommand_Registered(t *testing.T) {
+	cmds := map[string]*types.Command{}
+	(&Module{}).Register(cmds, nil)
+	cmd, ok := cmds["coinflip"]
+	require.True(t, ok)
+	assert.Equal(t, "coinflip", cmd.ApplicationCommand.Name)
+	assert.Nil(t, cmd.ApplicationCommand.DefaultMemberPermissions, "everyone can flip")
+	assert.NotNil(t, cmd.HandlerFunc)
+}
+
+func TestCoinflipResponse(t *testing.T) {
+	resp := coinflipResponse("🫄")
+	assert.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, resp.Type)
+	assert.Equal(t, "🪙 🫄", resp.Data.Content)
+	assert.Zero(t, resp.Data.Flags, "result is public")
 }

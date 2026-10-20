@@ -23,6 +23,7 @@ environment (see `config.example.yaml`).
 | `/things` | Pull 3 random things out of the hat |
 | `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
 | `/candy-leaderboard` | See who has the most candy |
+| `/coinflip` | Flip a coin: 🫃 or 🫄 |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |

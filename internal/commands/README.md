@@ -37,7 +37,7 @@ Shared resources injected into modules:
 type Dependencies struct {
     Config     *config.Config
     DB         *database.DB
-    IGDBClient *igdb.Client
+    IGDBClient *igdbclient.Client
     Session    *discordgo.Session
 }
 ```

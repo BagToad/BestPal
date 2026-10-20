@@ -2,12 +2,15 @@ package igdbclient
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -186,6 +189,10 @@ func TestIsAuthError(t *testing.T) {
 		{"401 in message", &testError{"request failed with status 401"}, true},
 		{"invalid token", &testError{"invalid token provided"}, true},
 		{"other error", &testError{"network timeout"}, false},
+		{"typed 401", igdb.ErrUnauthorized, true},
+		{"wrapped typed 401", fmt.Errorf("cannot get index of Games: %w", igdb.ErrUnauthorized), true},
+		{"typed 403", igdb.ErrForbidden, false},
+		{"typed 500", igdb.ErrInternalError, false},
 	}
 
 	for _, tt := range tests {
@@ -202,4 +209,106 @@ type testError struct {
 
 func (e *testError) Error() string {
 	return e.msg
+}
+
+// stubTokens replaces fetchTwitchAppToken with a counter-backed stub that
+// returns tok-1, tok-2, ... and restores the original on cleanup.
+func stubTokens(t *testing.T, delay time.Duration, fail func(n int) bool) *fetchCounter {
+	t.Helper()
+	cnt := &fetchCounter{}
+	orig := fetchTwitchAppToken
+	fetchTwitchAppToken = func(string, string) (string, error) {
+		n := cnt.inc()
+		time.Sleep(delay)
+		if fail != nil && fail(n) {
+			return "", errors.New("twitch down")
+		}
+		return fmt.Sprintf("tok-%d", n), nil
+	}
+	t.Cleanup(func() { fetchTwitchAppToken = orig })
+	return cnt
+}
+
+type fetchCounter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *fetchCounter) inc() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++
+	return c.n
+}
+
+func (c *fetchCounter) get() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
+}
+
+func (c *Client) currentToken() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.token
+}
+
+func TestRetryCoalescesConcurrent401s(t *testing.T) {
+	cnt := stubTokens(t, 20*time.Millisecond, nil)
+	client := NewClient("id", "secret")
+
+	const workers = 10
+	var sawExpired sync.WaitGroup
+	sawExpired.Add(workers)
+
+	var wg sync.WaitGroup
+	errs := make([]error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			first := true
+			errs[i] = client.Retry(func() error {
+				tok := client.currentToken()
+				if first {
+					first = false
+					// Make every worker observe the expired token before anyone refreshes.
+					sawExpired.Done()
+					sawExpired.Wait()
+				}
+				if tok == "tok-1" {
+					return fmt.Errorf("cannot get index of Games: %w", igdb.ErrUnauthorized)
+				}
+				return nil
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 2, cnt.get(), "initial fetch + exactly one refresh for all concurrent 401s")
+	assert.Equal(t, "tok-2", client.currentToken())
+}
+
+func TestRetryDoesNotRefreshOnNonAuthError(t *testing.T) {
+	cnt := stubTokens(t, 0, nil)
+	client := NewClient("id", "secret")
+
+	err := client.Retry(func() error { return igdb.ErrInternalError })
+	assert.ErrorIs(t, err, igdb.ErrInternalError)
+	assert.Equal(t, 1, cnt.get(), "only the initial fetch should happen")
+}
+
+func TestFailedRefreshKeepsExistingClient(t *testing.T) {
+	stubTokens(t, 0, func(n int) bool { return n == 2 })
+	client := NewClient("id", "secret")
+
+	_, err := client.getClient()
+	require.NoError(t, err)
+
+	require.Error(t, client.RefreshToken())
+	assert.Equal(t, "tok-1", client.currentToken(), "old token should survive a failed refresh")
+	assert.NotNil(t, client.igdbClient)
 }

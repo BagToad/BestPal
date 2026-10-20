@@ -2,6 +2,7 @@ package igdbclient
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,6 +25,9 @@ type Client struct {
 	token      string
 	igdbClient *igdb.Client
 	fetching   bool
+	// gen increments each time a new token is installed, letting callers that
+	// saw a 401 detect whether someone else already refreshed.
+	gen uint64
 }
 
 // NewClient creates a new auto-refreshing IGDB client.
@@ -108,25 +112,37 @@ func (c *Client) doFetch() (*igdb.Client, error) {
 		return nil, fmt.Errorf("failed to fetch IGDB token: %w", err)
 	}
 
-	c.token = token
-	c.igdbClient = igdb.NewClient(c.clientID, token, nil)
+	c.installLocked(token)
 	return c.igdbClient, nil
 }
 
 // RefreshToken forces a token refresh, replacing the in-memory client.
-// Concurrent callers coalesce: only one fetch runs; others wait and return
-// after the fetch completes.
+// If the fetch fails, the existing client (if any) is kept.
 func (c *Client) RefreshToken() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.refreshLocked(nil)
+}
 
-	// Wait out any in-flight fetch first.
+// refreshIfStale refreshes the token only if no other caller has installed a
+// new token since seenGen. This coalesces concurrent 401s into one fetch.
+func (c *Client) refreshIfStale(seenGen uint64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.refreshLocked(&seenGen)
+}
+
+// refreshLocked must be called with c.mu held. When seenGen is non-nil and a
+// newer token has already been installed, it returns without fetching.
+func (c *Client) refreshLocked(seenGen *uint64) error {
 	for c.fetching {
 		c.cond.Wait()
 	}
+	if seenGen != nil && c.gen != *seenGen && c.igdbClient != nil {
+		return nil
+	}
 
 	c.fetching = true
-	c.igdbClient = nil // invalidate so doFetch will proceed
 	c.mu.Unlock()
 
 	token, err := fetchTwitchAppToken(c.clientID, c.clientSecret)
@@ -139,9 +155,21 @@ func (c *Client) RefreshToken() error {
 		return fmt.Errorf("failed to refresh IGDB token: %w", err)
 	}
 
+	c.installLocked(token)
+	return nil
+}
+
+// installLocked swaps in a client for token. Must be called with c.mu held.
+func (c *Client) installLocked(token string) {
 	c.token = token
 	c.igdbClient = igdb.NewClient(c.clientID, token, nil)
-	return nil
+	c.gen++
+}
+
+func (c *Client) generation() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.gen
 }
 
 // fetchTwitchAppToken requests a new app access token from Twitch/IGDB.
@@ -203,6 +231,13 @@ var fetchTwitchAppToken = func(clientID, clientSecret string) (string, error) {
 //	    return err
 //	})
 func (c *Client) Retry(fn func() error) error {
+	// Ensure a token exists before snapshotting the generation, so a lazy init
+	// inside fn isn't mistaken for a concurrent refresh.
+	if _, err := c.getClient(); err != nil {
+		return err
+	}
+	gen := c.generation()
+
 	err := fn()
 	if err == nil {
 		return nil
@@ -212,18 +247,23 @@ func (c *Client) Retry(fn func() error) error {
 		return err
 	}
 
-	if refreshErr := c.RefreshToken(); refreshErr != nil {
+	if refreshErr := c.refreshIfStale(gen); refreshErr != nil {
 		return fmt.Errorf("token refresh failed: %w", refreshErr)
 	}
 
 	return fn()
 }
 
-// isAuthError checks if an error is an authentication failure (401).
-// The IGDB client library returns errors as strings, so we do text matching.
+// isAuthError reports whether err is a 401 from IGDB. The igdb library returns
+// a typed ServerError (wrapped via pkg/errors, which supports Unwrap); the
+// string checks are a fallback for errors that lose the type.
 func isAuthError(err error) bool {
 	if err == nil {
 		return false
+	}
+	var se igdb.ServerError
+	if errors.As(err, &se) {
+		return se.Status == http.StatusUnauthorized
 	}
 	errStr := strings.ToLower(err.Error())
 	return strings.Contains(errStr, "401") ||

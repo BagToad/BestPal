@@ -18,11 +18,18 @@ environment (see `config.example.yaml`).
 | `/intro` | Find a user's intro forum post |
 | `/game-thread` | Autocomplete search for LFG game threads |
 | `/lfg now` | Mark yourself as "Looking NOW" inside an LFG thread |
+| `/score` | See what someone has |
+| `/leaderboard` | See who has the most of something |
+| `/things` | Pull 3 random things out of the hat |
+| `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
+| `/candy-leaderboard` | See who has the most candy |
+| `/coinflip` | Flip a coin: 🫃 or 🫄 |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
 |---------|-------------|
 | `/say` | Send an anonymous message to a channel |
+| `/candy add` / `/candy remove` | Add or remove trick-or-treat candies in someone's bucket (never below zero) |
 | `/schedulesay` | Schedule an anonymous message |
 | `/listscheduledsays` | List next scheduled messages |
 | `/cancelscheduledsay` | Cancel a scheduled message by ID |
@@ -30,12 +37,18 @@ environment (see `config.example.yaml`).
 | `/lfg setup-looking-now` | Set up the "Looking NOW" feed channel |
 | `/lfg refresh-thread-cache` | Rebuild LFG thread cache (includes archived) |
 | `/userstats` | Show server member statistics |
+| `/search` | Search server messages (Discord search API) and export result pages as a CSV spreadsheet; `page_start`/`page_end` pick a page range (25 results/page) |
+| `/give` / `/take` | Give or take things from a user |
+| `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
 
 ### Administrator (Administrator Permission)
 | Command | Description |
 |---------|-------------|
 | `/prune-inactive` | Remove users with no roles (dry-run by default) |
 | `/prune-forum` | Scan a forum for threads whose starter post was deleted (dry-run by default) |
+| `/spawn-bowl` | Put out a trick-or-treat candy bowl now (Manage Server) |
+| `/reset-bowl` | Refill and reopen a candy bowl by message ID or link (Manage Server) |
+| `/debug-empty-bowl` | Debug: drain an active candy bowl, logging grabs like real players. `mode`: empty now so TRICK! shows (default), or leave the last treat to grab yourself (Administrator) |
 
 ### Moderator (requires Ban Members)
 | Command | Description |

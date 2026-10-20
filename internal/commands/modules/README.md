@@ -22,6 +22,8 @@ Each module encapsulates:
 | **userstats** | `/userstats` | Medium | Server statistics |
 | **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
 | **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |
+| **trickortreat** | `/bucket`, `/candy-leaderboard`, `/spawn-bowl`, `/reset-bowl`, `/candy`, `/debug-empty-bowl` | Advanced | Halloween candy bowls: scheduled spawns, buttons, 20 trick outcomes |
+| **msgsearch** | `/search` | Medium | Moderator export of Discord guild message search to CSV, with page ranges |
 
 ## Module Pattern
 

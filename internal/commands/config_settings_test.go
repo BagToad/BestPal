@@ -9,6 +9,7 @@ import (
 	"gamerpal/internal/commands/modules/lfg"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
@@ -30,6 +31,7 @@ func realProviderHandler() *ModuleHandler {
 			"1984":         &nineteeneightyfour.Module{},
 			"fun":          &fun.Module{},
 			"agentadapter": &agentadapter.Module{},
+			"trickortreat": &trickortreat.Module{},
 		},
 	}
 }
@@ -72,6 +74,9 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyCopilotAgentBrainRefreshInterval,
 		config.KeyCopilotAgentBrainMaxItems,
 		config.KeyCopilotAgentBrainMaxChars,
+		config.KeyTrickOrTreatEnabled,
+		config.KeyTrickOrTreatChannels,
+		config.KeyTrickOrTreatSpawnInterval,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

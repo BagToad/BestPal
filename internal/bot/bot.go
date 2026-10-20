@@ -18,6 +18,7 @@ import (
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -122,6 +123,11 @@ func New(cfg *config.Config) (*Bot, error) {
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.GuildMemberAdd) {
 		events.OnGuildMemberAdd(s, r, cfg)
 	})
+
+	// score module - purges what members hold when they leave.
+	if mod, ok := handler.GetModule("score").(*score.Module); ok {
+		session.AddHandler(mod.OnGuildMemberRemove)
+	}
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.GuildScheduledEventCreate) {
 		events.OnGuildScheduledEventCreate(s, e, cfg)
 	})

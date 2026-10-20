@@ -10,6 +10,7 @@ import (
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
+	"gamerpal/internal/commands/modules/msgsearch"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/ping"
 	"gamerpal/internal/commands/modules/poll"
@@ -17,7 +18,9 @@ import (
 	"gamerpal/internal/commands/modules/refreshigdb"
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/status"
+	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/userstats"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -105,7 +108,10 @@ func (h *ModuleHandler) registerModules() {
 		{"fun", fun.New(h.deps)},
 		{"1984", nineteeneightyfour.New(h.deps)},
 		{"scamguard", scamguard.New(h.deps)},
+		{"score", score.New(h.deps)},
 		{"agentadapter", agentadapter.New(h.deps)},
+		{"trickortreat", trickortreat.New(h.deps)},
+		{"msgsearch", msgsearch.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -189,6 +195,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Config interaction received but config module not available")
 		}
+	case strings.HasPrefix(cid, "tot:"):
+		if totMod, ok := h.GetModule("trickortreat").(*trickortreat.Module); ok {
+			totMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Trick-or-treat interaction received but trickortreat module not available")
+		}
 	case strings.HasPrefix(cid, "scamguard:"):
 		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
 			scamMod.HandleComponent(s, i)
@@ -228,12 +240,18 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 	// Check which command is being autocompleted
 	commandName := i.ApplicationCommandData().Name
 
-	// Currently only game-thread command (in LFG module) uses autocomplete
-	if commandName == "game-thread" {
+	switch commandName {
+	case "game-thread":
 		if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 			lfgMod.HandleAutocomplete(s, i)
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
+		}
+	case "give", "take", "managethings", "leaderboard":
+		if scoreMod, ok := h.GetModule("score").(*score.Module); ok {
+			scoreMod.HandleAutocomplete(s, i)
+		} else {
+			h.config.Logger.Warn("Autocomplete received for " + commandName + " but score module not available")
 		}
 	}
 }

@@ -173,7 +173,13 @@ func (a *Agent) Handle(s *discordgo.Session, m *discordgo.MessageCreate) bool {
 	if reply == "" {
 		reply = "🐸 (no response)"
 	}
-	if _, err := s.ChannelMessageSendReply(m.ChannelID, reply, m.Reference()); err != nil {
+	// Only the asker is pinged, so replies that mention others (e.g. a
+	// leaderboard) don't notify them.
+	if _, err := s.ChannelMessageSendComplex(m.ChannelID, &discordgo.MessageSend{
+		Content:         reply,
+		Reference:       m.Reference(),
+		AllowedMentions: &discordgo.MessageAllowedMentions{RepliedUser: true},
+	}); err != nil {
 		a.cfg.Logger.Warnf("agent: send reply: %v", err)
 	}
 	return true

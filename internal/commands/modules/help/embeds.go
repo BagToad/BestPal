@@ -33,6 +33,26 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/score",
+				Value:  "See what someone has\n• Use `/score` for yourself or `/score user:@username` for someone else",
+				Inline: false,
+			},
+			{
+				Name:   "/leaderboard",
+				Value:  "See who has the most of something\n• Use `/leaderboard thing:horses`",
+				Inline: false,
+			},
+			{
+				Name:   "/bucket",
+				Value:  "Check your trick-or-treat bucket\n• Use `/bucket` for yourself or `/bucket user:@username` for someone else",
+				Inline: false,
+			},
+			{
+				Name:   "/candy-leaderboard",
+				Value:  "See who has the most candy",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,
@@ -44,6 +64,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			{
 				Name:   "/userstats",
 				Value:  "Show member statistics for the server\n• Use `stats:overview` or `stats:daily` for different views",
+				Inline: false,
+			},
+			{
+				Name:   "/search",
+				Value:  "Search server messages and export the results as a CSV spreadsheet\n• Use `/search content:text author:@user` (all filters optional)\n• Use `page_start:2 page_end:5` to export only a range of pages (25 results per page)",
 				Inline: false,
 			},
 			{

@@ -172,6 +172,14 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 		HandlerFunc: m.handleTranslate,
 	}
 
+	cmds["coinflip"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:        "coinflip",
+			Description: "Flip a coin: 🫃 or 🫄",
+		},
+		HandlerFunc: m.handleCoinflip,
+	}
+
 	cmds["connect4"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "connect4",
@@ -203,6 +211,22 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			},
 		},
 		HandlerFunc: m.handleConnect4Challenge,
+	}
+}
+
+// handleCoinflip handles the /coinflip slash command.
+func (m *Module) handleCoinflip(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if err := s.InteractionRespond(i.Interaction, coinflipResponse(flipCoin())); err != nil {
+		m.config.Logger.Errorf("coinflip: failed to respond: %v", err)
+	}
+}
+
+func coinflipResponse(face string) *discordgo.InteractionResponse {
+	return &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: face,
+		},
 	}
 }
 

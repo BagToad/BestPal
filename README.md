@@ -58,7 +58,7 @@ environment (see `config.example.yaml`).
 ### Super-Admin (DM Only; IDs listed in `config.yaml`)
 | Command | Description |
 |---------|-------------|
-| `/refresh-igdb` | Refresh IGDB API token |
+| `/refresh-igdb` | Force rotate the IGDB API token (normally refreshed automatically) |
 
 ### Service / Background Modules (No direct slash commands)
 | Module | Purpose |

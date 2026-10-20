@@ -56,7 +56,7 @@ type CommandModule interface {
 type Dependencies struct {
     Config     *config.Config
     DB         *database.DB
-    IGDBClient *igdb.Client
+    IGDBClient *igdbclient.Client // auto-refreshing IGDB wrapper
     Session    *discordgo.Session
 }
 ```
@@ -114,7 +114,7 @@ func NewModuleHandler(cfg *config.Config) *ModuleHandler {
     deps := &types.Dependencies{
         Config:     cfg,
         DB:         database.NewDB(cfg.GetDatabasePath()),
-        IGDBClient: igdb.NewClient(...),
+        IGDBClient: igdbclient.NewClient(clientID, clientSecret),
     }
     
     // Register all modules

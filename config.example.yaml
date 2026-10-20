@@ -56,7 +56,8 @@ bot_token: "your-discord-bot-token-here"
 # IGDB API credentials (game metadata)
 igdb_client_id: "your-igdb-client-id-here"
 igdb_client_secret: "your-igdb-client-secret-here"
-igdb_client_token: "your-igdb-client-token-here"
+# No access token needed: the bot fetches one from Twitch on demand and
+# refreshes it automatically when it expires.
 
 # Random salt used by the /say command for deterministic-ish name picking
 crypto_salt: "something-random"

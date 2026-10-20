@@ -225,7 +225,7 @@ func coinflipResponse(face string) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: "🪙 " + face,
+			Content: face,
 		},
 	}
 }

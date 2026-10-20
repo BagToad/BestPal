@@ -64,6 +64,6 @@ func TestCoinflipCommand_Registered(t *testing.T) {
 func TestCoinflipResponse(t *testing.T) {
 	resp := coinflipResponse("🫄")
 	assert.Equal(t, discordgo.InteractionResponseChannelMessageWithSource, resp.Type)
-	assert.Equal(t, "🪙 🫄", resp.Data.Content)
+	assert.Equal(t, "🫄", resp.Data.Content)
 	assert.Zero(t, resp.Data.Flags, "result is public")
 }

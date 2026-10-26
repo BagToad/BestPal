@@ -519,7 +519,7 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 	lock.Lock()
 	defer lock.Unlock()
 
-	perClaim := int64(m.config.PrimaryGuild().GetTrickOrTreatCandyPerClaim())
+	perClaim := int64(m.config.ForGuild(i.GuildID).GetTrickOrTreatCandyPerClaim())
 	res, err := m.store.ClaimTreat(messageID, userID, perClaim, m.now(), trickWindow, func(r database.TreatResult) string {
 		return treatLogLine(userID, r.Bowl.Remaining, r.Bonus)
 	})

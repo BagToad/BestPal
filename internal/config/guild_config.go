@@ -456,11 +456,11 @@ func (gc *GuildConfig) GetTrickOrTreatSpawnInterval() time.Duration {
 }
 
 // GetTrickOrTreatCandyPerClaim returns how many candies a "Grab a Treat!"
-// claim awards before any bonus. A value <= 0 (or unset) means the default of 2.
+// claim awards before any bonus. A value <= 0 (or unset) means the default of 1.
 func (gc *GuildConfig) GetTrickOrTreatCandyPerClaim() int {
 	n, ok := gc.resolveInt(KeyTrickOrTreatCandyPerClaim)
 	if !ok || n <= 0 {
-		return 2
+		return 1
 	}
 	return n
 }

@@ -37,10 +37,6 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *capture, *databas
 		kv = map[string]any{}
 	}
 	kv["gamerpals_server_id"] = "guild1"
-	// Most tests count candies one per claim.
-	if _, ok := kv[config.KeyTrickOrTreatCandyPerClaim]; !ok {
-		kv[config.KeyTrickOrTreatCandyPerClaim] = 1
-	}
 
 	c := &capture{nextID: 1000}
 	m := &Module{
@@ -251,11 +247,15 @@ func TestTreat_CandyPerClaim(t *testing.T) {
 		set  any
 		want string
 	}{
-		{"default", nil, "**2 candies**"},
+		{"default", nil, "**1 candy**"},
 		{"configured", 5, "**5 candies**"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m, c, db := newTestModule(t, map[string]any{config.KeyTrickOrTreatCandyPerClaim: tc.set})
+			kv := map[string]any{}
+			if tc.set != nil {
+				kv[config.KeyTrickOrTreatCandyPerClaim] = tc.set
+			}
+			m, c, db := newTestModule(t, kv)
 			bowl := spawn(t, m)
 			m.HandleComponent(nil, click(treatButtonID, bowl, "u1"))
 			assert.Contains(t, lastResponse(t, c).Data.Content, tc.want)

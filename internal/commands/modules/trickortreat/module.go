@@ -148,9 +148,9 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Key:         config.KeyTrickOrTreatCandyPerClaim,
 			Category:    config.CategoryTrickOrTreat,
 			Label:       "Candies per claim",
-			Description: "Candies each \"Grab a Treat!\" claim gives, before bonuses. 0 uses the default of 2.",
+			Description: "Candies each \"Grab a Treat!\" claim gives, before bonuses. 0 uses the default of 1.",
 			Kind:        config.KindInt,
-			Default:     2,
+			Default:     1,
 		},
 	}
 }

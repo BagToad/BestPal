@@ -460,10 +460,12 @@ func (db *DB) ResetBowl(guildID, messageID string) (Bowl, bool, error) {
 	return b, true, nil
 }
 
-// ClaimTreat handles a "Grab a Treat!" click atomically. trickWindow is how
-// long the TRICK phase lasts once the bowl empties. logLine formats the action
-// log entry for a successful claim; it is not called otherwise.
-func (db *DB) ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(TreatResult) string) (TreatResult, error) {
+// ClaimTreat handles a "Grab a Treat!" click atomically. perClaim is how many
+// candies a claim awards before any bonus; one claim always takes one candy
+// from the bowl. trickWindow is how long the TRICK phase lasts once the bowl
+// empties. logLine formats the action log entry for a successful claim; it is
+// not called otherwise.
+func (db *DB) ClaimTreat(messageID, userID string, perClaim int64, now time.Time, trickWindow time.Duration, logLine func(TreatResult) string) (TreatResult, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return TreatResult{}, fmt.Errorf("failed to begin treat: %w", err)
@@ -530,7 +532,7 @@ func (db *DB) ClaimTreat(messageID, userID string, now time.Time, trickWindow ti
 
 	res.Bonus = u.BonusCandy
 	res.BonusSource = u.BonusSource
-	res.Awarded = 1 + int64(u.BonusCandy)
+	res.Awarded = perClaim + int64(u.BonusCandy)
 	if err := ensureTOTUser(tx, b.GuildID, userID); err != nil {
 		return res, err
 	}

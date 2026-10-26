@@ -23,7 +23,7 @@ func noLog(TreatResult) string { return "" }
 
 func claim(t *testing.T, db *DB, msg, user string) TreatResult {
 	t.Helper()
-	res, err := db.ClaimTreat(msg, user, totNow, 30*time.Minute, func(r TreatResult) string { return user + " grabbed" })
+	res, err := db.ClaimTreat(msg, user, 1, totNow, 30*time.Minute, func(r TreatResult) string { return user + " grabbed" })
 	require.NoError(t, err)
 	return res
 }

@@ -46,7 +46,7 @@ type store interface {
 	ArchiveExpiredBowl(messageID string, now time.Time) (bool, error)
 	ResetBowl(guildID, messageID string) (database.Bowl, bool, error)
 	DrainBowl(messageID string, now time.Time, trickWindow time.Duration, leave int, logLine func(remaining int) string) (database.Bowl, bool, error)
-	ClaimTreat(messageID, userID string, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
+	ClaimTreat(messageID, userID string, perClaim int64, now time.Time, trickWindow time.Duration, logLine func(database.TreatResult) string) (database.TreatResult, error)
 	ApplyTrick(messageID, userID string, now time.Time, apply func(database.TrickTx) (string, error)) (database.TrickResult, error)
 	GetBucket(guildID, userID string) (database.TOTUser, []database.Souvenir, int, error)
 	AdjustCandies(guildID, userID string, delta int64) (int64, int64, error)
@@ -143,6 +143,14 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Description: "Average time between spawn rolls, randomized ±50% (e.g. 1h).",
 			Kind:        config.KindDuration,
 			Default:     "1h",
+		},
+		{
+			Key:         config.KeyTrickOrTreatCandyPerClaim,
+			Category:    config.CategoryTrickOrTreat,
+			Label:       "Candies per claim",
+			Description: "Candies each \"Grab a Treat!\" claim gives, before bonuses. 0 uses the default of 2.",
+			Kind:        config.KindInt,
+			Default:     2,
 		},
 	}
 }
@@ -511,7 +519,8 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 	lock.Lock()
 	defer lock.Unlock()
 
-	res, err := m.store.ClaimTreat(messageID, userID, m.now(), trickWindow, func(r database.TreatResult) string {
+	perClaim := int64(m.config.PrimaryGuild().GetTrickOrTreatCandyPerClaim())
+	res, err := m.store.ClaimTreat(messageID, userID, perClaim, m.now(), trickWindow, func(r database.TreatResult) string {
 		return treatLogLine(userID, r.Bowl.Remaining, r.Bonus)
 	})
 	if err != nil {

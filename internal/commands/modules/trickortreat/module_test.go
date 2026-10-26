@@ -37,6 +37,10 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *capture, *databas
 		kv = map[string]any{}
 	}
 	kv["gamerpals_server_id"] = "guild1"
+	// Most tests count candies one per claim.
+	if _, ok := kv[config.KeyTrickOrTreatCandyPerClaim]; !ok {
+		kv[config.KeyTrickOrTreatCandyPerClaim] = 1
+	}
 
 	c := &capture{nextID: 1000}
 	m := &Module{
@@ -241,6 +245,28 @@ func TestTrick_RespondsPubliclyWithPings(t *testing.T) {
 	assert.Equal(t, "You have already triggered a trick on this bowl!", lastResponse(t, c).Data.Content)
 }
 
+func TestTreat_CandyPerClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  any
+		want string
+	}{
+		{"default", nil, "**2 candies**"},
+		{"configured", 5, "**5 candies**"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, c, db := newTestModule(t, map[string]any{config.KeyTrickOrTreatCandyPerClaim: tc.set})
+			bowl := spawn(t, m)
+			m.HandleComponent(nil, click(treatButtonID, bowl, "u1"))
+			assert.Contains(t, lastResponse(t, c).Data.Content, tc.want)
+			b, _, ok, err := db.GetBowl(bowl)
+			require.NoError(t, err)
+			require.True(t, ok)
+			assert.Equal(t, database.BowlSize-1, b.Remaining, "one claim takes one candy from the bowl")
+		})
+	}
+}
+
 func TestTrick_EveryOutcomeRuns(t *testing.T) {
 	m, c, _ := newTestModule(t, nil)
 	require.Len(t, trickOutcomes, 21)
@@ -346,6 +372,46 @@ func TestTrick_LightsOutSpecial(t *testing.T) {
 	assert.Contains(t, lastResponse(t, c).Data.Content, "LIGHTS OUT SPECIAL", "users with no candy can get it")
 
 	for u, want := range map[string]int64{"top1": 11, "top3b": 7, "fifth": 14, "nobody": 10} {
+		got, _, _, err := db.GetBucket("guild1", u)
+		require.NoError(t, err)
+		assert.Equal(t, want, got.Candies, u)
+	}
+}
+
+func TestTrick_ClumsyTPEscapeOnlyHitsTop3(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	emptyBowl(t, m, bowl)
+	// Fillers hold 1 candy each; a tie for 3rd still counts as top 3.
+	for u, n := range map[string]int64{"top1": 19, "top2": 17, "top3a": 15, "top3b": 15, "fifth": 14} {
+		_, _, err := db.AdjustCandies("guild1", u, n)
+		require.NoError(t, err)
+	}
+
+	var rolls []int
+	m.randN = func(n int) int {
+		rolls = append(rolls, n)
+		if n == len(trickOutcomes) {
+			return clumsyTPEscapeID - 1
+		}
+		return 14 // Porch Pumpkin Stash among the other 20
+	}
+
+	for _, low := range []string{"fifth", "nobody"} {
+		rolls = nil
+		m.HandleComponent(nil, click(trickButtonID, bowl, low))
+		assert.Equal(t, []int{len(trickOutcomes), len(trickOutcomes) - 1}, rolls, "%s rerolls among the rest", low)
+		assert.Contains(t, lastResponse(t, c).Data.Content, "hidden stash of 2 candies", low)
+	}
+
+	for _, top := range []string{"top1", "top3b"} {
+		rolls = nil
+		m.HandleComponent(nil, click(trickButtonID, bowl, top))
+		assert.Equal(t, []int{len(trickOutcomes)}, rolls, "no reroll in the top 3")
+		assert.Contains(t, lastResponse(t, c).Data.Content, "tripped over a TP roll", top)
+	}
+
+	for u, want := range map[string]int64{"fifth": 16, "nobody": 2, "top1": 9, "top3b": 5} {
 		got, _, _, err := db.GetBucket("guild1", u)
 		require.NoError(t, err)
 		assert.Equal(t, want, got.Candies, u)

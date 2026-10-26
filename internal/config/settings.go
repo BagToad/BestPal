@@ -55,6 +55,7 @@ const (
 	KeyTrickOrTreatEnabled       = "trick_or_treat_enabled"
 	KeyTrickOrTreatChannels      = "trick_or_treat_channels"
 	KeyTrickOrTreatSpawnInterval = "trick_or_treat_spawn_interval"
+	KeyTrickOrTreatCandyPerClaim = "trick_or_treat_candy_per_claim"
 )
 
 // Kind is the value type of a setting. The config panel maps each Kind onto the

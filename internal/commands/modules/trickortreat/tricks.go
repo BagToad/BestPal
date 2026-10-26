@@ -53,23 +53,34 @@ type trickOutcome struct {
 	Run  func(tx database.TrickTx, userID string, randN func(int) int) (trickResult, error)
 }
 
-const lightsOutID = 21
+const (
+	clumsyTPEscapeID = 1
+	lightsOutID      = 21
+)
 
 // trickEligibility limits outcomes, by ID, to the users it allows.
 var trickEligibility = map[int]func(tx database.TrickTx, userID string) (bool, error){
-	lightsOutID: notTopRanked,
+	clumsyTPEscapeID: topRanked,
+	lightsOutID:      notTopRanked,
 }
 
-// lightsOutMaxRank is the lowest leaderboard rank barred from Lights Out.
-const lightsOutMaxRank = 3
+// topRankMax is the lowest leaderboard rank that counts as the top. Ties
+// share a rank, so more than this many users can be in it.
+const topRankMax = 3
 
-// notTopRanked keeps an outcome away from the top of the candy leaderboard.
-func notTopRanked(tx database.TrickTx, userID string) (bool, error) {
+// topRanked limits an outcome to the top of the candy leaderboard.
+func topRanked(tx database.TrickTx, userID string) (bool, error) {
 	rank, ok, err := tx.CandyRank(userID)
 	if err != nil {
 		return false, err
 	}
-	return !ok || rank > lightsOutMaxRank, nil
+	return ok && rank <= topRankMax, nil
+}
+
+// notTopRanked keeps an outcome away from the top of the candy leaderboard.
+func notTopRanked(tx database.TrickTx, userID string) (bool, error) {
+	top, err := topRanked(tx, userID)
+	return !top, err
 }
 
 // pickTrick rolls an outcome for the user. An outcome the user isn't
@@ -215,7 +226,7 @@ func giveAway(tx database.TrickTx, userID, target string) (bool, error) {
 }
 
 var trickOutcomes = []trickOutcome{
-	{1, "Clumsy TP Escape", lose(10,
+	{clumsyTPEscapeID, "Clumsy TP Escape", lose(10,
 		func(lost int64) string {
 			return fmt.Sprintf("You tripped over a TP roll while sprinting away! You lost %s into the dark street.", candies(lost))
 		},

@@ -77,6 +77,7 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyTrickOrTreatEnabled,
 		config.KeyTrickOrTreatChannels,
 		config.KeyTrickOrTreatSpawnInterval,
+		config.KeyTrickOrTreatCandyPerClaim,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

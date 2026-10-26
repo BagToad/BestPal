@@ -243,12 +243,13 @@ func TestTrick_RespondsPubliclyWithPings(t *testing.T) {
 
 func TestTreat_CandyPerClaim(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		set  any
-		want string
+		name  string
+		set   any
+		reply string
+		log   string
 	}{
-		{"default", nil, "**1 candy**"},
-		{"configured", 5, "**5 candies**"},
+		{"default", nil, "🍬 You grabbed a treat! You now have **1 candy**.", "<@u1> grabbed a treat! (9 left)"},
+		{"configured", 5, "🍬 You grabbed a treat worth **5 candies**! You now have **5 candies**.", "<@u1> grabbed a treat worth 5 candies! (9 left)"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			kv := map[string]any{}
@@ -258,7 +259,8 @@ func TestTreat_CandyPerClaim(t *testing.T) {
 			m, c, db := newTestModule(t, kv)
 			bowl := spawn(t, m)
 			m.HandleComponent(nil, click(treatButtonID, bowl, "u1"))
-			assert.Contains(t, lastResponse(t, c).Data.Content, tc.want)
+			assert.Equal(t, tc.reply, lastResponse(t, c).Data.Content)
+			assert.Contains(t, (*lastEdit(t, c).Embeds)[0].Description, tc.log)
 			b, _, ok, err := db.GetBowl(bowl)
 			require.NoError(t, err)
 			require.True(t, ok)

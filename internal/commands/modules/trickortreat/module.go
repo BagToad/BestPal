@@ -499,12 +499,21 @@ func bowlLink(b database.Bowl) string {
 	return fmt.Sprintf("https://discord.com/channels/%s/%s/%s", b.GuildID, b.ChannelID, b.MessageID)
 }
 
+// treatWorth describes a treat worth more than one candy, e.g. " worth 2
+// candies". A one-candy treat needs no description.
+func treatWorth(perClaim int64) string {
+	if perClaim <= 1 {
+		return ""
+	}
+	return " worth " + candies(perClaim)
+}
+
 // treatLogLine is the action log entry for a grab that left remaining
 // candies in the bowl.
-func treatLogLine(userID string, remaining, bonus int) string {
-	line := mention(userID) + " grabbed a treat!"
+func treatLogLine(userID string, remaining int, perClaim int64, bonus int) string {
+	line := mention(userID) + " grabbed a treat" + treatWorth(perClaim) + "!"
 	if remaining == 0 {
-		line = mention(userID) + " grabbed the last treat!"
+		line = mention(userID) + " grabbed the last treat" + treatWorth(perClaim) + "!"
 	}
 	if bonus > 0 {
 		line += fmt.Sprintf(" (+%d bonus)", bonus)
@@ -521,7 +530,7 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	perClaim := int64(m.config.ForGuild(i.GuildID).GetTrickOrTreatCandyPerClaim())
 	res, err := m.store.ClaimTreat(messageID, userID, perClaim, m.now(), trickWindow, func(r database.TreatResult) string {
-		return treatLogLine(userID, r.Bowl.Remaining, r.Bonus)
+		return treatLogLine(userID, r.Bowl.Remaining, perClaim, r.Bonus)
 	})
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: treat failed: %v", err)
@@ -547,9 +556,13 @@ func (m *Module) handleTreat(s *discordgo.Session, i *discordgo.InteractionCreat
 		return
 	}
 
-	msg := fmt.Sprintf("🍬 You grabbed a treat! You now have **%s**.", candies(res.Candies))
+	grabbed := "a treat"
+	if perClaim > 1 {
+		grabbed = fmt.Sprintf("a treat worth **%s**", candies(perClaim))
+	}
+	msg := fmt.Sprintf("🍬 You grabbed %s! You now have **%s**.", grabbed, candies(res.Candies))
 	if res.Bonus > 0 {
-		msg = fmt.Sprintf("🍬 You grabbed a treat plus **%d bonus** from your %s buff! You now have **%s**.", res.Bonus, res.BonusSource, candies(res.Candies))
+		msg = fmt.Sprintf("🍬 You grabbed %s plus **%d bonus** from your %s buff! You now have **%s**.", grabbed, res.Bonus, res.BonusSource, candies(res.Candies))
 	}
 	m.respondEphemeral(s, i, msg)
 	if err := m.renderBowl(s, messageID, true); err != nil {
@@ -928,7 +941,7 @@ func (m *Module) handleDebugEmpty(s *discordgo.Session, i *discordgo.Interaction
 	}
 	adminID := interactionUserID(i)
 	b, ok, err := m.store.DrainBowl(messageID, m.now(), trickWindow, leave, func(remaining int) string {
-		return treatLogLine(adminID, remaining, 0)
+		return treatLogLine(adminID, remaining, 1, 0)
 	})
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: debug empty failed: %v", err)

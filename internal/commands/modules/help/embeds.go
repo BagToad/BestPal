@@ -49,7 +49,7 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			},
 			{
 				Name:   "/candy-leaderboard",
-				Value:  "See who has the most candy",
+				Value:  "See who has the most candy and souvenirs",
 				Inline: false,
 			},
 			{

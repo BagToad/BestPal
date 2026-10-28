@@ -28,6 +28,9 @@ const (
 	trickWindow = 30 * time.Minute
 	// leaderboardSize is how many users /candy-leaderboard lists.
 	leaderboardSize = 10
+	// topCollectorsShown caps how many tied top souvenir collectors
+	// /candy-leaderboard names.
+	topCollectorsShown = 3
 	// maxDescription stays under Discord's 4096 character embed description limit.
 	maxDescription = 4000
 
@@ -51,6 +54,7 @@ type store interface {
 	GetBucket(guildID, userID string) (database.TOTUser, []database.Souvenir, int, error)
 	AdjustCandies(guildID, userID string, delta int64) (int64, int64, error)
 	CandyLeaderboard(guildID string, limit int) ([]database.CandyLeaderboardEntry, error)
+	TopSouvenirCollectors(guildID string, limit int) ([]database.SouvenirCollectorEntry, error)
 }
 
 // discordOps wraps the Discord calls the module makes so tests can capture them.
@@ -195,7 +199,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 	cmds["candy-leaderboard"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:        "candy-leaderboard",
-			Description: "See who has the most candy",
+			Description: "See who has the most candy and souvenirs",
 			Contexts:    guildOnly,
 		},
 		HandlerFunc: m.handleLeaderboard,
@@ -734,7 +738,14 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 		m.respondEphemeral(s, i, "❌ Failed to load the candy leaderboard.")
 		return
 	}
-	if len(entries) == 0 {
+	// One extra row tells us whether more are tied than we name.
+	collectors, err := m.store.TopSouvenirCollectors(i.GuildID, topCollectorsShown+1)
+	if err != nil {
+		m.config.Logger.Errorf("trick-or-treat: failed to load top souvenir collectors: %v", err)
+		m.respondEphemeral(s, i, "❌ Failed to load the candy leaderboard.")
+		return
+	}
+	if len(entries) == 0 && len(collectors) == 0 {
 		m.respond(s, i, &discordgo.InteractionResponseData{Content: "🍬 Nobody has any candy yet. Watch for a candy bowl!"})
 		return
 	}
@@ -742,7 +753,39 @@ func (m *Module) handleLeaderboard(s *discordgo.Session, i *discordgo.Interactio
 	for _, e := range entries {
 		lines = append(lines, fmt.Sprintf("%d. %s — %s", e.Rank, mention(e.UserID), candies(e.Candies)))
 	}
+	if len(entries) == 0 {
+		lines = append(lines, "Nobody has any candy yet.")
+	}
+	if line := topCollectorLine(collectors); line != "" {
+		lines = append(lines, "", line)
+	}
 	m.respond(s, i, &discordgo.InteractionResponseData{Content: strings.Join(lines, "\n")})
+}
+
+// topCollectorLine names whoever holds the most souvenirs, or "" when nobody
+// has any. collectors may hold one more than topCollectorsShown to signal
+// that more people are tied.
+func topCollectorLine(collectors []database.SouvenirCollectorEntry) string {
+	if len(collectors) == 0 {
+		return ""
+	}
+	shown := collectors
+	if len(shown) > topCollectorsShown {
+		shown = shown[:topCollectorsShown]
+	}
+	names := make([]string, len(shown))
+	for k, c := range shown {
+		names[k] = mention(c.UserID)
+	}
+	who := strings.Join(names, ", ")
+	if len(collectors) > topCollectorsShown {
+		who += " & more"
+	}
+	word := "souvenirs"
+	if collectors[0].Total == 1 {
+		word = "souvenir"
+	}
+	return fmt.Sprintf("🎒 **Top Junk Collector:** %s — %d %s", who, collectors[0].Total, word)
 }
 
 func (m *Module) handleSpawn(s *discordgo.Session, i *discordgo.InteractionCreate) {

@@ -22,7 +22,7 @@ environment (see `config.example.yaml`).
 | `/leaderboard` | See who has the most of something |
 | `/things` | Pull 3 random things out of the hat |
 | `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
-| `/candy-leaderboard` | See who has the most candy |
+| `/candy-leaderboard` | See who has the most candy and souvenirs |
 | `/coinflip` | Flip a coin: 🫃 or 🫄 |
 
 ### Moderator (Ban Members Permission)

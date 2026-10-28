@@ -219,6 +219,32 @@ func TestTOT_LeaderboardAndRankTies(t *testing.T) {
 	assert.Empty(t, lb)
 }
 
+func TestTOT_TopSouvenirCollectors(t *testing.T) {
+	db := newTOTDB(t)
+	top, err := db.TopSouvenirCollectors("g", 4)
+	require.NoError(t, err)
+	assert.Empty(t, top)
+
+	add := func(guild, user, item string, qty int) {
+		_, err := db.conn.Exec(`INSERT INTO tot_souvenirs (guild_id, user_id, item_type, quantity) VALUES (?, ?, ?, ?)`, guild, user, item, qty)
+		require.NoError(t, err)
+	}
+	add("g", "a", "eggshell", 2)
+	add("g", "a", "tp_roll", 1)
+	add("g", "b", "toothbrush", 3)
+	add("g", "c", "eggshell", 2)
+	add("g", "d", "eggshell", 0)
+	add("other", "z", "eggshell", 9)
+
+	top, err = db.TopSouvenirCollectors("g", 4)
+	require.NoError(t, err)
+	assert.Equal(t, []SouvenirCollectorEntry{{UserID: "a", Total: 3}, {UserID: "b", Total: 3}}, top, "totals all types; ties all returned")
+
+	top, err = db.TopSouvenirCollectors("g", 1)
+	require.NoError(t, err)
+	assert.Len(t, top, 1)
+}
+
 func TestTOT_ExpireAndReset(t *testing.T) {
 	db := newTOTDB(t)
 	require.NoError(t, db.CreateBowl("g", "c1", "m", totNow))

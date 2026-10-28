@@ -114,6 +114,12 @@ type CandyLeaderboardEntry struct {
 	Rank    int
 }
 
+// SouvenirCollectorEntry is a user and how many souvenirs they hold in total.
+type SouvenirCollectorEntry struct {
+	UserID string
+	Total  int64
+}
+
 // TreatStatus reports what a treat click did.
 type TreatStatus int
 
@@ -830,6 +836,34 @@ func (db *DB) CandyLeaderboard(guildID string, limit int) ([]CandyLeaderboardEnt
 		e.Rank = len(out) + 1
 		if len(out) > 0 && out[len(out)-1].Candies == e.Candies {
 			e.Rank = out[len(out)-1].Rank
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// TopSouvenirCollectors returns the users tied for the most souvenirs in
+// total (all types combined), at most limit of them, ordered like the candy
+// leaderboard. It is empty when nobody holds a souvenir.
+func (db *DB) TopSouvenirCollectors(guildID string, limit int) ([]SouvenirCollectorEntry, error) {
+	rows, err := db.conn.Query(
+		`WITH totals AS (
+			SELECT user_id, SUM(quantity) AS total FROM tot_souvenirs
+			WHERE guild_id = ? AND quantity > 0 GROUP BY user_id
+		 )
+		 SELECT t.user_id, t.total FROM totals t
+		 LEFT JOIN tot_users u ON u.guild_id = ? AND u.user_id = t.user_id
+		 WHERE t.total = (SELECT MAX(total) FROM totals)
+		 ORDER BY u.created_at ASC, t.user_id ASC LIMIT ?`, guildID, guildID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load top souvenir collectors: %w", err)
+	}
+	defer rows.Close()
+	var out []SouvenirCollectorEntry
+	for rows.Next() {
+		var e SouvenirCollectorEntry
+		if err := rows.Scan(&e.UserID, &e.Total); err != nil {
+			return nil, fmt.Errorf("failed to scan top souvenir collectors: %w", err)
 		}
 		out = append(out, e)
 	}

@@ -611,6 +611,42 @@ func TestLeaderboard(t *testing.T) {
 	assert.Empty(t, resp.Data.AllowedMentions.Users, "no pings")
 }
 
+func TestLeaderboard_TopJunkCollector(t *testing.T) {
+	m, c, db := newTestModule(t, nil)
+	bowl := spawn(t, m)
+	_, _, err := db.DrainBowl(bowl, m.now(), trickWindow, 0, func(int) string { return "drained" })
+	require.NoError(t, err)
+	giveEggshell := func(user string) {
+		_, err := db.ApplyTrick(bowl, user, m.now(), func(tx database.TrickTx) (string, error) {
+			return "", tx.AddSouvenir(user, souvenirEggshell)
+		})
+		require.NoError(t, err)
+	}
+
+	giveEggshell("u2")
+	m.handleLeaderboard(nil, command("candy-leaderboard", "u"))
+	assert.Equal(t, "🏆 **Candy Leaderboard**\nNobody has any candy yet.\n\n🎒 **Top Junk Collector:** <@u2> — 1 souvenir",
+		lastResponse(t, c).Data.Content, "souvenirs show even before anyone has candy")
+
+	giveEggshell("u3")
+	m.handleLeaderboard(nil, command("candy-leaderboard", "u"))
+	resp := lastResponse(t, c)
+	assert.Equal(t, "🏆 **Candy Leaderboard**\nNobody has any candy yet.\n\n🎒 **Top Junk Collector:** <@u2>, <@u3> — 1 souvenir", resp.Data.Content)
+	assert.Empty(t, resp.Data.AllowedMentions.Users, "no pings")
+}
+
+func TestTopCollectorLine(t *testing.T) {
+	entry := func(id string, total int64) database.SouvenirCollectorEntry {
+		return database.SouvenirCollectorEntry{UserID: id, Total: total}
+	}
+	assert.Empty(t, topCollectorLine(nil))
+	assert.Equal(t, "🎒 **Top Junk Collector:** <@a> — 5 souvenirs", topCollectorLine([]database.SouvenirCollectorEntry{entry("a", 5)}))
+	assert.Equal(t, "🎒 **Top Junk Collector:** <@a>, <@b>, <@c> — 2 souvenirs",
+		topCollectorLine([]database.SouvenirCollectorEntry{entry("a", 2), entry("b", 2), entry("c", 2)}))
+	assert.Equal(t, "🎒 **Top Junk Collector:** <@a>, <@b>, <@c> & more — 2 souvenirs",
+		topCollectorLine([]database.SouvenirCollectorEntry{entry("a", 2), entry("b", 2), entry("c", 2), entry("d", 2)}))
+}
+
 func TestResetBowl(t *testing.T) {
 	m, c, db := newTestModule(t, nil)
 	bowl := spawn(t, m)

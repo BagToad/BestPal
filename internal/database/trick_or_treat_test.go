@@ -290,3 +290,27 @@ func TestTOT_ExpireAndReset(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+func TestTOT_CandyExport(t *testing.T) {
+	db := newTOTDB(t)
+	require.NoError(t, db.CreateBowl("g", "c", "m", totNow))
+	require.NoError(t, db.CreateBowl("other", "c", "m2", totNow))
+	claim(t, db, "m", "a")
+	claim(t, db, "m", "b")
+	claim(t, db, "m2", "a")
+	_, err := db.conn.Exec(`INSERT INTO tot_souvenirs (guild_id, user_id, item_type, quantity) VALUES
+		('g', 'souvenir-only', 'eggshell', 2), ('g', 'b', 'tp_roll', 0), ('other', 'a', 'eggshell', 9)`)
+	require.NoError(t, err)
+
+	rows, err := db.CandyExport("g")
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+	assert.Equal(t, "a", rows[0].UserID)
+	assert.Equal(t, 1, rows[0].Rank)
+	assert.Equal(t, int64(1), rows[0].TreatsClaimed, "other guild's bowl not counted")
+	assert.Empty(t, rows[0].Souvenirs, "other guild's souvenirs not counted")
+	assert.False(t, rows[0].FirstSeen.IsZero())
+	assert.Equal(t, 1, rows[1].Rank, "tied on candies")
+	assert.Empty(t, rows[1].Souvenirs, "zero quantities omitted")
+	assert.Equal(t, CandyExportRow{TOTUser: TOTUser{UserID: "souvenir-only"}, Rank: 3, Souvenirs: map[string]int64{"eggshell": 2}}, rows[2])
+}

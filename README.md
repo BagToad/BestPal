@@ -30,6 +30,7 @@ environment (see `config.example.yaml`).
 |---------|-------------|
 | `/say` | Send an anonymous message to a channel |
 | `/candy add` / `/candy remove` | Add or remove trick-or-treat candies in someone's bucket (never below zero) |
+| `/candy-export` | Export everyone's candy, souvenirs, buffs/debuffs and trick-or-treat stats as a CSV (one row per person) |
 | `/schedulesay` | Schedule an anonymous message |
 | `/listscheduledsays` | List next scheduled messages |
 | `/cancelscheduledsay` | Cancel a scheduled message by ID |

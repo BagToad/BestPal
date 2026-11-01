@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -44,8 +45,9 @@ func sanitizeCell(s string) string {
 }
 
 // buildExportCSV renders one row per user: rank, identity, candies, one
-// column per souvenir type, then the rest of their stored state.
-func buildExportCSV(rows []database.CandyExportRow, members map[string]exportMember) ([]byte, error) {
+// column per souvenir type, then the rest of their stored state. When
+// membersComplete is false, users missing from members get in_server=unknown.
+func buildExportCSV(rows []database.CandyExportRow, members map[string]exportMember, membersComplete bool) ([]byte, error) {
 	types := append([]string{}, souvenirOrder...)
 	known := map[string]bool{}
 	for _, t := range types {
@@ -69,7 +71,7 @@ func buildExportCSV(rows []database.CandyExportRow, members map[string]exportMem
 		if info, ok := souvenirs[t]; ok {
 			name = info.name
 		}
-		header = append(header, name)
+		header = append(header, sanitizeCell(name))
 	}
 	header = append(header, "total_souvenirs", "treats_claimed", "tricks_played", "bowls_timed_out_of",
 		"pending_bonus_candy", "bonus_source", "timeout_charges_left", "timeout_source", "first_seen_utc")
@@ -82,8 +84,11 @@ func buildExportCSV(rows []database.CandyExportRow, members map[string]exportMem
 	for _, r := range rows {
 		mem, inServer := members[r.UserID]
 		in := "no"
-		if inServer {
+		switch {
+		case inServer:
 			in = "yes"
+		case !membersComplete:
+			in = "unknown"
 		}
 		rec := []string{strconv.Itoa(r.Rank), r.UserID, sanitizeCell(mem.Username), sanitizeCell(mem.DisplayName), in,
 			strconv.FormatInt(r.Candies, 10)}
@@ -135,6 +140,12 @@ func (m *Module) guildMembers(s *discordgo.Session, guildID string, want map[str
 }
 
 func (m *Module) handleExport(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Checked here as well as in DefaultMemberPermissions, which server
+	// owners can override per role.
+	if !utils.HasBanPermissions(i) {
+		m.respondEphemeral(s, i, "❌ You must be a moderator to use this command.")
+		return
+	}
 	if m.store == nil {
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
 		return
@@ -174,9 +185,9 @@ func (m *Module) handleExport(s *discordgo.Session, i *discordgo.InteractionCrea
 	note := ""
 	if err != nil {
 		m.config.Logger.Warnf("trick-or-treat: candy export member lookup failed: %v", err)
-		note = "\n⚠️ Couldn't look up everyone's names, so some name columns are blank."
+		note = "\n⚠️ Couldn't load the full member list, so some names are blank and in_server is `unknown` for anyone not found."
 	}
-	data, err := buildExportCSV(rows, members)
+	data, err := buildExportCSV(rows, members, err == nil)
 	if err != nil {
 		m.config.Logger.Errorf("trick-or-treat: failed to build candy export: %v", err)
 		edit("❌ Failed to build the CSV.")

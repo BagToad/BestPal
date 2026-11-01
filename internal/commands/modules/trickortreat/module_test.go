@@ -26,6 +26,7 @@ type capture struct {
 	nextID        int
 	responseEdits []*discordgo.WebhookEdit
 	members       []*discordgo.Member
+	membersErr    error
 }
 
 var testNow = time.Unix(1_790_000_000, 0)
@@ -78,6 +79,9 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *capture, *databas
 					if mem.User.ID > after && len(page) < limit {
 						page = append(page, mem)
 					}
+				}
+				if c.membersErr != nil {
+					return nil, c.membersErr
 				}
 				return page, nil
 			},

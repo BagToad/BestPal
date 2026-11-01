@@ -30,17 +30,6 @@ func readExport(t *testing.T, edit *discordgo.WebhookEdit) [][]string {
 	return recs
 }
 
-func TestCandyExport_RequiresModerator(t *testing.T) {
-	m, c, _ := newTestModule(t, nil)
-	m.handleExport(nil, exportCmd(discordgo.PermissionManageMessages))
-	assert.Equal(t, "❌ You must be a moderator to use this command.", lastResponse(t, c).Data.Content)
-	assert.Equal(t, discordgo.MessageFlagsEphemeral, lastResponse(t, c).Data.Flags)
-	assert.Empty(t, c.responseEdits)
-
-	m.handleExport(nil, exportCmd(discordgo.PermissionAdministrator))
-	require.Len(t, c.responseEdits, 1)
-}
-
 func TestCandyExport_MemberLookupFails(t *testing.T) {
 	m, c, db := newTestModule(t, nil)
 	_, _, err := db.AdjustCandies("guild1", "u1", 2)

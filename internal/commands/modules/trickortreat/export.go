@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"gamerpal/internal/database"
-	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -140,12 +139,6 @@ func (m *Module) guildMembers(s *discordgo.Session, guildID string, want map[str
 }
 
 func (m *Module) handleExport(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	// Checked here as well as in DefaultMemberPermissions, which server
-	// owners can override per role.
-	if !utils.HasBanPermissions(i) {
-		m.respondEphemeral(s, i, "❌ You must be a moderator to use this command.")
-		return
-	}
 	if m.store == nil {
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
 		return

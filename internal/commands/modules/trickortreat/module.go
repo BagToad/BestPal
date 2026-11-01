@@ -55,6 +55,7 @@ type store interface {
 	AdjustCandies(guildID, userID string, delta int64) (int64, int64, error)
 	CandyLeaderboard(guildID string, limit int) ([]database.CandyLeaderboardEntry, error)
 	TopSouvenirCollectors(guildID string, limit int) ([]database.SouvenirCollectorEntry, error)
+	CandyExport(guildID string) ([]database.CandyExportRow, error)
 }
 
 // discordOps wraps the Discord calls the module makes so tests can capture them.
@@ -63,6 +64,8 @@ type discordOps struct {
 	SendMessage   func(s *discordgo.Session, channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 	EditMessage   func(s *discordgo.Session, edit *discordgo.MessageEdit) error
 	DeleteMessage func(s *discordgo.Session, channelID, messageID string) error
+	EditResponse  func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error
+	GuildMembers  func(s *discordgo.Session, guildID, after string, limit int) ([]*discordgo.Member, error)
 }
 
 func defaultDiscordOps() discordOps {
@@ -79,6 +82,13 @@ func defaultDiscordOps() discordOps {
 		},
 		DeleteMessage: func(s *discordgo.Session, channelID, messageID string) error {
 			return s.ChannelMessageDelete(channelID, messageID)
+		},
+		EditResponse: func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error {
+			_, err := s.InteractionResponseEdit(i, edit)
+			return err
+		},
+		GuildMembers: func(s *discordgo.Session, guildID, after string, limit int) ([]*discordgo.Member, error) {
+			return s.GuildMembers(guildID, after, limit)
 		},
 	}
 }
@@ -177,7 +187,7 @@ func (m *Module) forgetLock(messageID string) {
 }
 
 // Register adds /bucket, /candy-leaderboard, /spawn-bowl, /reset-bowl,
-// /candy and /debug-empty-bowl.
+// /candy, /candy-export and /debug-empty-bowl.
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	guildOnly := &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild}
 	var adminPerms int64 = discordgo.PermissionManageGuild
@@ -269,6 +279,15 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			}},
 		},
 		HandlerFunc: m.handleCandy,
+	}
+	cmds["candy-export"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "candy-export",
+			Description:              "Export everyone's candy, souvenirs and trick-or-treat stats as a CSV",
+			Contexts:                 guildOnly,
+			DefaultMemberPermissions: &modPerms,
+		},
+		HandlerFunc: m.handleExport,
 	}
 	cmds["debug-empty-bowl"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{

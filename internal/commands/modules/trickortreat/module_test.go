@@ -18,12 +18,15 @@ import (
 )
 
 type capture struct {
-	responses []*discordgo.InteractionResponse
-	sent      []*discordgo.MessageSend
-	sentTo    []string
-	edits     []*discordgo.MessageEdit
-	deleted   []string
-	nextID    int
+	responses     []*discordgo.InteractionResponse
+	sent          []*discordgo.MessageSend
+	sentTo        []string
+	edits         []*discordgo.MessageEdit
+	deleted       []string
+	nextID        int
+	responseEdits []*discordgo.WebhookEdit
+	members       []*discordgo.Member
+	membersErr    error
 }
 
 var testNow = time.Unix(1_790_000_000, 0)
@@ -65,6 +68,22 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *capture, *databas
 			DeleteMessage: func(_ *discordgo.Session, _, messageID string) error {
 				c.deleted = append(c.deleted, messageID)
 				return nil
+			},
+			EditResponse: func(_ *discordgo.Session, _ *discordgo.Interaction, edit *discordgo.WebhookEdit) error {
+				c.responseEdits = append(c.responseEdits, edit)
+				return nil
+			},
+			GuildMembers: func(_ *discordgo.Session, _, after string, limit int) ([]*discordgo.Member, error) {
+				var page []*discordgo.Member
+				for _, mem := range c.members {
+					if mem.User.ID > after && len(page) < limit {
+						page = append(page, mem)
+					}
+				}
+				if c.membersErr != nil {
+					return nil, c.membersErr
+				}
+				return page, nil
 			},
 		},
 	}

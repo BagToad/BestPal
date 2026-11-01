@@ -869,3 +869,90 @@ func (db *DB) TopSouvenirCollectors(guildID string, limit int) ([]SouvenirCollec
 	}
 	return out, rows.Err()
 }
+
+// CandyExportRow is everything stored about one user's trick-or-treat
+// progress, for the mod CSV export.
+type CandyExportRow struct {
+	TOTUser
+	// Rank is the user's place by candies; users tied on candies share it.
+	Rank int
+	// Souvenirs maps souvenir type to quantity held (zero quantities omitted).
+	Souvenirs map[string]int64
+	// TreatsClaimed, TricksPlayed and TimeoutsServed count bowls the user
+	// grabbed a treat from, pulled a trick on, or was timed out of.
+	TreatsClaimed  int64
+	TricksPlayed   int64
+	TimeoutsServed int64
+	FirstSeen      time.Time
+}
+
+// CandyExport returns every user with trick-or-treat data in the guild,
+// ordered like the candy leaderboard.
+func (db *DB) CandyExport(guildID string) ([]CandyExportRow, error) {
+	rows, err := db.conn.Query(
+		`WITH ids AS (
+			SELECT user_id FROM tot_users WHERE guild_id = ?
+			UNION SELECT user_id FROM tot_souvenirs WHERE guild_id = ?
+		 ), acts AS (
+			SELECT p.user_id,
+				SUM(p.action_type = ?) AS treats,
+				SUM(p.action_type = ?) AS tricks,
+				SUM(p.action_type = ?) AS timeouts
+			FROM tot_participants p JOIN tot_bowls b ON b.message_id = p.message_id
+			WHERE b.guild_id = ? GROUP BY p.user_id
+		 )
+		 SELECT ids.user_id, COALESCE(u.candies, 0), COALESCE(u.bonus_candy, 0), COALESCE(u.bonus_source, ''),
+			COALESCE(u.timeout_charges, 0), COALESCE(u.timeout_source, ''), u.created_at,
+			COALESCE(a.treats, 0), COALESCE(a.tricks, 0), COALESCE(a.timeouts, 0)
+		 FROM ids
+		 LEFT JOIN tot_users u ON u.guild_id = ? AND u.user_id = ids.user_id
+		 LEFT JOIN acts a ON a.user_id = ids.user_id
+		 ORDER BY COALESCE(u.candies, 0) DESC, u.created_at ASC, ids.user_id ASC`,
+		guildID, guildID, ActionTreat, ActionTrick, ActionTimeout, guildID, guildID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load candy export: %w", err)
+	}
+	defer rows.Close()
+	var out []CandyExportRow
+	index := map[string]int{}
+	for rows.Next() {
+		var r CandyExportRow
+		var created sql.NullTime
+		if err := rows.Scan(&r.UserID, &r.Candies, &r.BonusCandy, &r.BonusSource, &r.TimeoutCharges, &r.TimeoutSource,
+			&created, &r.TreatsClaimed, &r.TricksPlayed, &r.TimeoutsServed); err != nil {
+			return nil, fmt.Errorf("failed to scan candy export: %w", err)
+		}
+		if created.Valid {
+			r.FirstSeen = created.Time
+		}
+		r.Rank = len(out) + 1
+		if len(out) > 0 && out[len(out)-1].Candies == r.Candies {
+			r.Rank = out[len(out)-1].Rank
+		}
+		r.Souvenirs = map[string]int64{}
+		index[r.UserID] = len(out)
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	srows, err := db.conn.Query(
+		`SELECT user_id, item_type, quantity FROM tot_souvenirs WHERE guild_id = ? AND quantity > 0`, guildID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load souvenirs for export: %w", err)
+	}
+	defer srows.Close()
+	for srows.Next() {
+		var userID, item string
+		var qty int64
+		if err := srows.Scan(&userID, &item, &qty); err != nil {
+			return nil, fmt.Errorf("failed to scan souvenir for export: %w", err)
+		}
+		if k, ok := index[userID]; ok {
+			out[k].Souvenirs[item] = qty
+		}
+	}
+	return out, srows.Err()
+}

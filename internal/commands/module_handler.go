@@ -5,6 +5,7 @@ import (
 	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/ban"
 	"gamerpal/internal/commands/modules/config"
+	"gamerpal/internal/commands/modules/eventfeed"
 	"gamerpal/internal/commands/modules/fetchintros"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/help"
@@ -112,6 +113,7 @@ func (h *ModuleHandler) registerModules() {
 		{"agentadapter", agentadapter.New(h.deps)},
 		{"trickortreat", trickortreat.New(h.deps)},
 		{"msgsearch", msgsearch.New(h.deps)},
+		{"eventfeed", eventfeed.New(h.deps)},
 	}
 
 	for _, m := range modules {

@@ -16,6 +16,10 @@ const (
 	KeyHelpDeskChannelID     = "gamerpals_help_desk_channel_id"
 	KeyEventFeedChannelID    = "event_feed_channel_id"
 
+	KeyEventFeedEnabled       = "event_feed_enabled"
+	KeyEventFeedNotification1 = "event_feed_notification_1"
+	KeyEventFeedNotification2 = "event_feed_notification_2"
+
 	KeyIntroductionsForumChannelID = "gamerpals_introductions_forum_channel_id"
 	KeyIntroFeedChannelID          = "intro_feed_channel_id"
 	KeyIntroFeedRateLimitHours     = "intro_feed_rate_limit_hours"
@@ -87,6 +91,7 @@ const (
 	CategoryScamGuard    Category = "ScamGuard"
 	CategoryAgent        Category = "Agent"
 	CategoryTrickOrTreat Category = "Trick or Treat"
+	CategoryEvents       Category = "Events"
 	CategoryMisc         Category = "Moderation & Misc"
 )
 
@@ -99,6 +104,7 @@ var categoryOrder = []Category{
 	CategoryScamGuard,
 	CategoryAgent,
 	CategoryTrickOrTreat,
+	CategoryEvents,
 	CategoryMisc,
 }
 

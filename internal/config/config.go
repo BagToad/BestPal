@@ -227,6 +227,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("scamguard_hash_threshold", 8)
 	v.SetDefault("scamguard_action", "timeout")
 	v.SetDefault("scamguard_timeout_duration", "168h")
+
+	// event feed defaults: on, with reminders 1 hour and 1 day before start
+	v.SetDefault("event_feed_enabled", true)
+	v.SetDefault("event_feed_notification_1", "1h")
+	v.SetDefault("event_feed_notification_2", "24h")
 }
 
 // validateConfig validates that all required configuration fields are present

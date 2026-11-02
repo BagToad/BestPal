@@ -15,6 +15,7 @@ import (
 	"gamerpal/internal/agentengine"
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/agentadapter"
+	"gamerpal/internal/commands/modules/eventfeed"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
@@ -128,9 +129,10 @@ func New(cfg *config.Config) (*Bot, error) {
 	if mod, ok := handler.GetModule("score").(*score.Module); ok {
 		session.AddHandler(mod.OnGuildMemberRemove)
 	}
-	session.AddHandler(func(s *discordgo.Session, e *discordgo.GuildScheduledEventCreate) {
-		events.OnGuildScheduledEventCreate(s, e, cfg)
-	})
+	// eventfeed module - new event posts; reminders run on the scheduler.
+	if mod, ok := handler.GetModule("eventfeed").(*eventfeed.Module); ok {
+		session.AddHandler(mod.OnGuildScheduledEventCreate)
+	}
 
 	// Forum thread lifecycle events wired into cache service and intro feed
 	session.AddHandler(func(s *discordgo.Session, e *discordgo.ThreadCreate) {

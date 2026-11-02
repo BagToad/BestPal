@@ -266,3 +266,12 @@ func TestValidateLeadTime(t *testing.T) {
 	require.Error(t, validateLeadTime("-1h"))
 	require.Error(t, validateLeadTime("soon"))
 }
+
+func TestFeedMessageSuppressesMentions(t *testing.T) {
+	msg := feedMessage("@everyone starts soon")
+	require.NotNil(t, msg.AllowedMentions)
+	require.NotNil(t, msg.AllowedMentions.Parse)
+	require.Empty(t, msg.AllowedMentions.Parse)
+	require.Empty(t, msg.AllowedMentions.Users)
+	require.Empty(t, msg.AllowedMentions.Roles)
+}

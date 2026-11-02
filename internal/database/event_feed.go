@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS event_feed_reminders (
 	PRIMARY KEY (guild_id, event_id, slot, start_unix)
 );
 
-CREATE INDEX IF NOT EXISTS idx_event_feed_reminders_sent_at ON event_feed_reminders(sent_at);
+CREATE INDEX IF NOT EXISTS idx_event_feed_reminders_start ON event_feed_reminders(start_unix);
 `
 
 // EventReminderSent reports whether a reminder slot was already handled for an
@@ -50,9 +50,11 @@ func (db *DB) MarkEventReminderSent(guildID, eventID, slot string, start, now ti
 	return nil
 }
 
-// PruneEventReminders deletes reminder records handled before the cutoff.
+// PruneEventReminders deletes reminder records for occurrences that started
+// before the cutoff. Pruning by start time (not send time) keeps records for
+// still-upcoming occurrences no matter how long the reminder lead is.
 func (db *DB) PruneEventReminders(before time.Time) (int64, error) {
-	res, err := db.conn.Exec(`DELETE FROM event_feed_reminders WHERE sent_at < ?`, before.Unix())
+	res, err := db.conn.Exec(`DELETE FROM event_feed_reminders WHERE start_unix < ?`, before.Unix())
 	if err != nil {
 		return 0, fmt.Errorf("failed to prune event reminders: %w", err)
 	}

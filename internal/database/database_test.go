@@ -90,10 +90,17 @@ func TestEventFeedReminders(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, sent)
 
-	n, err := db.PruneEventReminders(now)
+	// A long lead (sent 40 days before start) is kept until the start passes.
+	farStart := start.Add(60 * 24 * time.Hour)
+	require.NoError(t, db.MarkEventReminderSent("g", "far", "notification_2", farStart, farStart.Add(-40*24*time.Hour)))
+
+	n, err := db.PruneEventReminders(start)
 	require.NoError(t, err)
 	require.Zero(t, n)
-	n, err = db.PruneEventReminders(now.Add(time.Second))
+	n, err = db.PruneEventReminders(start.Add(time.Second))
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
+	sent, err = db.EventReminderSent("g", "far", "notification_2", farStart)
+	require.NoError(t, err)
+	require.True(t, sent)
 }

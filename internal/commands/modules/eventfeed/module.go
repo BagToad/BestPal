@@ -15,9 +15,10 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// reminderRetention is how long handled-reminder records are kept. Anything
-// older belongs to an occurrence that has long since started.
-const reminderRetention = 30 * 24 * time.Hour
+// reminderRetention is how long handled-reminder records are kept after their
+// occurrence starts. Reminders never fire for started occurrences, so these
+// records are no longer needed.
+const reminderRetention = 24 * time.Hour
 
 // Reminder slots as stored in the database.
 const (
@@ -42,9 +43,18 @@ func defaultDiscordOps() discordOps {
 			return s.GuildScheduledEvents(guildID, false)
 		},
 		SendMessage: func(s *discordgo.Session, channelID, content string) error {
-			_, err := s.ChannelMessageSend(channelID, content)
+			_, err := s.ChannelMessageSendComplex(channelID, feedMessage(content))
 			return err
 		},
+	}
+}
+
+// feedMessage builds a feed post that can't ping anyone, since event names are
+// user-controlled.
+func feedMessage(content string) *discordgo.MessageSend {
+	return &discordgo.MessageSend{
+		Content:         content,
+		AllowedMentions: &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}},
 	}
 }
 

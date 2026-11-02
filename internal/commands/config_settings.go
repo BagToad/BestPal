@@ -87,12 +87,5 @@ func (coreConfigProvider) ConfigSettings() []config.Setting {
 			Description: "Channel used by the help desk / say workflows.",
 			Kind:        config.KindChannel,
 		},
-		{
-			Key:         config.KeyEventFeedChannelID,
-			Category:    config.CategoryMisc,
-			Label:       "Event feed channel",
-			Description: "Channel where newly scheduled server events are announced.",
-			Kind:        config.KindChannel,
-		},
 	}
 }

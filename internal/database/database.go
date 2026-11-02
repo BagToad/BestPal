@@ -141,6 +141,10 @@ func (db *DB) initTables() error {
 		return fmt.Errorf("failed to create trick-or-treat tables: %w", err)
 	}
 
+	if _, err := db.conn.Exec(eventFeedSchema); err != nil {
+		return fmt.Errorf("failed to create event feed tables: %w", err)
+	}
+
 	// One-time migration: recreate intro_feed_posts if it has the old schema
 	// (missing is_bump column due to UNIQUE(thread_id) constraint).
 	var hasIsBump bool

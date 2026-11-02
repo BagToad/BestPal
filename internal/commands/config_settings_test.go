@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"gamerpal/internal/commands/modules/agentadapter"
+	"gamerpal/internal/commands/modules/eventfeed"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
@@ -32,6 +33,7 @@ func realProviderHandler() *ModuleHandler {
 			"fun":          &fun.Module{},
 			"agentadapter": &agentadapter.Module{},
 			"trickortreat": &trickortreat.Module{},
+			"eventfeed":    &eventfeed.Module{},
 		},
 	}
 }
@@ -78,6 +80,9 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyTrickOrTreatChannels,
 		config.KeyTrickOrTreatSpawnInterval,
 		config.KeyTrickOrTreatCandyPerClaim,
+		config.KeyEventFeedEnabled,
+		config.KeyEventFeedNotification1,
+		config.KeyEventFeedNotification2,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

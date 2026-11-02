@@ -130,6 +130,31 @@ func TestScamGuardDefaults(t *testing.T) {
 	require.Equal(t, 168*time.Hour, cfg.GetScamGuardTimeoutDuration())
 }
 
+func TestEventFeedDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("GAMERPAL_LOG_DIR", tmpDir)
+	t.Setenv("GAMERPAL_DATABASE_PATH", tmpDir+"/test.db")
+	t.Setenv("GAMERPAL_BOT_TOKEN", "test_token")
+	t.Setenv("GAMERPAL_GAMERPALS_SERVER_ID", "G1")
+
+	cfg, err := NewConfig()
+	require.NoError(t, err)
+
+	gc := cfg.PrimaryGuild()
+	require.True(t, gc.GetEventFeedEnabled())
+	require.Equal(t, time.Hour, gc.GetEventFeedNotification1())
+	require.Equal(t, 24*time.Hour, gc.GetEventFeedNotification2())
+
+	store := newFakeStore()
+	cfg.SetGuildStore(store)
+	require.NoError(t, gc.SetOverride(KeyEventFeedEnabled, "false", "U1"))
+	require.NoError(t, gc.SetOverride(KeyEventFeedNotification1, "3h", "U1"))
+	require.NoError(t, gc.SetOverride(KeyEventFeedNotification2, "0", "U1"))
+	require.False(t, gc.GetEventFeedEnabled())
+	require.Equal(t, 3*time.Hour, gc.GetEventFeedNotification1())
+	require.Equal(t, time.Duration(0), gc.GetEventFeedNotification2())
+}
+
 func TestScamGuardAccessors(t *testing.T) {
 	t.Run("explicit zero threshold is honored", func(t *testing.T) {
 		cfg := NewMockConfig(map[string]any{"scamguard_hash_threshold": 0})

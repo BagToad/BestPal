@@ -124,6 +124,14 @@ lfg_now_role_duration: "2h"
 # When a new scheduled event is created, it is forwarded to this channel.
 event_feed_channel_id: "your-event-feed-channel-id-here"
 
+# Master switch for the event feed (new event posts and reminders).
+event_feed_enabled: true
+
+# How long before an event starts each reminder is posted (Go duration).
+# Set one to "0" to turn that reminder off.
+event_feed_notification_1: "1h"
+event_feed_notification_2: "24h"
+
 # ----------------------------------------------------------------------------
 # Introduction Feed
 # ----------------------------------------------------------------------------

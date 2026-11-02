@@ -218,6 +218,24 @@ func (gc *GuildConfig) GetEventFeedChannelID() string {
 	return gc.resolveString(KeyEventFeedChannelID)
 }
 
+// GetEventFeedEnabled reports whether event feed posts (new event and
+// pre-event reminders) are on. Defaults to true.
+func (gc *GuildConfig) GetEventFeedEnabled() bool {
+	return gc.resolveBool(KeyEventFeedEnabled)
+}
+
+// GetEventFeedNotification1 returns how long before an event starts the first
+// reminder is posted. Defaults to 1h; 0 turns this reminder off.
+func (gc *GuildConfig) GetEventFeedNotification1() time.Duration {
+	return gc.resolveDuration(KeyEventFeedNotification1)
+}
+
+// GetEventFeedNotification2 returns how long before an event starts the second
+// reminder is posted. Defaults to 24h; 0 turns this reminder off.
+func (gc *GuildConfig) GetEventFeedNotification2() time.Duration {
+	return gc.resolveDuration(KeyEventFeedNotification2)
+}
+
 // Introductions
 // -----
 

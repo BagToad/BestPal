@@ -3,6 +3,7 @@ package database
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -63,4 +64,36 @@ func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	removed, err = db.RemoveScamImageHash("p:ff00ff00ff00ff00")
 	require.NoError(t, err)
 	require.False(t, removed)
+}
+
+func TestEventFeedReminders(t *testing.T) {
+	db := newTestDB(t)
+	start := time.Unix(1_800_000_000, 0)
+	now := start.Add(-time.Hour)
+
+	sent, err := db.EventReminderSent("g", "e", "notification_1", start)
+	require.NoError(t, err)
+	require.False(t, sent)
+
+	require.NoError(t, db.MarkEventReminderSent("g", "e", "notification_1", start, now))
+	require.NoError(t, db.MarkEventReminderSent("g", "e", "notification_1", start, now)) // idempotent
+
+	sent, err = db.EventReminderSent("g", "e", "notification_1", start)
+	require.NoError(t, err)
+	require.True(t, sent)
+
+	// Other slots and other occurrences are tracked separately.
+	sent, err = db.EventReminderSent("g", "e", "notification_2", start)
+	require.NoError(t, err)
+	require.False(t, sent)
+	sent, err = db.EventReminderSent("g", "e", "notification_1", start.Add(24*time.Hour))
+	require.NoError(t, err)
+	require.False(t, sent)
+
+	n, err := db.PruneEventReminders(now)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	n, err = db.PruneEventReminders(now.Add(time.Second))
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
 }

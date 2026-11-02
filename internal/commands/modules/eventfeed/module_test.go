@@ -265,6 +265,8 @@ func TestValidateLeadTime(t *testing.T) {
 	require.NoError(t, validateLeadTime("0"))
 	require.Error(t, validateLeadTime("-1h"))
 	require.Error(t, validateLeadTime("soon"))
+	require.NoError(t, validateLeadTime("1m"))
+	require.Error(t, validateLeadTime("30s"))
 }
 
 func TestFeedMessageSuppressesMentions(t *testing.T) {

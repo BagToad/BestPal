@@ -20,6 +20,10 @@ import (
 // records are no longer needed.
 const reminderRetention = 24 * time.Hour
 
+// reminderInterval is how often reminders are checked. Non-zero lead times
+// shorter than this could fall between two checks and be missed.
+const reminderInterval = time.Minute
+
 // Reminder slots as stored in the database.
 const (
 	slotNotification1 = "notification_1"
@@ -112,7 +116,7 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Key:         config.KeyEventFeedNotification1,
 			Category:    config.CategoryEvents,
 			Label:       "Notification 1",
-			Description: "How long before an event starts to post the first reminder (e.g. 1h). 0 turns it off.",
+			Description: "How long before an event starts to post the first reminder (e.g. 1h, minimum 1m). 0 turns it off.",
 			Kind:        config.KindDuration,
 			Default:     "1h",
 			Validate:    validateLeadTime,
@@ -121,7 +125,7 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Key:         config.KeyEventFeedNotification2,
 			Category:    config.CategoryEvents,
 			Label:       "Notification 2",
-			Description: "How long before an event starts to post the second reminder (e.g. 24h). 0 turns it off.",
+			Description: "How long before an event starts to post the second reminder (e.g. 24h, minimum 1m). 0 turns it off.",
 			Kind:        config.KindDuration,
 			Default:     "24h",
 			Validate:    validateLeadTime,
@@ -136,6 +140,9 @@ func validateLeadTime(raw string) error {
 	d, _ := time.ParseDuration(strings.TrimSpace(raw))
 	if d < 0 {
 		return fmt.Errorf("must be zero or greater")
+	}
+	if d > 0 && d < reminderInterval {
+		return fmt.Errorf("must be 0 (off) or at least %s", reminderInterval)
 	}
 	return nil
 }
@@ -321,6 +328,6 @@ func (s *Service) HydrateServiceDiscordSession(session *discordgo.Session) error
 // ScheduledFuncs checks for due reminders every minute.
 func (s *Service) ScheduledFuncs() map[string]func() error {
 	return map[string]func() error{
-		"@every 1m": s.m.reminderTick,
+		"@every " + reminderInterval.String(): s.m.reminderTick,
 	}
 }

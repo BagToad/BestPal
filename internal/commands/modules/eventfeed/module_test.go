@@ -275,3 +275,15 @@ func TestFeedMessageSuppressesMentions(t *testing.T) {
 	require.Empty(t, msg.AllowedMentions.Users)
 	require.Empty(t, msg.AllowedMentions.Roles)
 }
+
+func TestEscapeMarkdown(t *testing.T) {
+	cases := map[string]string{
+		"Game Night":                     "Game Night",
+		"[free nitro](https://x.y)":      "\\[free nitro\\]\\(https://x.y\\)",
+		"**bold** _it_ ~~s~~ `c` ||sp||": "\\*\\*bold\\*\\* \\_it\\_ \\~\\~s\\~\\~ \\`c\\` \\|\\|sp\\|\\|",
+		"<@123> a\\b\nline":              "\\<@123\\> a\\\\b line",
+	}
+	for in, want := range cases {
+		require.Equal(t, want, escapeMarkdown(in), "input %q", in)
+	}
+}

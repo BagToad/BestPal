@@ -281,7 +281,30 @@ func reminderMessage(guildID string, ev *discordgo.GuildScheduledEvent) string {
 	ts := ev.ScheduledStartTime.Unix()
 	return heredoc.Docf(`
 		⏰ **%s** starts <t:%d:R> (<t:%d:f>)! [Click here to view details](%s)
-	`, ev.Name, ts, ts, eventURL(guildID, ev.ID))
+	`, escapeMarkdown(ev.Name), ts, ts, eventURL(guildID, ev.ID))
+}
+
+// markdownEscaper neutralizes Discord markdown in user-controlled text so an
+// event name can't add formatting, masked links, or mention/timestamp tags.
+var markdownEscaper = strings.NewReplacer(
+	"\\", "\\\\",
+	"*", "\\*",
+	"_", "\\_",
+	"~", "\\~",
+	"`", "\\`",
+	"|", "\\|",
+	"[", "\\[",
+	"]", "\\]",
+	"(", "\\(",
+	")", "\\)",
+	"<", "\\<",
+	">", "\\>",
+	"\r", " ",
+	"\n", " ",
+)
+
+func escapeMarkdown(s string) string {
+	return markdownEscaper.Replace(s)
 }
 
 // Service runs the reminder check on the scheduler.

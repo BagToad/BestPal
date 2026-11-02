@@ -289,3 +289,22 @@ func TestEscapeMarkdown(t *testing.T) {
 		require.Equal(t, want, escapeMarkdown(in), "input %q", in)
 	}
 }
+
+func TestSlowSendDoesNotRemindStartedEvent(t *testing.T) {
+	h := newHarness(t, nil)
+	created := testNow.Add(-72 * time.Hour)
+	first := event(created, testNow.Add(30*time.Minute), 1)
+	second := event(created, testNow.Add(30*time.Second), 2)
+	h.events = []*discordgo.GuildScheduledEvent{first, second}
+
+	// The first send takes 40s, so the second event has started by the time
+	// it is checked.
+	send := h.m.ops.SendMessage
+	h.m.ops.SendMessage = func(s *discordgo.Session, channelID, content string) error {
+		h.now = h.now.Add(40 * time.Second)
+		return send(s, channelID, content)
+	}
+	require.NoError(t, h.m.reminderTick())
+	require.Len(t, h.sent, 1)
+	require.Contains(t, h.sent[0].content, first.ID)
+}

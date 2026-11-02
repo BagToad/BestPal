@@ -224,14 +224,15 @@ func (m *Module) reminderTick() error {
 		return fmt.Errorf("event feed: list scheduled events: %w", err)
 	}
 
-	now := m.now()
 	for _, ev := range events {
-		if err := m.remindEvent(guildID, channelID, ev, slots, now); err != nil {
+		// Read the clock per event so a slow send can't let a later event that
+		// has since started slip past the started-event check.
+		if err := m.remindEvent(guildID, channelID, ev, slots, m.now()); err != nil {
 			m.config.Logger.Errorf("event feed: reminder for event %s: %v", ev.ID, err)
 		}
 	}
 
-	if _, err := m.store.PruneEventReminders(now.Add(-reminderRetention)); err != nil {
+	if _, err := m.store.PruneEventReminders(m.now().Add(-reminderRetention)); err != nil {
 		return err
 	}
 	return nil

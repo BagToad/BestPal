@@ -471,6 +471,53 @@ func TestSolvedRedrawIsRetried(t *testing.T) {
 	assert.Contains(t, (*c.edits[len(c.edits)-1].Embeds)[0].Description, "Solved!")
 }
 
+func restErr(code int) error {
+	return &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: code, Message: "gone"}}
+}
+
+func TestDeletedBoardIsReposted(t *testing.T) {
+	m, c, db, now := newTestModule(t, nil)
+	p := setup(t, m, c)
+	movable := movableTiles(p.Board, p.Grid)
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movable[0])))
+
+	*now = now.Add(8 * time.Hour)
+	c.editErr = restErr(discordgo.ErrCodeUnknownMessage)
+	require.NoError(t, m.roundTick())
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	require.Len(t, c.sent, 2)
+	require.Len(t, c.sent[1].Files, 1)
+	assert.NotEqual(t, p.MessageID, got.MessageID)
+	assert.Equal(t, "chan1", got.ChannelID)
+	assert.False(t, got.NeedsRedraw)
+	assert.EqualValues(t, 1, got.TotalMoves)
+
+	// Voting continues on the reposted board.
+	c.editErr = nil
+	m.HandleComponent(m.session, click(voteButtonID, got.MessageID, "u2", 0))
+	assert.Contains(t, lastContent(t, c), "Which tile")
+}
+
+func TestDeletedChannelPausesPuzzle(t *testing.T) {
+	m, c, db, now := newTestModule(t, nil)
+	setup(t, m, c)
+
+	*now = now.Add(8 * time.Hour)
+	c.editErr = restErr(discordgo.ErrCodeUnknownChannel)
+	require.NoError(t, m.roundTick())
+	got, ok, _ := db.GetSlidePuzzle("guild1")
+	require.True(t, ok)
+	assert.Empty(t, got.MessageID)
+	due, err := db.DueSlidePuzzles(now.Add(24 * time.Hour))
+	require.NoError(t, err)
+	assert.Empty(t, due)
+
+	// Setup brings it back.
+	c.editErr = nil
+	p := setup(t, m, c)
+	assert.NotEmpty(t, p.MessageID)
+}
+
 func TestVoteAfterDeadlineRejected(t *testing.T) {
 	m, c, _, now := newTestModule(t, nil)
 	p := setup(t, m, c)

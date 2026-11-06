@@ -178,6 +178,49 @@ func (db *DB) StartSlidePuzzle(p SlidePuzzle, now time.Time) (SlidePuzzle, error
 	return p, nil
 }
 
+// migrateSlidePuzzles adds columns introduced after slide_puzzles was first
+// created, since CREATE TABLE IF NOT EXISTS leaves an older table untouched.
+func (db *DB) migrateSlidePuzzles() error {
+	rows, err := db.conn.Query(`PRAGMA table_info(slide_puzzles)`)
+	if err != nil {
+		return fmt.Errorf("failed to check slide_puzzles schema: %w", err)
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan slide_puzzles schema: %w", err)
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read slide_puzzles schema: %w", err)
+	}
+	for _, col := range []string{"needs_redraw", "needs_refresh"} {
+		if have[col] {
+			continue
+		}
+		if _, err := db.conn.Exec(`ALTER TABLE slide_puzzles ADD COLUMN ` + col + ` INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add slide_puzzles.%s: %w", col, err)
+		}
+	}
+	return nil
+}
+
+// SetSlidePuzzleMessage points the puzzle at a new board message. An empty
+// messageID pauses the puzzle until a moderator runs setup again.
+func (db *DB) SetSlidePuzzleMessage(guildID, channelID, messageID string) error {
+	_, err := db.conn.Exec(`UPDATE slide_puzzles SET channel_id = ?, message_id = ? WHERE guild_id = ?`, channelID, messageID, guildID)
+	if err != nil {
+		return fmt.Errorf("failed to update slide puzzle message: %w", err)
+	}
+	return nil
+}
+
 // MarkSlidePuzzlePublished clears the pending redraw/refresh flags once the
 // board for round has been published. A later move (higher round) keeps its
 // own flags.

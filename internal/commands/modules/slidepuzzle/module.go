@@ -57,6 +57,7 @@ type store interface {
 	DueSlidePuzzles(now time.Time) ([]database.SlidePuzzle, error)
 	AddSlidePuzzleImage(guildID, name string, data []byte, addedBy string, now time.Time) (int64, error)
 	SlidePuzzleImageIDs(guildID string) ([]int64, error)
+	SetSlidePuzzleMessage(guildID, channelID, messageID string) error
 	GetSlidePuzzleImage(guildID string, id int64) ([]byte, bool, error)
 }
 
@@ -422,9 +423,11 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 	}
 	// Refresh from a fresh read, still under the lock, so an older snapshot
 	// can never overwrite a newer count, move or reset.
-	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && !cur.NeedsRedraw {
+	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && !cur.NeedsRedraw && cur.MessageID != "" {
 		if err := m.refreshBoardText(s, cur); err != nil {
-			m.config.Logger.Warnf("slide puzzle: refresh board %s: %v", cur.MessageID, err)
+			if recovered, rerr := m.recoverBoard(&cur, err); !recovered || rerr != nil {
+				m.config.Logger.Warnf("slide puzzle: refresh board %s: %v", cur.MessageID, errors.Join(err, rerr))
+			}
 		}
 	}
 }
@@ -752,11 +755,72 @@ func (m *Module) refreshBoardText(s *discordgo.Session, p database.SlidePuzzle) 
 
 // publishText refreshes the board text and clears the pending-refresh flag.
 // On failure the flag stays set and the next tick retries.
-func (m *Module) publishText(p database.SlidePuzzle) error {
-	if err := m.refreshBoardText(m.session, p); err != nil {
+func (m *Module) publishText(p *database.SlidePuzzle) error {
+	if err := m.refreshBoardText(m.session, *p); err != nil {
+		if recovered, rerr := m.recoverBoard(p, err); recovered {
+			return rerr
+		}
 		return fmt.Errorf("refresh board text (will retry): %w", err)
 	}
 	return m.store.MarkSlidePuzzleRefreshed(p.GuildID, p.Round)
+}
+
+// discordCode returns the Discord JSON error code of a REST error, or 0.
+func discordCode(err error) int {
+	var restErr *discordgo.RESTError
+	if errors.As(err, &restErr) && restErr.Message != nil {
+		return restErr.Message.Code
+	}
+	return 0
+}
+
+// recoverBoard handles a board message that no longer exists. If the message
+// was deleted, a fresh board is posted in the same channel so the puzzle keeps
+// going. If the channel is gone, the puzzle is paused (no board message) until
+// a moderator runs setup somewhere else. It reports whether err was one of
+// those cases; p is updated to the new message on success.
+func (m *Module) recoverBoard(p *database.SlidePuzzle, err error) (bool, error) {
+	switch discordCode(err) {
+	case discordgo.ErrCodeUnknownMessage:
+	case discordgo.ErrCodeUnknownChannel:
+		return true, m.pauseBoard(p)
+	default:
+		return false, nil
+	}
+	img, err := m.renderPuzzle(*p)
+	if err != nil {
+		return true, err
+	}
+	msg, err := m.ops.SendMessage(m.session, p.ChannelID, &discordgo.MessageSend{
+		Embeds:          []*discordgo.MessageEmbed{boardEmbed(*p)},
+		Components:      boardComponents(*p),
+		Files:           []*discordgo.File{{Name: boardFile, ContentType: "image/jpeg", Reader: bytes.NewReader(img)}},
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	})
+	if err != nil {
+		if discordCode(err) == discordgo.ErrCodeUnknownChannel {
+			return true, m.pauseBoard(p)
+		}
+		return true, fmt.Errorf("repost deleted board (will retry): %w", err)
+	}
+	if err := m.store.SetSlidePuzzleMessage(p.GuildID, msg.ChannelID, msg.ID); err != nil {
+		if derr := m.ops.DeleteMessage(m.session, msg.ChannelID, msg.ID); derr != nil {
+			m.config.Logger.Warnf("slide puzzle: delete unsaved board %s: %v", msg.ID, derr)
+		}
+		return true, err
+	}
+	m.config.Logger.Infof("slide puzzle: board in guild %s was deleted, reposted as %s", p.GuildID, msg.ID)
+	p.ChannelID, p.MessageID = msg.ChannelID, msg.ID
+	return true, m.store.MarkSlidePuzzlePublished(p.GuildID, p.Round)
+}
+
+func (m *Module) pauseBoard(p *database.SlidePuzzle) error {
+	m.config.Logger.Warnf("slide puzzle: channel %s for guild %s is gone; pausing until setup is run again", p.ChannelID, p.GuildID)
+	if err := m.store.SetSlidePuzzleMessage(p.GuildID, p.ChannelID, ""); err != nil {
+		return err
+	}
+	p.MessageID = ""
+	return nil
 }
 
 // redrawBoard re-renders the board image after a move.
@@ -809,16 +873,16 @@ func (m *Module) resolveRound(guildID string) error {
 	}
 	switch {
 	case p.NeedsRedraw:
-		if err := m.publish(p); err != nil {
+		if err := m.publish(&p); err != nil {
 			return err
 		}
 	case p.NeedsRefresh:
-		if err := m.publishText(p); err != nil {
+		if err := m.publishText(&p); err != nil {
 			return err
 		}
 	}
 	now := m.now()
-	if p.Solved || now.Before(p.RoundEnds) {
+	if p.MessageID == "" || p.Solved || now.Before(p.RoundEnds) {
 		return nil
 	}
 	roundLen := m.config.ForGuild(guildID).GetSlidePuzzleRoundDuration()
@@ -832,7 +896,7 @@ func (m *Module) resolveRound(guildID string) error {
 		if err := m.store.ExtendSlidePuzzleRound(guildID, p.Round, p.RoundEnds); err != nil {
 			return err
 		}
-		return m.publishText(p)
+		return m.publishText(&p)
 	}
 
 	board, _ := applyMove(p.Board, p.Grid, tile)
@@ -846,13 +910,16 @@ func (m *Module) resolveRound(guildID string) error {
 	p.Board, p.Solved, p.RoundEnds = board, solved, now.Add(roundLen)
 	p.Round++
 	p.TotalMoves++
-	return m.publish(p)
+	return m.publish(&p)
 }
 
 // publish redraws the board image and clears the pending-redraw flag. On
 // failure the flag stays set and the next tick retries.
-func (m *Module) publish(p database.SlidePuzzle) error {
-	if err := m.redrawBoard(m.session, p); err != nil {
+func (m *Module) publish(p *database.SlidePuzzle) error {
+	if err := m.redrawBoard(m.session, *p); err != nil {
+		if recovered, rerr := m.recoverBoard(p, err); recovered {
+			return rerr
+		}
 		return fmt.Errorf("redraw board (will retry): %w", err)
 	}
 	return m.store.MarkSlidePuzzlePublished(p.GuildID, p.Round)

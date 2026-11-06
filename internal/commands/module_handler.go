@@ -20,6 +20,7 @@ import (
 	"gamerpal/internal/commands/modules/say"
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/score"
+	"gamerpal/internal/commands/modules/slidepuzzle"
 	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/userstats"
@@ -114,6 +115,7 @@ func (h *ModuleHandler) registerModules() {
 		{"trickortreat", trickortreat.New(h.deps)},
 		{"msgsearch", msgsearch.New(h.deps)},
 		{"eventfeed", eventfeed.New(h.deps)},
+		{"slidepuzzle", slidepuzzle.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -203,6 +205,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Trick-or-treat interaction received but trickortreat module not available")
 		}
+	case strings.HasPrefix(cid, "sp:"):
+		if spMod, ok := h.GetModule("slidepuzzle").(*slidepuzzle.Module); ok {
+			spMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Slide puzzle interaction received but slidepuzzle module not available")
+		}
 	case strings.HasPrefix(cid, "scamguard:"):
 		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
 			scamMod.HandleComponent(s, i)
@@ -226,6 +234,14 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 			cfgMod.HandleModalSubmit(s, i)
 		} else {
 			h.config.Logger.Warn("Config modal submit received but config module not available")
+		}
+		return
+	}
+	if strings.HasPrefix(i.ModalSubmitData().CustomID, "sp:") {
+		if spMod, ok := h.GetModule("slidepuzzle").(*slidepuzzle.Module); ok {
+			spMod.HandleModalSubmit(s, i)
+		} else {
+			h.config.Logger.Warn("Slide puzzle modal submit received but slidepuzzle module not available")
 		}
 		return
 	}

@@ -483,6 +483,39 @@ func (gc *GuildConfig) GetTrickOrTreatCandyPerClaim() int {
 	return n
 }
 
+// Slide puzzle
+// -----
+
+// Slide puzzle grid bounds. The grid is GridSize x GridSize tiles.
+const (
+	SlidePuzzleMinGrid     = 2
+	SlidePuzzleMaxGrid     = 8
+	slidePuzzleDefaultGrid = 5
+	// SlidePuzzleMinRound is the shortest allowed voting round.
+	SlidePuzzleMinRound     = time.Minute
+	slidePuzzleDefaultRound = 8 * time.Hour
+)
+
+// GetSlidePuzzleGridSize returns the tiles per side used when a puzzle is set
+// up or reset. Out-of-range values fall back to the default of 5.
+func (gc *GuildConfig) GetSlidePuzzleGridSize() int {
+	n, ok := gc.resolveInt(KeySlidePuzzleGridSize)
+	if !ok || n < SlidePuzzleMinGrid || n > SlidePuzzleMaxGrid {
+		return slidePuzzleDefaultGrid
+	}
+	return n
+}
+
+// GetSlidePuzzleRoundDuration returns how long each voting round lasts before
+// the top-voted move is made. Values under a minute fall back to 8h.
+func (gc *GuildConfig) GetSlidePuzzleRoundDuration() time.Duration {
+	d := gc.resolveDuration(KeySlidePuzzleRoundDuration)
+	if d < SlidePuzzleMinRound {
+		return slidePuzzleDefaultRound
+	}
+	return d
+}
+
 // splitTrimCSV splits a comma-separated string, trimming entries and dropping
 // empties. Returns nil when nothing remains.
 func splitTrimCSV(s string) []string {

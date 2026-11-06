@@ -44,7 +44,13 @@ func (h *ModuleHandler) CollectConfigSettings() *config.Registry {
 			out = append(out, s)
 		}
 	}
-	return config.NewRegistry(out)
+	var actions []config.Action
+	for _, name := range names {
+		if ap, ok := h.modules[name].(config.ActionProvider); ok {
+			actions = append(actions, ap.ConfigActions()...)
+		}
+	}
+	return config.NewRegistry(out).WithActions(actions)
 }
 
 type namedProvider struct {

@@ -178,6 +178,22 @@ func (m *Module) renderCategory(guildID string, cat config.Category, note string
 		}
 	}
 
+	var actionBtns []discordgo.MessageComponent
+	for _, a := range reg.ActionsByCategory(cat) {
+		actionBtns = append(actionBtns, discordgo.Button{
+			Label:    truncate(a.Label, 80),
+			Style:    discordgo.SecondaryButton,
+			CustomID: a.CustomID,
+		})
+		if len(actionBtns) == maxButtonsPerRow {
+			inner = append(inner, discordgo.ActionsRow{Components: actionBtns})
+			actionBtns = nil
+		}
+	}
+	if len(actionBtns) > 0 {
+		inner = append(inner, discordgo.ActionsRow{Components: actionBtns})
+	}
+
 	var navBtns []discordgo.MessageComponent
 	if hasModalFields {
 		navBtns = append(navBtns, discordgo.Button{
@@ -283,7 +299,7 @@ func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.Interact
 				Style:       discordgo.TextInputShort,
 				Value:       raw,
 				Placeholder: placeholderFor(st),
-				Required:    false,
+				Required:    new(false),
 				MaxLength:   200,
 			}},
 		})

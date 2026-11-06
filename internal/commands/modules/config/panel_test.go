@@ -49,6 +49,12 @@ func productionLikeRegistry() *config.Registry {
 		{Key: config.KeyEventFeedChannelID, Category: config.CategoryMisc, Label: "Event Feed", Kind: config.KindChannel},
 		{Key: config.Key1984LogChannelID, Category: config.CategoryMisc, Label: "1984 Log", Kind: config.KindChannel},
 		{Key: config.KeyTranslateLanguage, Category: config.CategoryMisc, Label: "Translate", Kind: config.KindEnum, EnumOptions: translate, Default: "random"},
+
+		{Key: config.KeySlidePuzzleGridSize, Category: config.CategorySlidePuzzle, Label: "Grid size", Kind: config.KindInt, Default: 5},
+		{Key: config.KeySlidePuzzleRoundDuration, Category: config.CategorySlidePuzzle, Label: "Round", Kind: config.KindDuration, Default: "8h"},
+	}).WithActions([]config.Action{
+		{Category: config.CategorySlidePuzzle, Label: "Reset puzzle", CustomID: "sp:reset"},
+		{Category: config.CategorySlidePuzzle, Label: "Upload image", CustomID: "sp:upload"},
 	})
 }
 
@@ -304,5 +310,38 @@ func TestSplitCSVAndTruncate(t *testing.T) {
 	}
 	if truncate("abc", 10) != "abc" {
 		t.Errorf("truncate should leave short strings unchanged")
+	}
+}
+
+func TestCategoryActionButtons(t *testing.T) {
+	m := newTestModule()
+	data := m.renderCategory("guild1", config.CategorySlidePuzzle, "")
+	container := data.Components[0].(discordgo.Container)
+	var ids []string
+	for _, c := range container.Components {
+		row, ok := c.(discordgo.ActionsRow)
+		if !ok {
+			continue
+		}
+		for _, inner := range row.Components {
+			if b, ok := inner.(discordgo.Button); ok {
+				ids = append(ids, b.CustomID)
+			}
+		}
+	}
+	want := []string{"sp:reset", "sp:upload", editID(string(config.CategorySlidePuzzle)), customIDPrefix + actHome}
+	if len(ids) != len(want) {
+		t.Fatalf("buttons = %v, want %v", ids, want)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Fatalf("buttons = %v, want %v", ids, want)
+		}
+	}
+
+	// A category with only actions still shows on the home panel.
+	reg := config.NewRegistry(nil).WithActions([]config.Action{{Category: config.CategorySlidePuzzle, Label: "x", CustomID: "sp:x"}})
+	if cats := reg.Categories(); len(cats) != 1 || cats[0] != config.CategorySlidePuzzle {
+		t.Fatalf("categories = %v", cats)
 	}
 }

@@ -60,6 +60,9 @@ const (
 	KeyTrickOrTreatChannels      = "trick_or_treat_channels"
 	KeyTrickOrTreatSpawnInterval = "trick_or_treat_spawn_interval"
 	KeyTrickOrTreatCandyPerClaim = "trick_or_treat_candy_per_claim"
+
+	KeySlidePuzzleGridSize      = "slide_puzzle_grid_size"
+	KeySlidePuzzleRoundDuration = "slide_puzzle_round_duration"
 )
 
 // Kind is the value type of a setting. The config panel maps each Kind onto the
@@ -92,6 +95,7 @@ const (
 	CategoryAgent        Category = "Agent"
 	CategoryTrickOrTreat Category = "Trick or Treat"
 	CategoryEvents       Category = "Events"
+	CategorySlidePuzzle  Category = "Slide Puzzle"
 	CategoryMisc         Category = "Moderation & Misc"
 )
 
@@ -105,6 +109,7 @@ var categoryOrder = []Category{
 	CategoryAgent,
 	CategoryTrickOrTreat,
 	CategoryEvents,
+	CategorySlidePuzzle,
 	CategoryMisc,
 }
 
@@ -137,11 +142,47 @@ type ConfigProvider interface {
 	ConfigSettings() []Setting
 }
 
+// Action is a UI-agnostic descriptor for a one-shot button in a category panel
+// (e.g. "Reset puzzle"). The panel renders it as a button with CustomID; the
+// owning module routes and handles the click (and must check permissions).
+type Action struct {
+	Category Category
+	Label    string
+	CustomID string
+}
+
+// ActionProvider is implemented by components that add action buttons to the
+// config panel. Like ConfigProvider, it is opt-in by declaring the method.
+type ActionProvider interface {
+	ConfigActions() []Action
+}
+
 // Registry is the collected set of all declared settings. It is the single
 // source of truth the config panel renders from.
 type Registry struct {
 	settings []Setting
 	byKey    map[string]Setting
+	actions  []Action
+}
+
+// WithActions records the panel action buttons and returns the registry.
+func (r *Registry) WithActions(actions []Action) *Registry {
+	r.actions = actions
+	return r
+}
+
+// ActionsByCategory returns the action buttons in a category, in registration order.
+func (r *Registry) ActionsByCategory(c Category) []Action {
+	if r == nil {
+		return nil
+	}
+	var out []Action
+	for _, a := range r.actions {
+		if a.Category == c {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // NewRegistry builds a Registry from settings already de-duplicated by the
@@ -182,6 +223,9 @@ func (r *Registry) Categories() []Category {
 	for _, s := range r.settings {
 		present[s.Category] = true
 	}
+	for _, a := range r.actions {
+		present[a.Category] = true
+	}
 	var out []Category
 	for _, c := range categoryOrder {
 		if present[c] {
@@ -193,6 +237,12 @@ func (r *Registry) Categories() []Category {
 		if present[s.Category] {
 			out = append(out, s.Category)
 			delete(present, s.Category)
+		}
+	}
+	for _, a := range r.actions {
+		if present[a.Category] {
+			out = append(out, a.Category)
+			delete(present, a.Category)
 		}
 	}
 	return out

@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/Henry-Sarabia/igdb/v2 v2.0.0-alpha.4
 	github.com/MakeNowJust/heredoc v1.0.0
-	github.com/bwmarrin/discordgo v0.29.0
+	github.com/bwmarrin/discordgo v0.29.1-0.20260214123928-f43dd94faaac
 	github.com/charmbracelet/log v0.4.2
 	github.com/corona10/goimagehash v1.1.0
 	github.com/github/copilot-sdk/go v1.0.0-beta.8
@@ -57,7 +57,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect
 	go.uber.org/multierr v1.9.0 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.38.0 // indirect

@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS slide_puzzles (
 	total_moves INTEGER NOT NULL DEFAULT 0,
 	solved      INTEGER NOT NULL DEFAULT 0,
 	needs_redraw INTEGER NOT NULL DEFAULT 0,
+	needs_refresh INTEGER NOT NULL DEFAULT 0,
 	updated_at  INTEGER NOT NULL
 );
 
@@ -77,6 +78,9 @@ type SlidePuzzle struct {
 	// NeedsRedraw is set when the board changed but the new image has not
 	// been published to Discord yet.
 	NeedsRedraw bool
+	// NeedsRefresh is set when the board text (timer/counters) changed
+	// without a move and the edit has not been published yet.
+	NeedsRefresh bool
 }
 
 func encodeBoard(b []int) string {
@@ -100,15 +104,15 @@ func decodeBoard(s string) ([]int, error) {
 	return out, nil
 }
 
-const slidePuzzleColumns = `guild_id, channel_id, message_id, image_id, grid, board, round, round_ends, total_votes, total_moves, solved, needs_redraw`
+const slidePuzzleColumns = `guild_id, channel_id, message_id, image_id, grid, board, round, round_ends, total_votes, total_moves, solved, needs_redraw, needs_refresh`
 
 func scanSlidePuzzle(row interface{ Scan(...any) error }) (SlidePuzzle, error) {
 	var p SlidePuzzle
 	var board string
 	var ends int64
-	var solved, redraw int
+	var solved, redraw, refresh int
 	if err := row.Scan(&p.GuildID, &p.ChannelID, &p.MessageID, &p.ImageID, &p.Grid, &board,
-		&p.Round, &ends, &p.TotalVotes, &p.TotalMoves, &solved, &redraw); err != nil {
+		&p.Round, &ends, &p.TotalVotes, &p.TotalMoves, &solved, &redraw, &refresh); err != nil {
 		return SlidePuzzle{}, err
 	}
 	b, err := decodeBoard(board)
@@ -119,6 +123,7 @@ func scanSlidePuzzle(row interface{ Scan(...any) error }) (SlidePuzzle, error) {
 	p.RoundEnds = time.Unix(ends, 0)
 	p.Solved = solved != 0
 	p.NeedsRedraw = redraw != 0
+	p.NeedsRefresh = refresh != 0
 	return p, nil
 }
 
@@ -159,7 +164,7 @@ func (db *DB) StartSlidePuzzle(p SlidePuzzle, now time.Time) (SlidePuzzle, error
 		ON CONFLICT(guild_id) DO UPDATE SET
 			channel_id = excluded.channel_id, message_id = excluded.message_id, image_id = excluded.image_id,
 			grid = excluded.grid, board = excluded.board, round = excluded.round, round_ends = excluded.round_ends,
-			total_votes = 0, total_moves = 0, solved = 0, needs_redraw = 0, updated_at = excluded.updated_at`,
+			total_votes = 0, total_moves = 0, solved = 0, needs_redraw = 0, needs_refresh = 0, updated_at = excluded.updated_at`,
 		p.GuildID, p.ChannelID, p.MessageID, p.ImageID, p.Grid, encodeBoard(p.Board), p.Round, p.RoundEnds.Unix(), now.Unix(),
 	); err != nil {
 		return SlidePuzzle{}, fmt.Errorf("failed to save slide puzzle: %w", err)
@@ -173,12 +178,22 @@ func (db *DB) StartSlidePuzzle(p SlidePuzzle, now time.Time) (SlidePuzzle, error
 	return p, nil
 }
 
-// MarkSlidePuzzlePublished clears the pending-redraw flag once the board for
-// round has been published. A later move (higher round) keeps its own flag.
+// MarkSlidePuzzlePublished clears the pending redraw/refresh flags once the
+// board for round has been published. A later move (higher round) keeps its
+// own flags.
 func (db *DB) MarkSlidePuzzlePublished(guildID string, round int64) error {
-	_, err := db.conn.Exec(`UPDATE slide_puzzles SET needs_redraw = 0 WHERE guild_id = ? AND round = ?`, guildID, round)
+	_, err := db.conn.Exec(`UPDATE slide_puzzles SET needs_redraw = 0, needs_refresh = 0 WHERE guild_id = ? AND round = ?`, guildID, round)
 	if err != nil {
 		return fmt.Errorf("failed to mark slide puzzle published: %w", err)
+	}
+	return nil
+}
+
+// MarkSlidePuzzleRefreshed clears the pending text-refresh flag for round.
+func (db *DB) MarkSlidePuzzleRefreshed(guildID string, round int64) error {
+	_, err := db.conn.Exec(`UPDATE slide_puzzles SET needs_refresh = 0 WHERE guild_id = ? AND round = ?`, guildID, round)
+	if err != nil {
+		return fmt.Errorf("failed to mark slide puzzle refreshed: %w", err)
 	}
 	return nil
 }
@@ -280,9 +295,10 @@ func (db *DB) AdvanceSlidePuzzle(guildID string, round int64, board []int, solve
 	return tx.Commit()
 }
 
-// ExtendSlidePuzzleRound pushes back the deadline of a round that got no votes.
+// ExtendSlidePuzzleRound pushes back the deadline of a round that got no votes
+// and flags the board text for refresh until MarkSlidePuzzleRefreshed.
 func (db *DB) ExtendSlidePuzzleRound(guildID string, round int64, roundEnds time.Time) error {
-	_, err := db.conn.Exec(`UPDATE slide_puzzles SET round_ends = ? WHERE guild_id = ? AND round = ?`,
+	_, err := db.conn.Exec(`UPDATE slide_puzzles SET round_ends = ?, needs_refresh = 1 WHERE guild_id = ? AND round = ?`,
 		roundEnds.Unix(), guildID, round)
 	if err != nil {
 		return fmt.Errorf("failed to extend slide puzzle round: %w", err)
@@ -294,7 +310,7 @@ func (db *DB) ExtendSlidePuzzleRound(guildID string, round int64, roundEnds time
 // unsolved round has ended, or a board update has not been published yet.
 func (db *DB) DueSlidePuzzles(now time.Time) ([]SlidePuzzle, error) {
 	rows, err := db.conn.Query(`SELECT `+slidePuzzleColumns+` FROM slide_puzzles
-		WHERE message_id != '' AND (needs_redraw = 1 OR (solved = 0 AND round_ends <= ?))`, now.Unix())
+		WHERE message_id != '' AND (needs_redraw = 1 OR needs_refresh = 1 OR (solved = 0 AND round_ends <= ?))`, now.Unix())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list due slide puzzles: %w", err)
 	}

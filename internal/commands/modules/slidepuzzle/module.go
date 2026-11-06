@@ -48,6 +48,7 @@ type store interface {
 	GetSlidePuzzle(guildID string) (database.SlidePuzzle, bool, error)
 	StartSlidePuzzle(p database.SlidePuzzle, now time.Time) (database.SlidePuzzle, error)
 	MarkSlidePuzzlePublished(guildID string, round int64) error
+	MarkSlidePuzzleRefreshed(guildID string, round int64) error
 	CastSlidePuzzleVote(guildID string, round int64, userID string, tile int, now time.Time) (int, bool, error)
 	SlidePuzzleUserVote(guildID string, round int64, userID string) (int, bool, error)
 	SlidePuzzleTally(guildID string, round int64) (map[int]int, error)
@@ -386,79 +387,89 @@ func (m *Module) handleVoteButton(s *discordgo.Session, i *discordgo.Interaction
 	})
 }
 
-// handlePick records a vote from the tile menu.
+// handlePick records a vote from the tile menu. The interaction is deferred
+// before taking the guild lock (which may be held during slow Discord calls),
+// and every result is delivered by editing the deferred response.
 func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate, roundStr string) {
 	var round int64
 	if _, err := fmt.Sscan(roundStr, &round); err != nil {
-		m.respondEphemeral(s, i, "❌ That vote menu is broken. Click Vote again.")
+		m.updateEphemeral(s, i, "❌ That vote menu is broken. Click Vote again.")
 		return
 	}
 	vals := i.MessageComponentData().Values
+	var tile int
 	if len(vals) != 1 {
-		m.respondEphemeral(s, i, "❌ Pick one tile.")
+		m.updateEphemeral(s, i, "❌ Pick one tile.")
 		return
 	}
-	var tile int
 	if _, err := fmt.Sscan(vals[0], &tile); err != nil {
-		m.respondEphemeral(s, i, "❌ Pick one tile.")
+		m.updateEphemeral(s, i, "❌ Pick one tile.")
+		return
+	}
+	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredMessageUpdate}); err != nil {
+		m.config.Logger.Warnf("slide puzzle: defer vote: %v", err)
 		return
 	}
 
 	lock := m.guildLock(i.GuildID)
 	lock.Lock()
-	p, ok, err := m.store.GetSlidePuzzle(i.GuildID)
-	if err != nil || !ok {
-		lock.Unlock()
-		m.updateEphemeral(s, i, "❌ Could not load the puzzle. Try again in a moment.")
-		return
-	}
-	if p.Round != round || p.Solved {
-		lock.Unlock()
-		m.updateEphemeral(s, i, "⌛ That round is over. Click Vote on the puzzle to vote in the current one.")
-		return
-	}
-	if _, movable := applyMove(p.Board, p.Grid, tile); !movable {
-		lock.Unlock()
-		m.updateEphemeral(s, i, "❌ That tile can't move right now. Click Vote again.")
-		return
-	}
-	got, inserted, err := m.store.CastSlidePuzzleVote(i.GuildID, round, userID(i), tile, m.now())
-	if errors.Is(err, database.ErrSlidePuzzleStale) {
-		lock.Unlock()
-		m.updateEphemeral(s, i, "⌛ That round is over. Click Vote on the puzzle to vote in the current one.")
-		return
-	}
-	if errors.Is(err, database.ErrSlidePuzzleRoundClosed) {
-		lock.Unlock()
-		m.updateEphemeral(s, i, roundClosedMsg)
-		return
-	}
-	if err != nil {
-		lock.Unlock()
-		m.config.Logger.Errorf("slide puzzle: cast vote: %v", err)
-		m.updateEphemeral(s, i, "❌ Could not save your vote. Try again in a moment.")
-		return
-	}
-	if !inserted {
-		lock.Unlock()
-		m.updateEphemeral(s, i, fmt.Sprintf("🗳️ You already voted for tile **%d** this round.", got))
-		return
-	}
-	lock.Unlock()
-
-	m.updateEphemeral(s, i, fmt.Sprintf("✅ Vote locked in for tile **%d** (slides %s). The top move happens <t:%d:R>.",
-		tile, moveDirection(p.Board, p.Grid, tile), p.RoundEnds.Unix()))
-
-	// Refresh from a fresh read under the lock so an older snapshot can never
-	// overwrite a newer count, move or reset.
-	lock.Lock()
 	defer lock.Unlock()
-	if cur, ok, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && ok && cur.Round == round && !cur.NeedsRedraw {
-		m.refreshBoardText(s, cur)
+
+	result, ok := m.castVote(i, round, tile)
+	m.editEphemeral(s, i, result)
+	if !ok {
+		return
+	}
+	// Refresh from a fresh read, still under the lock, so an older snapshot
+	// can never overwrite a newer count, move or reset.
+	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && !cur.NeedsRedraw {
+		if err := m.refreshBoardText(s, cur); err != nil {
+			m.config.Logger.Warnf("slide puzzle: refresh board %s: %v", cur.MessageID, err)
+		}
 	}
 }
 
-const roundClosedMsg = "⌛ Voting for this round has closed. The move is being made now; vote again in the next round in a minute."
+// castVote validates and stores a vote. It returns the message for the voter
+// and whether a new vote was recorded. Callers hold the guild lock.
+func (m *Module) castVote(i *discordgo.InteractionCreate, round int64, tile int) (string, bool) {
+	p, ok, err := m.store.GetSlidePuzzle(i.GuildID)
+	if err != nil || !ok {
+		return "❌ Could not load the puzzle. Try again in a moment.", false
+	}
+	if p.Round != round || p.Solved {
+		return roundOverMsg, false
+	}
+	if _, movable := applyMove(p.Board, p.Grid, tile); !movable {
+		return "❌ That tile can't move right now. Click Vote again.", false
+	}
+	got, inserted, err := m.store.CastSlidePuzzleVote(i.GuildID, round, userID(i), tile, m.now())
+	switch {
+	case errors.Is(err, database.ErrSlidePuzzleStale):
+		return roundOverMsg, false
+	case errors.Is(err, database.ErrSlidePuzzleRoundClosed):
+		return roundClosedMsg, false
+	case err != nil:
+		m.config.Logger.Errorf("slide puzzle: cast vote: %v", err)
+		return "❌ Could not save your vote. Try again in a moment.", false
+	case !inserted:
+		return fmt.Sprintf("🗳️ You already voted for tile **%d** this round.", got), false
+	}
+	return fmt.Sprintf("✅ Vote locked in for tile **%d** (slides %s). The top move happens <t:%d:R>.",
+		tile, moveDirection(p.Board, p.Grid, tile), p.RoundEnds.Unix()), true
+}
+
+const (
+	roundOverMsg   = "⌛ That round is over. Click Vote on the puzzle to vote in the current one."
+	roundClosedMsg = "⌛ Voting for this round has closed. The move is being made now; vote again in the next round in a minute."
+)
+
+// editEphemeral replaces a deferred vote menu with a result message.
+func (m *Module) editEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
+	empty := []discordgo.MessageComponent{}
+	if err := m.ops.EditResponse(s, i.Interaction, &discordgo.WebhookEdit{Content: &content, Components: &empty}); err != nil {
+		m.config.Logger.Warnf("slide puzzle: edit vote response: %v", err)
+	}
+}
 
 // updateEphemeral replaces the ephemeral vote menu with a result message.
 func (m *Module) updateEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
@@ -732,13 +743,20 @@ func boardComponents(p database.SlidePuzzle) []discordgo.MessageComponent {
 
 // refreshBoardText updates the board's embed (counters and timer) without
 // re-uploading the image.
-func (m *Module) refreshBoardText(s *discordgo.Session, p database.SlidePuzzle) {
+func (m *Module) refreshBoardText(s *discordgo.Session, p database.SlidePuzzle) error {
 	embeds := []*discordgo.MessageEmbed{boardEmbed(p)}
-	if err := m.ops.EditMessage(s, &discordgo.MessageEdit{
+	return m.ops.EditMessage(s, &discordgo.MessageEdit{
 		Channel: p.ChannelID, ID: p.MessageID, Embeds: &embeds,
-	}); err != nil {
-		m.config.Logger.Warnf("slide puzzle: refresh board %s: %v", p.MessageID, err)
+	})
+}
+
+// publishText refreshes the board text and clears the pending-refresh flag.
+// On failure the flag stays set and the next tick retries.
+func (m *Module) publishText(p database.SlidePuzzle) error {
+	if err := m.refreshBoardText(m.session, p); err != nil {
+		return fmt.Errorf("refresh board text (will retry): %w", err)
 	}
+	return m.store.MarkSlidePuzzleRefreshed(p.GuildID, p.Round)
 }
 
 // redrawBoard re-renders the board image after a move.
@@ -789,8 +807,13 @@ func (m *Module) resolveRound(guildID string) error {
 	if err != nil || !ok || p.MessageID == "" {
 		return err
 	}
-	if p.NeedsRedraw {
+	switch {
+	case p.NeedsRedraw:
 		if err := m.publish(p); err != nil {
+			return err
+		}
+	case p.NeedsRefresh:
+		if err := m.publishText(p); err != nil {
 			return err
 		}
 	}
@@ -809,8 +832,7 @@ func (m *Module) resolveRound(guildID string) error {
 		if err := m.store.ExtendSlidePuzzleRound(guildID, p.Round, p.RoundEnds); err != nil {
 			return err
 		}
-		m.refreshBoardText(m.session, p)
-		return nil
+		return m.publishText(p)
 	}
 
 	board, _ := applyMove(p.Board, p.Grid, tile)

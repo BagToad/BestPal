@@ -172,14 +172,15 @@ func TestVoteOncePerRoundAndCounters(t *testing.T) {
 	tile := movable[0]
 
 	m.HandleComponent(m.session, click(menu.CustomID, "eph", "u1", 0, fmt.Sprint(tile)))
-	assert.Contains(t, lastContent(t, c), "Vote locked in")
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, c.responses[len(c.responses)-1].Type, "vote is deferred before taking the lock")
+	assert.Contains(t, lastEditContent(t, c), "Vote locked in")
 	edit := c.edits[len(c.edits)-1]
 	assert.Equal(t, "1", (*edit.Embeds)[0].Fields[0].Value, "total votes shown on the board")
 	assert.Nil(t, edit.Files, "a vote only refreshes text, not the image")
 
 	// Second vote from the same member is refused, both from the menu and the button.
 	m.HandleComponent(m.session, click(menu.CustomID, "eph", "u1", 0, fmt.Sprint(movable[1])))
-	assert.Contains(t, lastContent(t, c), "already voted for tile")
+	assert.Contains(t, lastEditContent(t, c), "already voted for tile")
 	m.HandleComponent(m.session, click(voteButtonID, p.MessageID, "u1", 0))
 	assert.Contains(t, lastContent(t, c), "already voted for tile")
 
@@ -190,7 +191,7 @@ func TestVoteOncePerRoundAndCounters(t *testing.T) {
 	for _, t2 := range p.Board {
 		if t2 != 0 && !contains(movable, t2) {
 			m.HandleComponent(m.session, click(menu.CustomID, "eph", "u2", 0, fmt.Sprint(t2)))
-			assert.Contains(t, lastContent(t, c), "can't move")
+			assert.Contains(t, lastEditContent(t, c), "can't move")
 			break
 		}
 	}
@@ -239,7 +240,7 @@ func TestRoundTickMakesTopMoveAndResetsVotes(t *testing.T) {
 
 	// Votes reset: u1 can vote again in the new round; the old menu is stale.
 	m.HandleComponent(m.session, click(pick, "eph", "u1", 0, fmt.Sprint(movable[0])))
-	assert.Contains(t, lastContent(t, c), "round is over")
+	assert.Contains(t, lastEditContent(t, c), "round is over")
 	tally, _ := m.store.SlidePuzzleTally("guild1", got.Round)
 	assert.Empty(t, tally)
 }
@@ -478,7 +479,7 @@ func TestVoteAfterDeadlineRejected(t *testing.T) {
 
 	*now = p.RoundEnds
 	m.HandleComponent(m.session, click(pick, "eph", "u1", 0, fmt.Sprint(movable[0])))
-	assert.Contains(t, lastContent(t, c), "has closed")
+	assert.Contains(t, lastEditContent(t, c), "has closed")
 	m.HandleComponent(m.session, click(voteButtonID, p.MessageID, "u2", 0))
 	assert.Contains(t, lastContent(t, c), "has closed")
 	tally, _ := m.store.SlidePuzzleTally("guild1", p.Round)
@@ -507,4 +508,31 @@ func TestConcurrentRenders(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestFailedExtendRefreshIsRetried(t *testing.T) {
+	m, c, db, now := newTestModule(t, nil)
+	p := setup(t, m, c)
+
+	*now = now.Add(8 * time.Hour)
+	c.editErr = fmt.Errorf("discord is down")
+	assert.Error(t, m.roundTick())
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.True(t, got.NeedsRefresh)
+	assert.Equal(t, p.Round, got.Round)
+
+	c.editErr = nil
+	*now = now.Add(time.Minute)
+	require.NoError(t, m.roundTick())
+	got, _, _ = db.GetSlidePuzzle("guild1")
+	assert.False(t, got.NeedsRefresh)
+	edit := c.edits[len(c.edits)-1]
+	assert.Nil(t, edit.Files, "a timer refresh doesn't re-upload the image")
+	assert.Contains(t, (*edit.Embeds)[0].Description, fmt.Sprintf("<t:%d:R>", got.RoundEnds.Unix()))
+
+	// Nothing pending: the next tick does nothing.
+	n := len(c.edits)
+	*now = now.Add(time.Minute)
+	require.NoError(t, m.roundTick())
+	assert.Len(t, c.edits, n)
 }

@@ -584,55 +584,121 @@ func TestFailedExtendRefreshIsRetried(t *testing.T) {
 	assert.Len(t, c.edits, n)
 }
 
+// fakeTimers records afterFunc calls, keeping round timers and vote redraw
+// timers apart by their delay.
+type fakeTimers struct {
+	mu      sync.Mutex
+	rounds  []time.Duration
+	fire    func()
+	redraws []func()
+}
+
+func (f *fakeTimers) afterFunc(d time.Duration, fn func()) *time.Timer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d == redrawDelay {
+		f.redraws = append(f.redraws, fn)
+	} else {
+		f.rounds, f.fire = append(f.rounds, d), fn
+	}
+	return time.NewTimer(time.Hour)
+}
+
+func (f *fakeTimers) flushRedraws() {
+	f.mu.Lock()
+	fns := f.redraws
+	f.redraws = nil
+	f.mu.Unlock()
+	for _, fn := range fns {
+		fn()
+	}
+}
+
 func TestRoundTimerFiresAtRoundEnd(t *testing.T) {
 	m, c, db, now := newTestModule(t, map[string]any{config.KeySlidePuzzleRoundDuration: "1m"})
-	var mu sync.Mutex
-	var delays []time.Duration
-	var fire func()
-	m.afterFunc = func(d time.Duration, f func()) *time.Timer {
-		mu.Lock()
-		defer mu.Unlock()
-		delays, fire = append(delays, d), f
-		return time.NewTimer(time.Hour)
-	}
+	ft := &fakeTimers{}
+	m.afterFunc = ft.afterFunc
 	p := setup(t, m, c)
-	require.Len(t, delays, 1)
-	assert.Equal(t, time.Minute+roundTimerSlack, delays[0], "armed for the exact round end")
+	require.Len(t, ft.rounds, 1)
+	assert.Equal(t, time.Minute+roundTimerSlack, ft.rounds[0], "armed for the exact round end")
 
 	movable := movableTiles(p.Board, p.Grid)
 	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movable[0])))
 
 	// The timer fires the move straight away, without waiting for the tick.
 	*now = now.Add(time.Minute)
-	fire()
+	ft.fire()
 	got, _, _ := db.GetSlidePuzzle("guild1")
 	assert.EqualValues(t, 1, got.TotalMoves)
-	require.Len(t, delays, 2, "re-armed for the next round")
-	assert.Equal(t, time.Minute+roundTimerSlack, delays[1])
+	require.Len(t, ft.rounds, 2, "re-armed for the next round")
+	assert.Equal(t, time.Minute+roundTimerSlack, ft.rounds[1])
 
 	// A round with no votes is extended and re-armed too.
 	*now = now.Add(time.Minute)
-	fire()
-	require.Len(t, delays, 3)
+	ft.fire()
+	require.Len(t, ft.rounds, 3)
 	got, _, _ = db.GetSlidePuzzle("guild1")
 	assert.EqualValues(t, 1, got.TotalMoves)
 
 	// After a restart every active puzzle is re-armed.
-	delays = nil
+	ft.rounds = nil
 	require.NoError(t, m.armAllRoundTimers())
-	assert.Len(t, delays, 1)
+	assert.Len(t, ft.rounds, 1)
+
+	// An overdue round is left to the minute tick instead of a tight timer.
+	ft.rounds = nil
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.armAllRoundTimers())
+	assert.Empty(t, ft.rounds)
 }
 
-func TestHelpButton(t *testing.T) {
-	m, c, _, _ := newTestModule(t, nil)
+func TestVoteBurstSharesOneRedraw(t *testing.T) {
+	m, c, db, _ := newTestModule(t, nil)
+	ft := &fakeTimers{}
+	m.afterFunc = ft.afterFunc
 	p := setup(t, m, c)
-	row := c.sent[0].Components[0].(discordgo.ActionsRow)
-	require.Len(t, row.Components, 2)
-	assert.Equal(t, helpButtonID, row.Components[1].(discordgo.Button).CustomID)
-	assert.NotContains(t, c.sent[0].Embeds[0].Description, "Slide the tiles")
+	movable := movableTiles(p.Board, p.Grid)
+	pick := fmt.Sprintf("%s%d", pickPrefix, p.Round)
+	editsBefore := len(c.edits)
+	for _, u := range []string{"u1", "u2", "u3"} {
+		m.HandleComponent(m.session, click(pick, "eph", u, 0, fmt.Sprint(movable[0])))
+	}
+	assert.Len(t, ft.redraws, 1, "one redraw scheduled for the burst")
+	assert.Len(t, c.edits, editsBefore, "votes don't wait on the image upload")
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.True(t, got.NeedsRedraw, "flag set with the vote so a lost redraw is retried")
 
-	m.HandleComponent(m.session, click(helpButtonID, p.MessageID, "u1", 0))
-	resp := c.responses[len(c.responses)-1]
-	assert.Equal(t, discordgo.MessageFlagsEphemeral, resp.Data.Flags)
-	assert.Contains(t, resp.Data.Content, "Slide the tiles back into place")
+	ft.flushRedraws()
+	require.Len(t, c.edits, editsBefore+1)
+	require.Len(t, c.edits[len(c.edits)-1].Files, 1)
+	got, _, _ = db.GetSlidePuzzle("guild1")
+	assert.False(t, got.NeedsRedraw)
+}
+
+func TestFailedVoteRedrawIsRetriedByTick(t *testing.T) {
+	m, c, db, _ := newTestModule(t, nil)
+	p := setup(t, m, c)
+	c.editErr = fmt.Errorf("discord is down")
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movableTiles(p.Board, p.Grid)[0])))
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	require.True(t, got.NeedsRedraw)
+
+	c.editErr = nil
+	require.NoError(t, m.roundTick())
+	got, _, _ = db.GetSlidePuzzle("guild1")
+	assert.False(t, got.NeedsRedraw)
+	assert.Equal(t, "1", (*c.edits[len(c.edits)-1].Embeds)[0].Fields[0].Value)
+}
+
+func TestResetUsesCurrentChannel(t *testing.T) {
+	m, c, db, _ := newTestModule(t, nil)
+	setup(t, m, c)
+	// The puzzle moved after the reset prompt was shown.
+	cur, _, _ := db.GetSlidePuzzle("guild1")
+	require.NoError(t, db.SetSlidePuzzleMessage("guild1", "chan2", cur.MessageID))
+
+	m.HandleComponent(m.session, click(resetConfirmID, "eph", "mod", modPerms))
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.Equal(t, "chan2", got.ChannelID)
+	assert.Contains(t, *c.responseEdits[len(c.responseEdits)-1].Content, "<#chan2>")
 }

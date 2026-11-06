@@ -132,6 +132,7 @@ type Module struct {
 	afterFunc func(d time.Duration, f func()) *time.Timer
 	timerMu   sync.Mutex
 	timers    map[string]*time.Timer
+	redraws   map[string]*time.Timer
 }
 
 // New creates the module.
@@ -146,6 +147,7 @@ func New(deps *types.Dependencies) *Module {
 
 		afterFunc: time.AfterFunc,
 		timers:    map[string]*time.Timer{},
+		redraws:   map[string]*time.Timer{},
 	}
 	if deps.DB != nil {
 		m.store = deps.DB
@@ -428,20 +430,54 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 
 	lock := m.guildLock(i.GuildID)
 	lock.Lock()
-	defer lock.Unlock()
-
 	result, ok := m.castVote(i, round, tile)
+	lock.Unlock()
 	m.editEphemeral(s, i, result)
-	if !ok {
+	if ok {
+		m.scheduleRedraw(i.GuildID)
+	}
+}
+
+// redrawDelay batches the board redraws for a burst of votes into one edit.
+const redrawDelay = 2 * time.Second
+
+// scheduleRedraw publishes the board (with fresh vote counts) shortly after a
+// vote. Votes arriving before it runs share the same redraw, so a busy round
+// doesn't queue one image upload per voter. If it fails, the needs_redraw flag
+// set with the vote makes the scheduler retry.
+func (m *Module) scheduleRedraw(guildID string) {
+	if m.afterFunc == nil {
+		m.flushRedraw(guildID)
 		return
 	}
-	// Redraw from a fresh read, still under the lock, so an older snapshot
-	// can never overwrite a newer count, move or reset. The image is redrawn
-	// so the tile vote counts stay current.
-	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && cur.MessageID != "" {
-		if err := m.publish(&cur); err != nil {
-			m.config.Logger.Warnf("slide puzzle: redraw board after vote: %v", err)
-		}
+	m.timerMu.Lock()
+	defer m.timerMu.Unlock()
+	if m.redraws == nil {
+		m.redraws = map[string]*time.Timer{}
+	}
+	if m.redraws[guildID] != nil {
+		return
+	}
+	m.redraws[guildID] = m.afterFunc(redrawDelay, func() {
+		m.timerMu.Lock()
+		delete(m.redraws, guildID)
+		m.timerMu.Unlock()
+		m.flushRedraw(guildID)
+	})
+}
+
+// flushRedraw publishes a pending board redraw from a fresh read under the
+// guild lock, so an older snapshot never overwrites a newer move or reset.
+func (m *Module) flushRedraw(guildID string) {
+	lock := m.guildLock(guildID)
+	lock.Lock()
+	defer lock.Unlock()
+	p, ok, err := m.store.GetSlidePuzzle(guildID)
+	if err != nil || !ok || !p.NeedsRedraw || p.MessageID == "" {
+		return
+	}
+	if err := m.publish(&p); err != nil {
+		m.config.Logger.Warnf("slide puzzle: redraw board after vote: %v", err)
 	}
 }
 
@@ -531,17 +567,14 @@ func (m *Module) handleResetConfirm(s *discordgo.Session, i *discordgo.Interacti
 		m.respondEphemeral(s, i, "❌ You need the Ban Members permission to reset the puzzle.")
 		return
 	}
-	p, ok, err := m.store.GetSlidePuzzle(i.GuildID)
-	if err != nil || !ok {
-		m.updateEphemeral(s, i, "❌ Could not load the puzzle.")
-		return
-	}
 	if err := m.ops.Respond(s, i.Interaction, &discordgo.InteractionResponse{Type: discordgo.InteractionResponseDeferredMessageUpdate}); err != nil {
 		m.config.Logger.Warnf("slide puzzle: defer reset: %v", err)
 		return
 	}
-	np, err := m.startPuzzle(s, i.GuildID, p.ChannelID, "🔄 This puzzle was reset.")
-	msg := fmt.Sprintf("✅ Reset! A new %dx%d puzzle is up in <#%s>.", np.Grid, np.Grid, p.ChannelID)
+	// An empty channel makes startPuzzle reuse the puzzle's current channel,
+	// read under the guild lock, so a concurrent setup that moved it wins.
+	np, err := m.startPuzzle(s, i.GuildID, "", "🔄 This puzzle was reset.")
+	msg := fmt.Sprintf("✅ Reset! A new %dx%d puzzle is up in <#%s>.", np.Grid, np.Grid, np.ChannelID)
 	if err != nil {
 		m.config.Logger.Errorf("slide puzzle: reset: %v", err)
 		msg = "❌ Could not reset the puzzle: " + err.Error()
@@ -654,6 +687,7 @@ func (m *Module) loadImageBytes(guildID string, id int64) ([]byte, error) {
 // startPuzzle shuffles a new board, posts it in channelID and only then
 // replaces the stored puzzle, so a failed post leaves the current puzzle
 // untouched. The previous board message (if any) is retired with retiredNote.
+// An empty channelID restarts the puzzle in its current channel.
 func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNote string) (database.SlidePuzzle, error) {
 	lock := m.guildLock(guildID)
 	lock.Lock()
@@ -662,6 +696,12 @@ func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNo
 	old, hadOld, err := m.store.GetSlidePuzzle(guildID)
 	if err != nil {
 		return database.SlidePuzzle{}, err
+	}
+	if channelID == "" {
+		if !hadOld {
+			return database.SlidePuzzle{}, errors.New("there's no puzzle to reset; run /slidepuzzle-setup first")
+		}
+		channelID = old.ChannelID
 	}
 	gc := m.config.ForGuild(guildID)
 	grid := gc.GetSlidePuzzleGridSize()
@@ -737,8 +777,14 @@ func (m *Module) armRoundTimer(p database.SlidePuzzle) {
 	if p.Solved || p.MessageID == "" {
 		return
 	}
+	d := p.RoundEnds.Sub(m.now())
+	if d <= 0 {
+		// Overdue (e.g. a resolution failed): leave the retry to the minute
+		// tick rather than spinning on a tight timer.
+		return
+	}
 	guildID := p.GuildID
-	d := max(0, p.RoundEnds.Sub(m.now())) + roundTimerSlack
+	d += roundTimerSlack
 	m.timers[guildID] = m.afterFunc(d, func() {
 		if err := m.resolveRound(guildID); err != nil {
 			m.config.Logger.Errorf("slide puzzle: resolve round for guild %s: %v", guildID, err)

@@ -244,7 +244,9 @@ func (db *DB) MarkSlidePuzzleRefreshed(guildID string, round int64) error {
 // CastSlidePuzzleVote records a member's vote for the given round. It returns
 // the existing tile and false when the member already voted this round,
 // ErrSlidePuzzleStale when the round has moved on or the puzzle is solved, and
-// ErrSlidePuzzleRoundClosed once the round's deadline has passed.
+// ErrSlidePuzzleRoundClosed once the round's deadline has passed. A new vote
+// flags the board for redraw (its tile counts changed) until
+// MarkSlidePuzzlePublished, so a failed or interrupted update is retried.
 func (db *DB) CastSlidePuzzleVote(guildID string, round int64, userID string, tile int, now time.Time) (int, bool, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
@@ -282,7 +284,7 @@ func (db *DB) CastSlidePuzzleVote(guildID string, round int64, userID string, ti
 		guildID, round, userID, tile, now.Unix()); err != nil {
 		return 0, false, fmt.Errorf("failed to record vote: %w", err)
 	}
-	if _, err := tx.Exec(`UPDATE slide_puzzles SET total_votes = total_votes + 1 WHERE guild_id = ?`, guildID); err != nil {
+	if _, err := tx.Exec(`UPDATE slide_puzzles SET total_votes = total_votes + 1, needs_redraw = 1 WHERE guild_id = ?`, guildID); err != nil {
 		return 0, false, fmt.Errorf("failed to bump vote total: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

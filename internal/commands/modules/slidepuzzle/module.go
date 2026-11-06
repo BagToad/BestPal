@@ -125,6 +125,12 @@ type Module struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+
+	// afterFunc schedules a round's resolution at its exact end time; the
+	// per-minute tick is only a fallback.
+	afterFunc func(d time.Duration, f func()) *time.Timer
+	timerMu   sync.Mutex
+	timers    map[string]*time.Timer
 }
 
 // New creates the module.
@@ -136,6 +142,9 @@ func New(deps *types.Dependencies) *Module {
 		now:     time.Now,
 		randN:   rand.IntN,
 		locks:   map[string]*sync.Mutex{},
+
+		afterFunc: time.AfterFunc,
+		timers:    map[string]*time.Timer{},
 	}
 	if deps.DB != nil {
 		m.store = deps.DB
@@ -698,7 +707,38 @@ func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNo
 			m.config.Logger.Warnf("slide puzzle: retire old board %s: %v", old.MessageID, err)
 		}
 	}
+	m.armRoundTimer(p)
 	return p, nil
+}
+
+// roundTimerSlack is added to each round timer so the deadline has definitely
+// passed when it fires.
+const roundTimerSlack = 500 * time.Millisecond
+
+// armRoundTimer (re)schedules resolution of p's round at its exact end time.
+func (m *Module) armRoundTimer(p database.SlidePuzzle) {
+	if m.afterFunc == nil {
+		return
+	}
+	m.timerMu.Lock()
+	defer m.timerMu.Unlock()
+	if m.timers == nil {
+		m.timers = map[string]*time.Timer{}
+	}
+	if t := m.timers[p.GuildID]; t != nil {
+		t.Stop()
+		delete(m.timers, p.GuildID)
+	}
+	if p.Solved || p.MessageID == "" {
+		return
+	}
+	guildID := p.GuildID
+	d := max(0, p.RoundEnds.Sub(m.now())) + roundTimerSlack
+	m.timers[guildID] = m.afterFunc(d, func() {
+		if err := m.resolveRound(guildID); err != nil {
+			m.config.Logger.Errorf("slide puzzle: resolve round for guild %s: %v", guildID, err)
+		}
+	})
 }
 
 func (m *Module) renderPuzzle(p database.SlidePuzzle) ([]byte, error) {
@@ -881,6 +921,9 @@ func (m *Module) resolveRound(guildID string) error {
 	if err != nil || !ok || p.MessageID == "" {
 		return err
 	}
+	// Whatever happens below, schedule the next resolution from p's final
+	// state (a new round, an extended one, or a pause).
+	defer func() { m.armRoundTimer(p) }()
 	switch {
 	case p.NeedsRedraw:
 		if err := m.publish(&p); err != nil {
@@ -948,11 +991,32 @@ func (s *Service) HydrateServiceDiscordSession(session *discordgo.Session) error
 		if err := s.m.roundTick(); err != nil {
 			s.m.config.Logger.Errorf("slide puzzle: startup round check failed: %v", err)
 		}
+		if err := s.m.armAllRoundTimers(); err != nil {
+			s.m.config.Logger.Errorf("slide puzzle: arm round timers: %v", err)
+		}
 	}()
 	return nil
 }
 
-// ScheduledFuncs checks for finished rounds every minute.
+// armAllRoundTimers schedules every active puzzle's round end after startup.
+func (m *Module) armAllRoundTimers() error {
+	if m.store == nil {
+		return nil
+	}
+	// Every active puzzle's deadline is before the far future, so this lists
+	// them all.
+	active, err := m.store.DueSlidePuzzles(m.now().AddDate(100, 0, 0))
+	if err != nil {
+		return err
+	}
+	for _, p := range active {
+		m.armRoundTimer(p)
+	}
+	return nil
+}
+
+// ScheduledFuncs checks for finished rounds every minute, as a fallback for
+// the exact per-round timers.
 func (s *Service) ScheduledFuncs() map[string]func() error {
 	return map[string]func() error{
 		"@every 1m": s.m.roundTick,

@@ -583,3 +583,42 @@ func TestFailedExtendRefreshIsRetried(t *testing.T) {
 	require.NoError(t, m.roundTick())
 	assert.Len(t, c.edits, n)
 }
+
+func TestRoundTimerFiresAtRoundEnd(t *testing.T) {
+	m, c, db, now := newTestModule(t, map[string]any{config.KeySlidePuzzleRoundDuration: "1m"})
+	var mu sync.Mutex
+	var delays []time.Duration
+	var fire func()
+	m.afterFunc = func(d time.Duration, f func()) *time.Timer {
+		mu.Lock()
+		defer mu.Unlock()
+		delays, fire = append(delays, d), f
+		return time.NewTimer(time.Hour)
+	}
+	p := setup(t, m, c)
+	require.Len(t, delays, 1)
+	assert.Equal(t, time.Minute+roundTimerSlack, delays[0], "armed for the exact round end")
+
+	movable := movableTiles(p.Board, p.Grid)
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movable[0])))
+
+	// The timer fires the move straight away, without waiting for the tick.
+	*now = now.Add(time.Minute)
+	fire()
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.EqualValues(t, 1, got.TotalMoves)
+	require.Len(t, delays, 2, "re-armed for the next round")
+	assert.Equal(t, time.Minute+roundTimerSlack, delays[1])
+
+	// A round with no votes is extended and re-armed too.
+	*now = now.Add(time.Minute)
+	fire()
+	require.Len(t, delays, 3)
+	got, _, _ = db.GetSlidePuzzle("guild1")
+	assert.EqualValues(t, 1, got.TotalMoves)
+
+	// After a restart every active puzzle is re-armed.
+	delays = nil
+	require.NoError(t, m.armAllRoundTimers())
+	assert.Len(t, delays, 1)
+}

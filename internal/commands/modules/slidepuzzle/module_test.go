@@ -622,3 +622,17 @@ func TestRoundTimerFiresAtRoundEnd(t *testing.T) {
 	require.NoError(t, m.armAllRoundTimers())
 	assert.Len(t, delays, 1)
 }
+
+func TestHelpButton(t *testing.T) {
+	m, c, _, _ := newTestModule(t, nil)
+	p := setup(t, m, c)
+	row := c.sent[0].Components[0].(discordgo.ActionsRow)
+	require.Len(t, row.Components, 2)
+	assert.Equal(t, helpButtonID, row.Components[1].(discordgo.Button).CustomID)
+	assert.NotContains(t, c.sent[0].Embeds[0].Description, "Slide the tiles")
+
+	m.HandleComponent(m.session, click(helpButtonID, p.MessageID, "u1", 0))
+	resp := c.responses[len(c.responses)-1]
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, resp.Data.Flags)
+	assert.Contains(t, resp.Data.Content, "Slide the tiles back into place")
+}

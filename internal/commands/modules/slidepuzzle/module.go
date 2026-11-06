@@ -30,6 +30,7 @@ var defaultImage []byte
 const (
 	prefix          = "sp:"
 	voteButtonID    = prefix + "vote"
+	helpButtonID    = prefix + "help"
 	pickPrefix      = prefix + "pick:"
 	resetButtonID   = prefix + "reset"
 	resetConfirmID  = prefix + "reset-confirm"
@@ -310,6 +311,10 @@ func (m *Module) handleSetup(s *discordgo.Session, i *discordgo.InteractionCreat
 
 // HandleComponent routes sp: buttons and selects.
 func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.MessageComponentData().CustomID == helpButtonID {
+		m.respondEphemeral(s, i, helpText)
+		return
+	}
 	if m.store == nil {
 		m.respondEphemeral(s, i, "❌ Database is unavailable.")
 		return
@@ -779,11 +784,12 @@ func boardEmbed(p database.SlidePuzzle) *discordgo.MessageEmbed {
 		e.Description = fmt.Sprintf("🎉 **Solved!** The picture is complete after %d moves and %d votes. Nice teamwork!", p.TotalMoves, p.TotalVotes)
 		return e
 	}
-	e.Description = "Slide the tiles back into place, together! Hit **Vote** and pick a numbered tile next to the gap. " +
-		"When the round ends, the most-voted tile slides into the gap (ties are a coin flip). One vote per person per round.\n\n" +
-		fmt.Sprintf("⏳ **Next move:** <t:%d:R>", p.RoundEnds.Unix())
+	e.Description = fmt.Sprintf("⏳ **Next move:** <t:%d:R>", p.RoundEnds.Unix())
 	return e
 }
+
+const helpText = "Slide the tiles back into place, together! Hit **Vote** and pick a numbered tile next to the gap. " +
+	"When the round ends, the most-voted tile slides into the gap (ties are a coin flip). One vote per person per round."
 
 func boardComponents(p database.SlidePuzzle) []discordgo.MessageComponent {
 	if p.Solved {
@@ -791,6 +797,7 @@ func boardComponents(p database.SlidePuzzle) []discordgo.MessageComponent {
 	}
 	return []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Vote", Emoji: &discordgo.ComponentEmoji{Name: "🗳️"}, Style: discordgo.PrimaryButton, CustomID: voteButtonID},
+		discordgo.Button{Label: "Help", Emoji: &discordgo.ComponentEmoji{Name: "❓"}, Style: discordgo.SecondaryButton, CustomID: helpButtonID},
 	}}}
 }
 

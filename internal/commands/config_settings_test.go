@@ -10,6 +10,7 @@ import (
 	"gamerpal/internal/commands/modules/lfg"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
+	"gamerpal/internal/commands/modules/slidepuzzle"
 	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -34,6 +35,7 @@ func realProviderHandler() *ModuleHandler {
 			"agentadapter": &agentadapter.Module{},
 			"trickortreat": &trickortreat.Module{},
 			"eventfeed":    &eventfeed.Module{},
+			"slidepuzzle":  &slidepuzzle.Module{},
 		},
 	}
 }
@@ -83,6 +85,8 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyEventFeedEnabled,
 		config.KeyEventFeedNotification1,
 		config.KeyEventFeedNotification2,
+		config.KeySlidePuzzleGridSize,
+		config.KeySlidePuzzleRoundDuration,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")
@@ -90,6 +94,9 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		_, ok := reg.Get(key)
 		require.Truef(t, ok, "expected key %q to be registered", key)
 	}
+
+	actions := reg.ActionsByCategory(config.CategorySlidePuzzle)
+	require.Len(t, actions, 2, "slide puzzle reset/upload actions should be collected")
 
 	// Every setting must have a category and a known Kind.
 	for _, s := range reg.All() {

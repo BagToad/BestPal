@@ -133,6 +133,17 @@ event_feed_notification_1: "1h"
 event_feed_notification_2: "24h"
 
 # ----------------------------------------------------------------------------
+# Slide Puzzle
+# ----------------------------------------------------------------------------
+
+# Tiles per side (2-8) used when the puzzle is set up or reset.
+slide_puzzle_grid_size: 5
+
+# How long each voting round lasts before the top-voted move is made (Go
+# duration, minimum 1m).
+slide_puzzle_round_duration: "8h"
+
+# ----------------------------------------------------------------------------
 # Introduction Feed
 # ----------------------------------------------------------------------------
 

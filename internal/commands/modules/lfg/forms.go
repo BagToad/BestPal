@@ -19,7 +19,7 @@ func buildLFGModal() *discordgo.InteractionResponse {
 							Label:       "Game Name",
 							Style:       discordgo.TextInputShort,
 							Placeholder: "Enter game name",
-							Required:    true,
+							Required:    new(true),
 							MaxLength:   100,
 						},
 					},

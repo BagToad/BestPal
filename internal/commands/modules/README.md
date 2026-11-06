@@ -23,6 +23,7 @@ Each module encapsulates:
 | **prune** | `/prune-inactive`, `/prune-forum` | Complex | User/thread cleanup |
 | **lfg** | `/lfg`, `/lfg-admin` | Advanced | Modals, component interactions |
 | **trickortreat** | `/bucket`, `/candy-leaderboard`, `/spawn-bowl`, `/reset-bowl`, `/candy`, `/candy-export`, `/debug-empty-bowl` | Advanced | Halloween candy bowls: scheduled spawns, buttons, 20 trick outcomes |
+| **slidepuzzle** | `/slidepuzzle-setup` | Advanced | Community-voted sliding tile puzzle: one vote per member per round, top move made when the round ends (ties are random), image pool + reset in `/config` → Slide Puzzle |
 | **msgsearch** | `/search` | Medium | Moderator export of Discord guild message search to CSV, with page ranges |
 
 ## Module Pattern

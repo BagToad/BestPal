@@ -275,6 +275,21 @@ alphabetically). `Kind` drives the panel component: `KindChannel`,
 `KindDuration`, and `KindString` are modal text inputs. Read the value at
 runtime with `m.config.ForGuild(i.GuildID).GetMyChannelID()`.
 
+A module can also add one-shot buttons to its category panel (e.g. "Reset
+puzzle") by implementing the optional `config.ActionProvider` interface:
+
+```go
+func (m *MyModule) ConfigActions() []config.Action {
+    return []config.Action{
+        {Category: config.CategoryMisc, Label: "🔄 Reset", CustomID: "mymod:reset"},
+    }
+}
+```
+
+The panel only renders the button; the click is routed by `CustomID` prefix to
+the owning module (add the prefix to `HandleComponentInteraction`), which must
+check permissions itself.
+
 ### Handling Modal Interactions
 
 For commands that use modals:

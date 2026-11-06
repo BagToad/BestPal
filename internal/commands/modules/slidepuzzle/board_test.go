@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/jpeg"
 	"math/rand/v2"
 	"sort"
@@ -158,4 +159,20 @@ func TestVoteLabelShortensWhenNarrow(t *testing.T) {
 	assert.Equal(t, "1 vote", voteLabel(face, 1, 500))
 	assert.Equal(t, "7 votes", voteLabel(face, 7, 500))
 	assert.Equal(t, "7", voteLabel(face, 7, 10))
+}
+
+// The vote badge must stay blue on any background (a premultiplied colour
+// with channels above alpha used to turn olive over light tiles).
+func TestVoteBadgeColourOnLightTile(t *testing.T) {
+	for _, bg := range []color.RGBA{{255, 255, 255, 255}, {0, 0, 0, 255}, {120, 140, 60, 255}} {
+		dst := image.NewRGBA(image.Rect(0, 0, 200, 200))
+		draw.Draw(dst, dst.Bounds(), image.NewUniform(bg), image.Point{}, draw.Src)
+		face, err := labelFace(20)
+		require.NoError(t, err)
+		drawVoteBadge(dst, dst.Bounds(), face, 3)
+		face.Close()
+		px := dst.RGBAAt(198, 198)
+		assert.Greater(t, int(px.B), int(px.R)+60, "bg %v -> %v", bg, px)
+		assert.Greater(t, int(px.B), int(px.G)+60, "bg %v -> %v", bg, px)
+	}
 }

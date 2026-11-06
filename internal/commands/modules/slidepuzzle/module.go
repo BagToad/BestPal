@@ -421,13 +421,12 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 	if !ok {
 		return
 	}
-	// Refresh from a fresh read, still under the lock, so an older snapshot
-	// can never overwrite a newer count, move or reset.
-	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && !cur.NeedsRedraw && cur.MessageID != "" {
-		if err := m.refreshBoardText(s, cur); err != nil {
-			if recovered, rerr := m.recoverBoard(&cur, err); !recovered || rerr != nil {
-				m.config.Logger.Warnf("slide puzzle: refresh board %s: %v", cur.MessageID, errors.Join(err, rerr))
-			}
+	// Redraw from a fresh read, still under the lock, so an older snapshot
+	// can never overwrite a newer count, move or reset. The image is redrawn
+	// so the tile vote counts stay current.
+	if cur, found, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && found && cur.Round == round && cur.MessageID != "" {
+		if err := m.publish(&cur); err != nil {
+			m.config.Logger.Warnf("slide puzzle: redraw board after vote: %v", err)
 		}
 	}
 }
@@ -711,7 +710,18 @@ func (m *Module) renderPuzzle(p database.SlidePuzzle) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return renderBoard(src, p.Grid, p.Board, p.Solved)
+	var votes map[int]int
+	if !p.Solved {
+		tally, err := m.store.SlidePuzzleTally(p.GuildID, p.Round)
+		if err != nil {
+			return nil, err
+		}
+		votes = map[int]int{}
+		for _, t := range movableTiles(p.Board, p.Grid) {
+			votes[t] = tally[t]
+		}
+	}
+	return renderBoard(src, p.Grid, p.Board, p.Solved, votes)
 }
 
 func boardEmbed(p database.SlidePuzzle) *discordgo.MessageEmbed {

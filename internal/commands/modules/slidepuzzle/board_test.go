@@ -104,7 +104,7 @@ func TestRenderBoard(t *testing.T) {
 		if !solved {
 			board, _ = applyMove(board, 5, 24)
 		}
-		out, err := renderBoard(src, 5, board, solved)
+		out, err := renderBoard(src, 5, board, solved, map[int]int{20: 3, 23: 0})
 		require.NoError(t, err)
 		img, err := jpeg.Decode(bytes.NewReader(out))
 		require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestRenderBoard(t *testing.T) {
 func TestDefaultImageRenders(t *testing.T) {
 	src, err := decodeImage(defaultImage)
 	require.NoError(t, err)
-	_, err = renderBoard(src, 5, shuffledBoard(5, rand.IntN), false)
+	_, err = renderBoard(src, 5, shuffledBoard(5, rand.IntN), false, nil)
 	require.NoError(t, err)
 }
 
@@ -138,4 +138,24 @@ func TestNormalizeUpload(t *testing.T) {
 	require.NoError(t, jpeg.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 20, 20)), nil))
 	_, err = normalizeUpload(buf.Bytes())
 	assert.ErrorContains(t, err, "at least 64px")
+}
+
+func TestRenderBoardDrawsVoteCounts(t *testing.T) {
+	src, err := decodeImage(defaultImage)
+	require.NoError(t, err)
+	board, _ := applyMove(solvedBoard(5), 5, 24)
+	plain, err := renderBoard(src, 5, board, false, nil)
+	require.NoError(t, err)
+	withVotes, err := renderBoard(src, 5, board, false, map[int]int{20: 2})
+	require.NoError(t, err)
+	assert.NotEqual(t, plain, withVotes)
+}
+
+func TestVoteLabelShortensWhenNarrow(t *testing.T) {
+	face, err := labelFace(20)
+	require.NoError(t, err)
+	defer face.Close()
+	assert.Equal(t, "1 vote", voteLabel(face, 1, 500))
+	assert.Equal(t, "7 votes", voteLabel(face, 7, 500))
+	assert.Equal(t, "7", voteLabel(face, 7, 10))
 }

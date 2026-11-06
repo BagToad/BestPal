@@ -176,7 +176,7 @@ func TestVoteOncePerRoundAndCounters(t *testing.T) {
 	assert.Contains(t, lastEditContent(t, c), "Vote locked in")
 	edit := c.edits[len(c.edits)-1]
 	assert.Equal(t, "1", (*edit.Embeds)[0].Fields[0].Value, "total votes shown on the board")
-	assert.Nil(t, edit.Files, "a vote only refreshes text, not the image")
+	require.Len(t, edit.Files, 1, "a vote redraws the image with the tile counts")
 
 	// Second vote from the same member is refused, both from the menu and the button.
 	m.HandleComponent(m.session, click(menu.CustomID, "eph", "u1", 0, fmt.Sprint(movable[1])))
@@ -550,7 +550,7 @@ func TestConcurrentRenders(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := renderBoard(src, g, shuffledBoard(g, func(n int) int { return 0 }), false)
+			_, err := renderBoard(src, g, shuffledBoard(g, func(n int) int { return 0 }), false, map[int]int{1: 123})
 			assert.NoError(t, err)
 		}()
 	}

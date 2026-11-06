@@ -47,7 +47,7 @@ const (
 type store interface {
 	GetSlidePuzzle(guildID string) (database.SlidePuzzle, bool, error)
 	StartSlidePuzzle(p database.SlidePuzzle, now time.Time) (database.SlidePuzzle, error)
-	SetSlidePuzzleMessage(guildID, channelID, messageID string) error
+	MarkSlidePuzzlePublished(guildID string, round int64) error
 	CastSlidePuzzleVote(guildID string, round int64, userID string, tile int, now time.Time) (int, bool, error)
 	SlidePuzzleUserVote(guildID string, round int64, userID string) (int, bool, error)
 	SlidePuzzleTally(guildID string, round int64) (map[int]int, error)
@@ -62,11 +62,12 @@ type store interface {
 // discordOps wraps the Discord and HTTP calls the module makes so tests can
 // capture them.
 type discordOps struct {
-	Respond      func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
-	EditResponse func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error
-	SendMessage  func(s *discordgo.Session, channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
-	EditMessage  func(s *discordgo.Session, edit *discordgo.MessageEdit) error
-	Download     func(url string, limit int64) ([]byte, error)
+	Respond       func(s *discordgo.Session, i *discordgo.Interaction, resp *discordgo.InteractionResponse) error
+	EditResponse  func(s *discordgo.Session, i *discordgo.Interaction, edit *discordgo.WebhookEdit) error
+	SendMessage   func(s *discordgo.Session, channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
+	EditMessage   func(s *discordgo.Session, edit *discordgo.MessageEdit) error
+	DeleteMessage func(s *discordgo.Session, channelID, messageID string) error
+	Download      func(url string, limit int64) ([]byte, error)
 }
 
 func defaultDiscordOps() discordOps {
@@ -85,6 +86,9 @@ func defaultDiscordOps() discordOps {
 		EditMessage: func(s *discordgo.Session, edit *discordgo.MessageEdit) error {
 			_, err := s.ChannelMessageEditComplex(edit)
 			return err
+		},
+		DeleteMessage: func(s *discordgo.Session, channelID, messageID string) error {
+			return s.ChannelMessageDelete(channelID, messageID)
 		},
 		Download: func(url string, limit int64) ([]byte, error) {
 			resp, err := client.Get(url)
@@ -345,6 +349,10 @@ func (m *Module) handleVoteButton(s *discordgo.Session, i *discordgo.Interaction
 		m.respondEphemeral(s, i, "🎉 This puzzle is already solved! A moderator can start a new one.")
 		return
 	}
+	if !m.now().Before(p.RoundEnds) {
+		m.respondEphemeral(s, i, roundClosedMsg)
+		return
+	}
 	if tile, voted, err := m.store.SlidePuzzleUserVote(i.GuildID, p.Round, userID(i)); err != nil {
 		m.config.Logger.Errorf("slide puzzle: read vote: %v", err)
 		m.respondEphemeral(s, i, "❌ Could not check your vote. Try again in a moment.")
@@ -420,6 +428,11 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.updateEphemeral(s, i, "⌛ That round is over. Click Vote on the puzzle to vote in the current one.")
 		return
 	}
+	if errors.Is(err, database.ErrSlidePuzzleRoundClosed) {
+		lock.Unlock()
+		m.updateEphemeral(s, i, roundClosedMsg)
+		return
+	}
 	if err != nil {
 		lock.Unlock()
 		m.config.Logger.Errorf("slide puzzle: cast vote: %v", err)
@@ -431,13 +444,21 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.updateEphemeral(s, i, fmt.Sprintf("🗳️ You already voted for tile **%d** this round.", got))
 		return
 	}
-	p.TotalVotes++
 	lock.Unlock()
 
 	m.updateEphemeral(s, i, fmt.Sprintf("✅ Vote locked in for tile **%d** (slides %s). The top move happens <t:%d:R>.",
 		tile, moveDirection(p.Board, p.Grid, tile), p.RoundEnds.Unix()))
-	m.refreshBoardText(s, p)
+
+	// Refresh from a fresh read under the lock so an older snapshot can never
+	// overwrite a newer count, move or reset.
+	lock.Lock()
+	defer lock.Unlock()
+	if cur, ok, err := m.store.GetSlidePuzzle(i.GuildID); err == nil && ok && cur.Round == round && !cur.NeedsRedraw {
+		m.refreshBoardText(s, cur)
+	}
 }
+
+const roundClosedMsg = "⌛ Voting for this round has closed. The move is being made now; vote again in the next round in a minute."
 
 // updateEphemeral replaces the ephemeral vote menu with a result message.
 func (m *Module) updateEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {
@@ -603,8 +624,9 @@ func (m *Module) loadImageBytes(guildID string, id int64) ([]byte, error) {
 	return data, nil
 }
 
-// startPuzzle shuffles a new board in channelID, posts it and retires the
-// previous board message (if any) with retiredNote.
+// startPuzzle shuffles a new board, posts it in channelID and only then
+// replaces the stored puzzle, so a failed post leaves the current puzzle
+// untouched. The previous board message (if any) is retired with retiredNote.
 func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNote string) (database.SlidePuzzle, error) {
 	lock := m.guildLock(guildID)
 	lock.Lock()
@@ -621,21 +643,18 @@ func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNo
 		return database.SlidePuzzle{}, err
 	}
 	now := m.now()
-	p, err := m.store.StartSlidePuzzle(database.SlidePuzzle{
+	p := database.SlidePuzzle{
 		GuildID:   guildID,
 		ChannelID: channelID,
 		ImageID:   imageID,
 		Grid:      grid,
 		Board:     shuffledBoard(grid, m.randN),
 		RoundEnds: now.Add(gc.GetSlidePuzzleRoundDuration()),
-	}, now)
-	if err != nil {
-		return database.SlidePuzzle{}, err
 	}
 
 	img, err := m.renderPuzzle(p)
 	if err != nil {
-		return p, err
+		return database.SlidePuzzle{}, err
 	}
 	msg, err := m.ops.SendMessage(s, channelID, &discordgo.MessageSend{
 		Embeds:          []*discordgo.MessageEmbed{boardEmbed(p)},
@@ -644,11 +663,16 @@ func (m *Module) startPuzzle(s *discordgo.Session, guildID, channelID, retiredNo
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	})
 	if err != nil {
-		return p, fmt.Errorf("could not post the board (check my permissions in that channel): %w", err)
+		return database.SlidePuzzle{}, fmt.Errorf("could not post the board (check my permissions in that channel): %w", err)
 	}
 	p.ChannelID, p.MessageID = msg.ChannelID, msg.ID
-	if err := m.store.SetSlidePuzzleMessage(guildID, p.ChannelID, p.MessageID); err != nil {
-		return p, err
+
+	p, err = m.store.StartSlidePuzzle(p, now)
+	if err != nil {
+		if derr := m.ops.DeleteMessage(s, msg.ChannelID, msg.ID); derr != nil {
+			m.config.Logger.Warnf("slide puzzle: delete unsaved board %s: %v", msg.ID, derr)
+		}
+		return database.SlidePuzzle{}, err
 	}
 
 	if hadOld && old.MessageID != "" && old.MessageID != p.MessageID {
@@ -753,19 +777,25 @@ func (m *Module) roundTick() error {
 	return errors.Join(errs...)
 }
 
-// resolveRound ends the current round for a guild if it is due: the top-voted
-// move is applied, or the round is extended when nobody voted.
+// resolveRound publishes any pending board redraw, then ends the current
+// round if it is due: the top-voted move is applied, or the round is extended
+// when nobody voted.
 func (m *Module) resolveRound(guildID string) error {
 	lock := m.guildLock(guildID)
 	lock.Lock()
 	defer lock.Unlock()
 
 	p, ok, err := m.store.GetSlidePuzzle(guildID)
-	if err != nil || !ok {
+	if err != nil || !ok || p.MessageID == "" {
 		return err
 	}
+	if p.NeedsRedraw {
+		if err := m.publish(p); err != nil {
+			return err
+		}
+	}
 	now := m.now()
-	if p.Solved || p.MessageID == "" || now.Before(p.RoundEnds) {
+	if p.Solved || now.Before(p.RoundEnds) {
 		return nil
 	}
 	roundLen := m.config.ForGuild(guildID).GetSlidePuzzleRoundDuration()
@@ -794,7 +824,16 @@ func (m *Module) resolveRound(guildID string) error {
 	p.Board, p.Solved, p.RoundEnds = board, solved, now.Add(roundLen)
 	p.Round++
 	p.TotalMoves++
-	return m.redrawBoard(m.session, p)
+	return m.publish(p)
+}
+
+// publish redraws the board image and clears the pending-redraw flag. On
+// failure the flag stays set and the next tick retries.
+func (m *Module) publish(p database.SlidePuzzle) error {
+	if err := m.redrawBoard(m.session, p); err != nil {
+		return fmt.Errorf("redraw board (will retry): %w", err)
+	}
+	return m.store.MarkSlidePuzzlePublished(p.GuildID, p.Round)
 }
 
 // Service runs the round scheduler.

@@ -28,7 +28,12 @@ const (
 	// maxSourcePixels guards against decompression bombs in uploads.
 	maxSourcePixels = 40_000_000
 	tileInset       = 2
-	jpegQuality     = 85
+	// minImageSide is the smallest stored side; it keeps every tile visible
+	// even on the largest grid.
+	minImageSide = 64
+	// maxAspect caps how elongated an uploaded image may be.
+	maxAspect   = 4
+	jpegQuality = 85
 )
 
 var (
@@ -39,26 +44,16 @@ var (
 	fontOnce sync.Once
 	fontErr  error
 	boldFont *opentype.Font
-	faceMu   sync.Mutex
-	faces    = map[float64]font.Face{}
 )
 
+// labelFace returns a new face for one render. The parsed font is shared, but
+// faces hold glyph buffers and are not safe for concurrent use.
 func labelFace(size float64) (font.Face, error) {
 	fontOnce.Do(func() { boldFont, fontErr = opentype.Parse(gobold.TTF) })
 	if fontErr != nil {
 		return nil, fontErr
 	}
-	faceMu.Lock()
-	defer faceMu.Unlock()
-	if f, ok := faces[size]; ok {
-		return f, nil
-	}
-	f, err := opentype.NewFace(boldFont, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
-	if err != nil {
-		return nil, err
-	}
-	faces[size] = f
-	return f, nil
+	return opentype.NewFace(boldFont, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
 }
 
 // decodeImage decodes image bytes, rejecting oversized images before the full
@@ -94,11 +89,19 @@ func normalizeUpload(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	b := img.Bounds()
-	if min(b.Dx(), b.Dy()) < 64 {
-		return nil, fmt.Errorf("image is %dx%d; it needs to be at least 64px on each side", b.Dx(), b.Dy())
+	w, h := b.Dx(), b.Dy()
+	if max(w, h) > storedMaxSide {
+		w, h = fitSize(w, h, storedMaxSide)
 	}
-	if max(b.Dx(), b.Dy()) > storedMaxSide {
-		w, h := fitSize(b.Dx(), b.Dy(), storedMaxSide)
+	// Checked on the stored size, and with an aspect cap, so long thin images
+	// can't enter the pool and later render with unusably thin tiles.
+	if min(w, h) < minImageSide {
+		return nil, fmt.Errorf("image is %dx%d; it needs to be at least %dpx on each side", b.Dx(), b.Dy(), minImageSide)
+	}
+	if max(w, h) > maxAspect*min(w, h) {
+		return nil, fmt.Errorf("image is %dx%d; it can't be more than %d times longer than it is wide", b.Dx(), b.Dy(), maxAspect)
+	}
+	if w != b.Dx() || h != b.Dy() {
 		dst := image.NewRGBA(image.Rect(0, 0, w, h))
 		xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
 		img = dst
@@ -117,6 +120,9 @@ func renderBoard(src image.Image, grid int, board []int, solved bool) ([]byte, e
 	sb := src.Bounds()
 	w, h := fitSize(sb.Dx(), sb.Dy(), boardMaxSide)
 	w, h = w-w%grid, h-h%grid
+	if w/grid < 4*tileInset || h/grid < 4*tileInset {
+		return nil, fmt.Errorf("image is too small for a %dx%d grid", grid, grid)
+	}
 	scaled := image.NewRGBA(image.Rect(0, 0, w, h))
 	xdraw.CatmullRom.Scale(scaled, scaled.Bounds(), src, sb, xdraw.Src, nil)
 
@@ -128,6 +134,7 @@ func renderBoard(src image.Image, grid int, board []int, solved bool) ([]byte, e
 		if err != nil {
 			return nil, fmt.Errorf("load font: %w", err)
 		}
+		defer face.Close()
 		for pos, tile := range board {
 			cell := image.Rect((pos%grid)*tw, (pos/grid)*th, (pos%grid+1)*tw, (pos/grid+1)*th).Inset(tileInset)
 			if tile == 0 {

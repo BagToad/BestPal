@@ -25,6 +25,9 @@ type capture struct {
 	edits         []*discordgo.MessageEdit
 	downloads     map[string][]byte
 	nextID        int
+	sendErr       error
+	editErr       error
+	deleted       []string
 }
 
 var testNow = time.Unix(1_790_000_000, 0)
@@ -59,12 +62,22 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *capture, *databas
 				return nil
 			},
 			SendMessage: func(_ *discordgo.Session, channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
+				if c.sendErr != nil {
+					return nil, c.sendErr
+				}
 				c.nextID++
 				c.sent = append(c.sent, msg)
 				return &discordgo.Message{ID: fmt.Sprint(c.nextID), ChannelID: channelID}, nil
 			},
 			EditMessage: func(_ *discordgo.Session, e *discordgo.MessageEdit) error {
+				if c.editErr != nil {
+					return c.editErr
+				}
 				c.edits = append(c.edits, e)
+				return nil
+			},
+			DeleteMessage: func(_ *discordgo.Session, _, messageID string) error {
+				c.deleted = append(c.deleted, messageID)
 				return nil
 			},
 			Download: func(url string, _ int64) ([]byte, error) {
@@ -389,4 +402,109 @@ func TestStateSurvivesRestart(t *testing.T) {
 	got, _, _ := db.GetSlidePuzzle("guild1")
 	want, _ := applyMove(p.Board, p.Grid, movable[0])
 	assert.Equal(t, want, got.Board)
+}
+
+func TestFailedPostKeepsCurrentPuzzle(t *testing.T) {
+	m, c, _, _ := newTestModule(t, nil)
+	p := setup(t, m, c)
+	movable := movableTiles(p.Board, p.Grid)
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movable[0])))
+
+	c.sendErr = fmt.Errorf("missing access")
+	edits := len(c.edits)
+	m.handleSetup(m.session, interaction(discordgo.InteractionApplicationCommand,
+		discordgo.ApplicationCommandInteractionData{Name: "slidepuzzle-setup"}, "mod", modPerms))
+	assert.Contains(t, lastEditContent(t, c), "Could not start")
+
+	got, _, _ := m.store.GetSlidePuzzle("guild1")
+	assert.Equal(t, p.MessageID, got.MessageID, "old puzzle stays active")
+	assert.Equal(t, p.Round, got.Round)
+	assert.EqualValues(t, 1, got.TotalVotes)
+	tally, _ := m.store.SlidePuzzleTally("guild1", p.Round)
+	assert.Equal(t, 1, tally[movable[0]], "votes are kept")
+	assert.Len(t, c.edits, edits, "old board is not retired")
+}
+
+func TestFailedRedrawIsRetried(t *testing.T) {
+	m, c, db, now := newTestModule(t, nil)
+	p := setup(t, m, c)
+	movable := movableTiles(p.Board, p.Grid)
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, fmt.Sprint(movable[0])))
+
+	*now = now.Add(8 * time.Hour)
+	c.editErr = fmt.Errorf("discord is down")
+	assert.Error(t, m.roundTick())
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.True(t, got.NeedsRedraw)
+	assert.EqualValues(t, 1, got.TotalMoves)
+
+	// Next tick (well before the next round ends) publishes the pending board
+	// without making another move.
+	c.editErr = nil
+	*now = now.Add(time.Minute)
+	require.NoError(t, m.roundTick())
+	got, _, _ = db.GetSlidePuzzle("guild1")
+	assert.False(t, got.NeedsRedraw)
+	assert.EqualValues(t, 1, got.TotalMoves)
+	require.Len(t, c.edits[len(c.edits)-1].Files, 1)
+}
+
+func TestSolvedRedrawIsRetried(t *testing.T) {
+	m, c, db, now := newTestModule(t, map[string]any{config.KeySlidePuzzleGridSize: 2})
+	setup(t, m, c)
+	board, _ := applyMove(solvedBoard(2), 2, 3)
+	p, err := db.StartSlidePuzzle(database.SlidePuzzle{
+		GuildID: "guild1", ChannelID: "chan1", MessageID: "1001", Grid: 2, Board: board, RoundEnds: now.Add(time.Hour),
+	}, *now)
+	require.NoError(t, err)
+	m.HandleComponent(m.session, click(fmt.Sprintf("%s%d", pickPrefix, p.Round), "eph", "u1", 0, "3"))
+
+	*now = now.Add(time.Hour)
+	c.editErr = fmt.Errorf("discord is down")
+	assert.Error(t, m.roundTick())
+	c.editErr = nil
+	require.NoError(t, m.roundTick())
+	got, _, _ := db.GetSlidePuzzle("guild1")
+	assert.True(t, got.Solved)
+	assert.False(t, got.NeedsRedraw)
+	assert.Contains(t, (*c.edits[len(c.edits)-1].Embeds)[0].Description, "Solved!")
+}
+
+func TestVoteAfterDeadlineRejected(t *testing.T) {
+	m, c, _, now := newTestModule(t, nil)
+	p := setup(t, m, c)
+	pick := fmt.Sprintf("%s%d", pickPrefix, p.Round)
+	movable := movableTiles(p.Board, p.Grid)
+
+	*now = p.RoundEnds
+	m.HandleComponent(m.session, click(pick, "eph", "u1", 0, fmt.Sprint(movable[0])))
+	assert.Contains(t, lastContent(t, c), "has closed")
+	m.HandleComponent(m.session, click(voteButtonID, p.MessageID, "u2", 0))
+	assert.Contains(t, lastContent(t, c), "has closed")
+	tally, _ := m.store.SlidePuzzleTally("guild1", p.Round)
+	assert.Empty(t, tally)
+}
+
+func TestLongThinUploadRejected(t *testing.T) {
+	_, err := normalizeUpload(pngBytes(t, 64, 4000))
+	assert.ErrorContains(t, err, "at least 64px", "checked after downscaling (64x4000 would be stored at 20x1280)")
+	_, err = normalizeUpload(pngBytes(t, 400, 2000))
+	assert.ErrorContains(t, err, "longer than it is wide")
+	_, err = normalizeUpload(pngBytes(t, 300, 1200))
+	assert.NoError(t, err, "4:1 is allowed")
+}
+
+func TestConcurrentRenders(t *testing.T) {
+	src, err := decodeImage(defaultImage)
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for g := 2; g <= 8; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := renderBoard(src, g, shuffledBoard(g, func(n int) int { return 0 }), false)
+			assert.NoError(t, err)
+		}()
+	}
+	wg.Wait()
 }

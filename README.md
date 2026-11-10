@@ -42,7 +42,7 @@ environment (see `config.example.yaml`).
 | `/search` | Search server messages (Discord search API) and export result pages as a CSV spreadsheet; `page_start`/`page_end` pick a page range (25 results/page) |
 | `/give` / `/take` | Give or take things from a user |
 | `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
-| `/squad-admin` | Squads: `status`, `dryrun`, `run-now`, `user`, `create`, `add`, `remove`, `delete`, `queue-remove`, `refresh-permissions` |
+| `/squad-admin` | Squads: `status`, `dryrun`, `run-now`, `user`, `create`, `add`, `remove`, `delete`, `queue-remove`, `refresh-permissions`, `intro-backfill` |
 
 ### Administrator (Administrator Permission)
 | Command | Description |

@@ -12,6 +12,7 @@ import (
 
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/forumcache"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
@@ -50,6 +51,7 @@ type fakeAPI struct {
 	catPerms   []*discordgo.PermissionOverwrite
 	lastHuman  map[string]time.Time
 	historyErr error
+	prompted   map[string]bool // thread ID -> already has a join button
 }
 
 func newFakeAPI() *fakeAPI {
@@ -153,6 +155,19 @@ func (f *fakeAPI) DM(uid string, msg *discordgo.MessageSend) error {
 	return nil
 }
 func (f *fakeAPI) BotID() string { return "bot" }
+func (f *fakeAPI) HasJoinPrompt(id string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.prompted[id] {
+		return true, nil
+	}
+	for _, m := range f.sent {
+		if m.ChannelID == id && hasJoinButton(m.Msg.Components) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 func (f *fakeAPI) lastResponse() *discordgo.InteractionResponse {
 	return f.responses[len(f.responses)-1]
@@ -591,6 +606,8 @@ func TestIntroThreadGetsJoinButton(t *testing.T) {
 	require.Len(t, api.sent, 1)
 	btn := api.sent[0].Msg.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
 	assert.Equal(t, prefix+"join:"+guild+":alice:t1", btn.CustomID)
+	assert.Contains(t, api.sent[0].Msg.Content, "<@alice>", "the intro author gets pinged")
+	assert.Equal(t, []string{"alice"}, api.sent[0].Msg.AllowedMentions.Users)
 
 	api.sendErr["t2"] = errors.New("nope")
 	m.postIntroPrompt(nil, &discordgo.Channel{ID: "t2", GuildID: guild, ParentID: "intros", OwnerID: "bob"}, 2)
@@ -971,4 +988,68 @@ func embedText(e *discordgo.MessageEmbed) string {
 		parts = append(parts, f.Name+": "+f.Value)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func TestIntroBackfill(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	backfillPause = 0
+	day := 24 * time.Hour
+	thread := func(id, owner string, age time.Duration) *forumcache.ThreadMeta {
+		return &forumcache.ThreadMeta{ID: id, OwnerID: owner, CreatedAt: now.Add(-age)}
+	}
+	m.introThreads = func(string) []*forumcache.ThreadMeta {
+		return []*forumcache.ThreadMeta{
+			thread("old", "a", 40*day),   // outside the window
+			thread("a1", "a", 10*day),    // older post by a
+			thread("a2", "a", 2*day),     // a's latest: posted
+			thread("b1", "b", 5*day),     // already has a button
+			thread("c1", "c", 3*day),     // in the queue
+			thread("d1", "d", 1*day),     // left the server
+			thread("bot1", "bot", 1*day), // bot-owned
+			thread("e1", "e", 29*day),    // posted
+		}
+	}
+	for _, uid := range []string{"a", "b", "c", "e"} {
+		member(api, uid, "role-eu")
+	}
+	api.prompted = map[string]bool{"b1": true}
+	require.NoError(t, db.EnqueueSquadUser(guild, "c", "c1", *now))
+
+	i := command("mod", discordgo.PermissionBanMembers, "squad-admin", "intro-backfill")
+	m.backfillIntros(nil, i, 30, true)
+	assert.Contains(t, editContent(api.lastEdit()), "would post the Join a squad button on **2 intros**")
+	assert.Empty(t, api.sent, "dry run posts nothing")
+
+	m.backfillIntros(nil, i, 30, false)
+	var posted []string
+	for _, msg := range api.sent {
+		if msg.ChannelID != "modlog" {
+			posted = append(posted, msg.ChannelID)
+			assert.Contains(t, msg.Msg.Content, "<@")
+		}
+	}
+	assert.Equal(t, []string{"e1", "a2"}, posted, "newest intro per member, oldest first")
+	out := editContent(api.lastEdit())
+	assert.Contains(t, out, "Posted the Join a squad button on **2 intros**")
+	assert.Contains(t, out, "1 already had the button, 1 queued or in a squad, 1 left the server")
+	log := modLogEntry(t, api)
+	assert.Equal(t, "📮 Intro Backfill", log.Title)
+
+	m.backfillIntros(nil, i, 30, false)
+	assert.Contains(t, editContent(api.lastEdit()), "on **0 intros**", "running again doesn't double post")
+}
+
+func TestIntroBackfillGuards(t *testing.T) {
+	m, api, _, _ := newTestModule(t, nil)
+	i := command("mod", discordgo.PermissionBanMembers, "squad-admin", "intro-backfill")
+	m.adminBackfill(nil, i, 30, false)
+	assert.Contains(t, api.lastResponse().Data.Content, "isn't set up or cached")
+
+	m.introThreads = func(string) []*forumcache.ThreadMeta { return nil }
+	m.adminBackfill(nil, i, 0, false)
+	assert.Contains(t, api.lastResponse().Data.Content, "Pick between 1 and 365 days")
+
+	m.backfills.Store(guild, struct{}{})
+	m.adminBackfill(nil, i, 30, false)
+	assert.Contains(t, api.lastResponse().Data.Content, "already running")
 }

@@ -95,6 +95,13 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 		m.respond(s, i, data)
 	case "refresh-permissions":
 		m.adminLocked(s, i, func() string { return m.refreshPermissions(i.GuildID) })
+	case "intro-backfill":
+		var days int64
+		if o := args["days"]; o != nil {
+			days = o.IntValue()
+		}
+		dry := args["dry-run"] != nil && args["dry-run"].BoolValue()
+		m.adminBackfill(s, i, int(days), dry)
 	}
 }
 

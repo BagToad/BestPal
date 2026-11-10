@@ -37,6 +37,9 @@ type discordAPI interface {
 	// LastHumanMessage returns when a non-bot last posted in a channel after
 	// since (zero if nobody has).
 	LastHumanMessage(channelID string, since time.Time) (time.Time, error)
+	// HasJoinPrompt reports whether the bot already posted a Join a squad
+	// button among a thread's first 100 messages.
+	HasJoinPrompt(threadID string) (bool, error)
 }
 
 type sessionAPI struct{ s *discordgo.Session }
@@ -142,6 +145,47 @@ func (a sessionAPI) LastHumanMessage(channelID string, since time.Time) (time.Ti
 		before = msgs[len(msgs)-1].ID
 	}
 	return time.Time{}, errHistoryTooLong
+}
+
+func (a sessionAPI) HasJoinPrompt(threadID string) (bool, error) {
+	// A forum post's starter message shares the thread's ID, so "after" it
+	// returns the oldest replies, where the prompt lands.
+	msgs, err := a.s.ChannelMessages(threadID, 100, "", threadID, "")
+	if err != nil {
+		return false, err
+	}
+	bot := a.BotID()
+	for _, msg := range msgs {
+		if msg.Author != nil && msg.Author.ID == bot && hasJoinButton(msg.Components) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// hasJoinButton finds a Join a squad button in message components.
+func hasJoinButton(cs []discordgo.MessageComponent) bool {
+	for _, c := range cs {
+		switch v := c.(type) {
+		case *discordgo.ActionsRow:
+			if hasJoinButton(v.Components) {
+				return true
+			}
+		case discordgo.ActionsRow:
+			if hasJoinButton(v.Components) {
+				return true
+			}
+		case *discordgo.Button:
+			if strings.HasPrefix(v.CustomID, prefix+"join:") {
+				return true
+			}
+		case discordgo.Button:
+			if strings.HasPrefix(v.CustomID, prefix+"join:") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (a sessionAPI) BotID() string {

@@ -150,8 +150,19 @@ func (m *Module) nextMatch(guildID string) time.Time {
 	return last.Add(m.config.ForGuild(guildID).GetSquadsMatchInterval())
 }
 
-const introPrompt = "👋 **Want to meet people who play what you play?**\n" +
+const introPrompt = "**Want to meet people who play what you play?**\n" +
 	"Join a squad: a small group of new pals matched by region, age group and the games you pick."
+
+// introPromptMsg is the Join a squad post for an intro, pinging its author.
+func introPromptMsg(guildID, ownerID, threadID string) *discordgo.MessageSend {
+	return &discordgo.MessageSend{
+		Content:         "👋 " + mention(ownerID) + " " + introPrompt,
+		AllowedMentions: &discordgo.MessageAllowedMentions{Users: []string{ownerID}},
+		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			joinButton(guildID, ownerID, threadID),
+		}}},
+	}
+}
 
 // OnIntroThread posts the Join a squad button on a new intro post.
 func (m *Module) OnIntroThread(s *discordgo.Session, thread *discordgo.Channel) {
@@ -177,13 +188,7 @@ var introRetryDelay = 3 * time.Second
 // postIntroPrompt retries because a brand-new forum thread can briefly reject
 // messages until its starter post exists.
 func (m *Module) postIntroPrompt(s *discordgo.Session, thread *discordgo.Channel, attempts int) {
-	msg := &discordgo.MessageSend{
-		Content:         introPrompt,
-		AllowedMentions: &discordgo.MessageAllowedMentions{},
-		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			joinButton(thread.GuildID, thread.OwnerID, thread.ID),
-		}}},
-	}
+	msg := introPromptMsg(thread.GuildID, thread.OwnerID, thread.ID)
 	var err error
 	for n := range attempts {
 		if n > 0 {

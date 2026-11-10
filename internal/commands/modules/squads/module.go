@@ -15,6 +15,7 @@ import (
 	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/forumcache"
 	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
@@ -51,6 +52,9 @@ type Module struct {
 
 	// introThread finds a member's latest intro thread ("" if unknown).
 	introThread func(guildID, userID string) string
+	// introThreads lists cached intro posts (nil without the forum cache).
+	introThreads func(guildID string) []*forumcache.ThreadMeta
+	backfills    sync.Map // guild ID -> struct{} while an intro backfill runs
 }
 
 // New creates the module.
@@ -78,6 +82,14 @@ func New(deps *types.Dependencies) *Module {
 				return meta.ID
 			}
 			return ""
+		}
+		m.introThreads = func(guildID string) []*forumcache.ThreadMeta {
+			forum := m.config.ForGuild(guildID).GetGamerPalsIntroductionsForumChannelID()
+			if forum == "" {
+				return nil
+			}
+			threads, _ := fc.ListThreads(forum)
+			return threads
 		}
 	}
 	m.service = &Service{m: m}
@@ -161,6 +173,12 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 				sub("delete", "Delete a squad's channel and role", squadOpt),
 				sub("queue-remove", "Take someone out of the queue", userOpt("Member")),
 				sub("refresh-permissions", "Re-apply channel permissions to every squad (after changing visibility)"),
+				sub("intro-backfill", "Post the Join a squad button on recent intro posts that don't have one",
+					&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionInteger, Name: "days",
+						Description: "Only intro posts made within this many days", Required: true,
+						MinValue: &minBackfillDays, MaxValue: maxBackfillDays},
+					&discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionBoolean, Name: "dry-run",
+						Description: "Only count the posts that would get the button"}),
 			},
 		},
 		HandlerFunc: m.handleAdmin,

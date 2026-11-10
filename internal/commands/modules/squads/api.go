@@ -215,13 +215,14 @@ func (src *igdbSource) Get(id int64) (gameInfo, error) {
 	if id <= 0 || id > math.MaxInt32 {
 		return gameInfo{}, fmt.Errorf("game %d not found", id)
 	}
+	ids := []int{int(id)}
 	var games []*igdb.Game
 	err := src.client.Retry(func() error {
 		svc, err := src.client.Games()
 		if err != nil {
 			return err
 		}
-		games, err = svc.List([]int{int(id)}, gameFields)
+		games, err = svc.List(ids, gameFields)
 		return err
 	})
 	if err != nil {

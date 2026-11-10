@@ -11,6 +11,7 @@ import (
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/slidepuzzle"
+	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/welcome"
 	"gamerpal/internal/commands/types"
@@ -36,6 +37,7 @@ func realProviderHandler() *ModuleHandler {
 			"trickortreat": &trickortreat.Module{},
 			"eventfeed":    &eventfeed.Module{},
 			"slidepuzzle":  &slidepuzzle.Module{},
+			"squads":       &squads.Module{},
 		},
 	}
 }
@@ -87,6 +89,35 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyEventFeedNotification2,
 		config.KeySlidePuzzleGridSize,
 		config.KeySlidePuzzleRoundDuration,
+		config.KeySquadsEnabled,
+		config.KeySquadsCategoryID,
+		config.KeySquadsVisibility,
+		config.KeySquadsModRoleID,
+		config.KeySquadsTargetSize,
+		config.KeySquadsMinSize,
+		config.KeySquadsMaxSize,
+		config.KeySquadsMatchInterval,
+		config.KeySquadsFallbackAfter,
+		config.KeySquadsUnmatchedAfter,
+		config.KeySquadsYoungFor,
+		config.KeySquadsQuietWarnAfter,
+		config.KeySquadsQuietDeleteAfter,
+		config.KeySquadsRegionNARoleID,
+		config.KeySquadsRegionSARoleID,
+		config.KeySquadsRegionEURoleID,
+		config.KeySquadsRegionAFRoleID,
+		config.KeySquadsRegionASRoleID,
+		config.KeySquadsRegionOCRoleID,
+		config.KeySquadsAge1RoleID,
+		config.KeySquadsAge2RoleID,
+		config.KeySquadsAge3RoleID,
+		config.KeySquadsAge4RoleID,
+		config.KeySquadsAge5RoleID,
+		config.KeySquadsPlatformPCRoleID,
+		config.KeySquadsPlatformXboxRoleID,
+		config.KeySquadsPlatformPSRoleID,
+		config.KeySquadsPlatformSwitchRoleID,
+		config.KeySquadsPlatformMobileRoleID,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

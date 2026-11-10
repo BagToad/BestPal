@@ -24,6 +24,7 @@ environment (see `config.example.yaml`).
 | `/bucket` | Check a trick-or-treat bucket (candy, souvenirs, buffs) |
 | `/candy-leaderboard` | See who has the most candy and souvenirs |
 | `/coinflip` | Flip a coin: 🫃 or 🫄 |
+| `/squad join` / `leave` | Pick your games and join the squad queue, or leave your squad |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
@@ -41,6 +42,7 @@ environment (see `config.example.yaml`).
 | `/search` | Search server messages (Discord search API) and export result pages as a CSV spreadsheet; `page_start`/`page_end` pick a page range (25 results/page) |
 | `/give` / `/take` | Give or take things from a user |
 | `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
+| `/squad-admin` | Squads: `status`, `dryrun`, `run-now`, `user`, `add`, `remove`, `delete`, `queue-remove`, `refresh-permissions` |
 
 ### Administrator (Administrator Permission)
 | Command | Description |

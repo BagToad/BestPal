@@ -63,6 +63,39 @@ const (
 
 	KeySlidePuzzleGridSize      = "slide_puzzle_grid_size"
 	KeySlidePuzzleRoundDuration = "slide_puzzle_round_duration"
+
+	KeySquadsEnabled          = "squads_enabled"
+	KeySquadsCategoryID       = "squads_category_id"
+	KeySquadsVisibility       = "squads_visibility"
+	KeySquadsModRoleID        = "squads_mod_role_id"
+	KeySquadsTargetSize       = "squads_target_size"
+	KeySquadsMinSize          = "squads_min_size"
+	KeySquadsMaxSize          = "squads_max_size"
+	KeySquadsMatchInterval    = "squads_match_interval"
+	KeySquadsFallbackAfter    = "squads_fallback_after"
+	KeySquadsUnmatchedAfter   = "squads_unmatched_after"
+	KeySquadsYoungFor         = "squads_young_for"
+	KeySquadsQuietWarnAfter   = "squads_quiet_warn_after"
+	KeySquadsQuietDeleteAfter = "squads_quiet_delete_after"
+
+	KeySquadsRegionNARoleID = "squads_region_na_role_id"
+	KeySquadsRegionSARoleID = "squads_region_sa_role_id"
+	KeySquadsRegionEURoleID = "squads_region_eu_role_id"
+	KeySquadsRegionAFRoleID = "squads_region_af_role_id"
+	KeySquadsRegionASRoleID = "squads_region_as_role_id"
+	KeySquadsRegionOCRoleID = "squads_region_oc_role_id"
+
+	KeySquadsAge1RoleID = "squads_age_1_role_id"
+	KeySquadsAge2RoleID = "squads_age_2_role_id"
+	KeySquadsAge3RoleID = "squads_age_3_role_id"
+	KeySquadsAge4RoleID = "squads_age_4_role_id"
+	KeySquadsAge5RoleID = "squads_age_5_role_id"
+
+	KeySquadsPlatformPCRoleID     = "squads_platform_pc_role_id"
+	KeySquadsPlatformXboxRoleID   = "squads_platform_xbox_role_id"
+	KeySquadsPlatformPSRoleID     = "squads_platform_ps_role_id"
+	KeySquadsPlatformSwitchRoleID = "squads_platform_switch_role_id"
+	KeySquadsPlatformMobileRoleID = "squads_platform_mobile_role_id"
 )
 
 // Kind is the value type of a setting. The config panel maps each Kind onto the
@@ -87,16 +120,21 @@ const (
 type Category string
 
 const (
-	CategoryChannels     Category = "Server Channels"
-	CategoryIntro        Category = "Introductions"
-	CategoryLFG          Category = "Looking for Game"
-	CategoryNewPals      Category = "New Pals"
-	CategoryScamGuard    Category = "ScamGuard"
-	CategoryAgent        Category = "Agent"
-	CategoryTrickOrTreat Category = "Trick or Treat"
-	CategoryEvents       Category = "Events"
-	CategorySlidePuzzle  Category = "Slide Puzzle"
-	CategoryMisc         Category = "Moderation & Misc"
+	CategoryChannels       Category = "Server Channels"
+	CategoryIntro          Category = "Introductions"
+	CategoryLFG            Category = "Looking for Game"
+	CategoryNewPals        Category = "New Pals"
+	CategoryScamGuard      Category = "ScamGuard"
+	CategoryAgent          Category = "Agent"
+	CategoryTrickOrTreat   Category = "Trick or Treat"
+	CategoryEvents         Category = "Events"
+	CategorySlidePuzzle    Category = "Slide Puzzle"
+	CategorySquads         Category = "Squads"
+	CategorySquadTiming    Category = "Squad Timing"
+	CategorySquadRegions   Category = "Squad Regions"
+	CategorySquadAges      Category = "Squad Age Groups"
+	CategorySquadPlatforms Category = "Squad Platforms"
+	CategoryMisc           Category = "Moderation & Misc"
 )
 
 // categoryOrder is the canonical display order of categories in the panel.
@@ -110,6 +148,11 @@ var categoryOrder = []Category{
 	CategoryTrickOrTreat,
 	CategoryEvents,
 	CategorySlidePuzzle,
+	CategorySquads,
+	CategorySquadTiming,
+	CategorySquadRegions,
+	CategorySquadAges,
+	CategorySquadPlatforms,
 	CategoryMisc,
 }
 

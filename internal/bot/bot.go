@@ -20,6 +20,7 @@ import (
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/score"
+	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/config"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
@@ -129,6 +130,13 @@ func New(cfg *config.Config) (*Bot, error) {
 	if mod, ok := handler.GetModule("score").(*score.Module); ok {
 		session.AddHandler(mod.OnGuildMemberRemove)
 	}
+	// squads module - chat activity keeps squads alive; departures and
+	// deleted channels are cleaned up.
+	if mod, ok := handler.GetModule("squads").(*squads.Module); ok {
+		session.AddHandler(mod.OnMessageCreate)
+		session.AddHandler(mod.OnChannelDelete)
+		session.AddHandler(mod.OnGuildMemberRemove)
+	}
 	// eventfeed module - new event posts; reminders run on the scheduler.
 	if mod, ok := handler.GetModule("eventfeed").(*eventfeed.Module); ok {
 		session.AddHandler(mod.OnGuildScheduledEventCreate)
@@ -143,6 +151,9 @@ func New(cfg *config.Config) (*Bot, error) {
 				if feedService := introMod.GetFeedService(); feedService != nil {
 					feedService.HandleNewIntroThread(e.Channel)
 				}
+			}
+			if sqMod, ok := handler.GetModule("squads").(*squads.Module); ok {
+				sqMod.OnIntroThread(s, e.Channel)
 			}
 		}
 	})

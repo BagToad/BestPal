@@ -77,6 +77,24 @@ func (c *Client) MultiplayerModes() (*igdb.MultiplayerModeService, error) {
 	return client.MultiplayerModes, nil
 }
 
+// Genres returns the Genres service, ensuring the client is initialized.
+func (c *Client) Genres() (*igdb.GenreService, error) {
+	client, err := c.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.Genres, nil
+}
+
+// Themes returns the Themes service, ensuring the client is initialized.
+func (c *Client) Themes() (*igdb.ThemeService, error) {
+	client, err := c.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.Themes, nil
+}
+
 // getClient returns the underlying IGDB client, initializing it lazily if needed.
 func (c *Client) getClient() (*igdb.Client, error) {
 	c.mu.Lock()

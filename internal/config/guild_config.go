@@ -516,6 +516,138 @@ func (gc *GuildConfig) GetSlidePuzzleRoundDuration() time.Duration {
 	return d
 }
 
+// Squads
+// -----
+
+// Squad visibility modes.
+const (
+	SquadVisibilityPublicReadOnly = "public_readonly"
+	SquadVisibilityPrivate        = "private"
+)
+
+// Squad size bounds and timing defaults.
+const (
+	SquadsMinMinSize = 2
+	SquadsMaxMaxSize = 25
+
+	squadsDefaultTarget        = 6
+	squadsDefaultMin           = 3
+	squadsDefaultMax           = 8
+	squadsDefaultMatchInterval = time.Hour
+	squadsDefaultFallback      = 48 * time.Hour
+	squadsDefaultUnmatched     = 7 * 24 * time.Hour
+	squadsDefaultYoung         = 7 * 24 * time.Hour
+	squadsDefaultQuietWarn     = 7 * 24 * time.Hour
+	squadsDefaultQuietDelete   = 3 * 24 * time.Hour
+)
+
+// GetSquadsEnabled reports whether intro posts get a "Join a squad" button
+// and the matcher runs.
+func (gc *GuildConfig) GetSquadsEnabled() bool { return gc.resolveBool(KeySquadsEnabled) }
+
+// GetSquadsCategoryID returns the category new squad channels are created in.
+func (gc *GuildConfig) GetSquadsCategoryID() string { return gc.resolveString(KeySquadsCategoryID) }
+
+// GetSquadsModRoleID returns the role that can always see squad channels.
+func (gc *GuildConfig) GetSquadsModRoleID() string { return gc.resolveString(KeySquadsModRoleID) }
+
+// GetSquadsVisibility returns public_readonly (everyone reads, members post)
+// or private (only members and mods can see the channel).
+func (gc *GuildConfig) GetSquadsVisibility() string {
+	if gc.resolveString(KeySquadsVisibility) == SquadVisibilityPrivate {
+		return SquadVisibilityPrivate
+	}
+	return SquadVisibilityPublicReadOnly
+}
+
+// GetSquadsSizes returns the minimum, target and maximum squad sizes, clamped
+// so that 2 <= min <= target <= max <= 25.
+func (gc *GuildConfig) GetSquadsSizes() (minSize, target, maxSize int) {
+	get := func(key string, def int) int {
+		if n, ok := gc.resolveInt(key); ok && n >= SquadsMinMinSize && n <= SquadsMaxMaxSize {
+			return n
+		}
+		return def
+	}
+	minSize = get(KeySquadsMinSize, squadsDefaultMin)
+	target = max(get(KeySquadsTargetSize, squadsDefaultTarget), minSize)
+	maxSize = max(get(KeySquadsMaxSize, squadsDefaultMax), target)
+	return minSize, target, maxSize
+}
+
+func (gc *GuildConfig) squadDuration(key string, def time.Duration) time.Duration {
+	if d := gc.resolveDuration(key); d >= time.Minute {
+		return d
+	}
+	return def
+}
+
+// GetSquadsMatchInterval returns how often the matcher runs.
+func (gc *GuildConfig) GetSquadsMatchInterval() time.Duration {
+	return gc.squadDuration(KeySquadsMatchInterval, squadsDefaultMatchInterval)
+}
+
+// GetSquadsFallbackAfter returns how long someone waits for an ideal match
+// before the matcher relaxes the rules (young squads, nearby regions/ages,
+// smaller squads).
+func (gc *GuildConfig) GetSquadsFallbackAfter() time.Duration {
+	return gc.squadDuration(KeySquadsFallbackAfter, squadsDefaultFallback)
+}
+
+// GetSquadsUnmatchedAfter returns how long someone can wait unmatched before
+// they're taken out of the queue and DMed to pick their games again.
+func (gc *GuildConfig) GetSquadsUnmatchedAfter() time.Duration {
+	return gc.squadDuration(KeySquadsUnmatchedAfter, squadsDefaultUnmatched)
+}
+
+// GetSquadsYoungFor returns how long a new squad keeps accepting late joiners.
+func (gc *GuildConfig) GetSquadsYoungFor() time.Duration {
+	return gc.squadDuration(KeySquadsYoungFor, squadsDefaultYoung)
+}
+
+// GetSquadsQuietWarnAfter returns how long a squad channel can be quiet before
+// it gets a deletion warning.
+func (gc *GuildConfig) GetSquadsQuietWarnAfter() time.Duration {
+	return gc.squadDuration(KeySquadsQuietWarnAfter, squadsDefaultQuietWarn)
+}
+
+// GetSquadsQuietDeleteAfter returns how long after the warning a still-quiet
+// squad is deleted.
+func (gc *GuildConfig) GetSquadsQuietDeleteAfter() time.Duration {
+	return gc.squadDuration(KeySquadsQuietDeleteAfter, squadsDefaultQuietDelete)
+}
+
+// SquadRegionKeys lists the region role settings in a fixed order.
+var SquadRegionKeys = []string{
+	KeySquadsRegionNARoleID, KeySquadsRegionSARoleID, KeySquadsRegionEURoleID,
+	KeySquadsRegionAFRoleID, KeySquadsRegionASRoleID, KeySquadsRegionOCRoleID,
+}
+
+// SquadAgeKeys lists the age group role settings, youngest first. Adjacent
+// entries are neighbours for the matcher's fallback.
+var SquadAgeKeys = []string{
+	KeySquadsAge1RoleID, KeySquadsAge2RoleID, KeySquadsAge3RoleID,
+	KeySquadsAge4RoleID, KeySquadsAge5RoleID,
+}
+
+// SquadPlatformKeys lists the platform role settings.
+var SquadPlatformKeys = []string{
+	KeySquadsPlatformPCRoleID, KeySquadsPlatformXboxRoleID, KeySquadsPlatformPSRoleID,
+	KeySquadsPlatformSwitchRoleID, KeySquadsPlatformMobileRoleID,
+}
+
+// GetSquadRoles returns key -> role ID for the given role settings, skipping
+// unset ones.
+func (gc *GuildConfig) GetSquadRoles(keys []string) map[string]string {
+	out := map[string]string{}
+	for _, k := range keys {
+		if v := strings.TrimSpace(gc.resolveString(k)); v != "" {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // splitTrimCSV splits a comma-separated string, trimming entries and dropping
 // empties. Returns nil when nothing remains.
 func splitTrimCSV(s string) []string {

@@ -1053,3 +1053,14 @@ func TestIntroBackfillGuards(t *testing.T) {
 	m.adminBackfill(nil, i, 30, false)
 	assert.Contains(t, api.lastResponse().Data.Content, "already running")
 }
+
+func TestLinkSafeName(t *testing.T) {
+	assert.Equal(t, "Moooooodle?", linkSafeName("M🍁oooooo🍁dle?"))
+	assert.Equal(t, "Door Dash", linkSafeName("Door\nDash 🇺🇸 ❤️"))
+	assert.Equal(t, "Zoë", linkSafeName("Zoë 👨‍👩‍👧"))
+	assert.Equal(t, "", linkSafeName("🦶🫃"))
+	assert.Equal(t, "Team", linkSafeName("Team 1️⃣ #⃣"), "keycaps go, base and all")
+	assert.Equal(t, "wow", linkSafeName("wow‼ ⁉️ ↔ ↩️ ℹ〰"))
+	assert.Equal(t, "Player #1 (v2.0)!?", linkSafeName("Player #1 (v2.0)!?"), "plain digits and punctuation stay")
+	assert.Equal(t, "[intro](https://discord.com/channels/g/t)", introLink("g", &candidate{Name: "🦶", IntroID: "t"}))
+}

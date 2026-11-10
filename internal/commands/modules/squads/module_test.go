@@ -265,7 +265,10 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	assert.Equal(t, discordgo.InteractionResponseModal, api.lastResponse().Type)
 
 	m.HandleModalSubmit(nil, modalSubmit("alice", ctx.id("search"), "deep rock"))
-	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, api.lastResponse().Type)
+	progress := api.lastResponse()
+	assert.Equal(t, discordgo.InteractionResponseUpdateMessage, progress.Type, "search shows progress right away")
+	assert.Contains(t, progress.Data.Content, "Searching for **deep rock**")
+	assert.Empty(t, progress.Data.Components, "picker buttons are hidden while searching")
 	res := (*api.lastEdit().Components)[0].(discordgo.ActionsRow).Components[0].(discordgo.SelectMenu)
 	require.Len(t, res.Options, 3)
 	assert.Equal(t, "Deep Rock Galactic (2018)", res.Options[0].Label)

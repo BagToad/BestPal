@@ -151,7 +151,15 @@ func (m *Module) openSearchModal(s *discordgo.Session, i *discordgo.InteractionC
 // handleSearchSubmit searches IGDB and shows the results as a menu.
 func (m *Module) handleSearchSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
 	query := strings.TrimSpace(modalValue(i, "q"))
-	if !m.deferUpdate(s, i) {
+	// Show progress right away; the search makes several IGDB calls.
+	if err := m.dc(s).Respond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseUpdateMessage,
+		Data: &discordgo.InteractionResponseData{
+			Content:    fmt.Sprintf("⏳ Searching for **%s**…\n-# This can take a few seconds.", truncate(query, 80)),
+			Components: []discordgo.MessageComponent{},
+		},
+	}); err != nil {
+		m.config.Logger.Warnf("squads: search progress: %v", err)
 		return
 	}
 	uid := userID(i)

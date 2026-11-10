@@ -43,6 +43,7 @@ type fakeAPI struct {
 	addErr     error
 	removeErr  error
 	deleteErr  error
+	roleDelErr error
 	memberErr  map[string]error
 	catPerms   []*discordgo.PermissionOverwrite
 	lastHuman  map[string]time.Time
@@ -93,7 +94,13 @@ func (f *fakeAPI) CreateRole(_ string, p *discordgo.RoleParams) (*discordgo.Role
 	f.roles[id] = p.Name
 	return &discordgo.Role{ID: id, Name: p.Name}, nil
 }
-func (f *fakeAPI) DeleteRole(_, id string) error { f.delRoles = append(f.delRoles, id); return nil }
+func (f *fakeAPI) DeleteRole(_, id string) error {
+	if f.roleDelErr != nil {
+		return f.roleDelErr
+	}
+	f.delRoles = append(f.delRoles, id)
+	return nil
+}
 func (f *fakeAPI) AddRole(_, uid, rid string) error {
 	if f.addErr != nil {
 		return f.addErr
@@ -127,11 +134,14 @@ func (f *fakeAPI) DeleteChannel(id string) error {
 func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
 	return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildCategory, PermissionOverwrites: f.catPerms}, nil
 }
-func (f *fakeAPI) LastHumanMessage(ch string) (time.Time, error) {
+func (f *fakeAPI) LastHumanMessage(ch string, since time.Time) (time.Time, error) {
 	if f.historyErr != nil {
 		return time.Time{}, f.historyErr
 	}
-	return f.lastHuman[ch], nil
+	if last := f.lastHuman[ch]; last.After(since) {
+		return last, nil
+	}
+	return time.Time{}, nil
 }
 func (f *fakeAPI) DM(uid string, msg *discordgo.MessageSend) error {
 	if f.dmErr != nil {
@@ -673,6 +683,64 @@ func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
 	_, ok, _ = db.GetSquad(sq.ID)
 	assert.False(t, ok)
 	assert.Contains(t, api.delCh, sq.ChannelID)
+}
+
+func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.roleDelErr = errors.New("discord hiccup")
+	require.Error(t, m.deleteSquad(sq, "a mod deleted it"))
+	sq, ok, _ := db.GetSquad(sq.ID)
+	require.True(t, ok)
+	assert.True(t, sq.Deleting())
+	assert.Contains(t, m.statusText(guild), "deleting (retrying")
+	assert.Contains(t, m.adminAdd(component("mod", "x"), "x", sq.ID), "being deleted")
+
+	// The retry still fails, and matching must not refill the squad.
+	queue(t, m, api, db, now.Add(-49*time.Hour), []string{"x"}, []int64{1}, "role-eu")
+	require.NoError(t, m.tick())
+	got, _, _ := db.GetSquad(sq.ID)
+	assert.Equal(t, 3, got.Members)
+	_, in, _ := db.SquadForUser(guild, "x")
+	assert.False(t, in)
+
+	api.roleDelErr = nil
+	*now = now.Add(5 * time.Minute)
+	require.NoError(t, m.tick())
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.False(t, ok, "the next check finishes the delete")
+	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "a mod deleted it")
+}
+
+func TestDeparturesReconciledInFullSquads(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	full := makeSquad(t, m, api, db, "a", "b", "c", "d", "e", "f", "g", "h")
+	pair := makeSquad(t, m, api, db, "p", "q")
+	*now = now.Add(30 * 24 * time.Hour) // long past the young window
+	api.lastHuman[full.ChannelID] = *now
+	api.lastHuman[pair.ChannelID] = *now
+	delete(api.members, "a")
+	delete(api.members, "q")
+	api.memberErr["b"] = errors.New("discord hiccup")
+	require.NoError(t, m.tick())
+
+	got, _, _ := db.GetSquad(full.ID)
+	assert.Equal(t, 7, got.Members, "only the confirmed departure is removed")
+	_, in, _ := db.SquadForUser(guild, "b")
+	assert.True(t, in, "a failed lookup keeps the membership")
+	_, ok, _ := db.GetSquad(pair.ID)
+	assert.False(t, ok, "a squad left with one member is deleted")
+
+	// Checked at most hourly.
+	delete(api.members, "c")
+	*now = now.Add(10 * time.Minute)
+	require.NoError(t, m.tick())
+	got, _, _ = db.GetSquad(full.ID)
+	assert.Equal(t, 7, got.Members)
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.tick())
+	got, _, _ = db.GetSquad(full.ID)
+	assert.Equal(t, 6, got.Members)
 }
 
 func TestOpenSquadSkippedWhenAMemberCantBeLoaded(t *testing.T) {

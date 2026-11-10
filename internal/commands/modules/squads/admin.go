@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -112,6 +113,9 @@ func (m *Module) adminAdd(i *discordgo.InteractionCreate, uid string, squadID in
 	if err != nil || !ok || sq.GuildID != i.GuildID {
 		return "❌ Pick a squad from the list."
 	}
+	if sq.Deleting() {
+		return fmt.Sprintf("❌ **%s** is being deleted.", sq.Name)
+	}
 	if cur, in, _ := m.db.SquadForUser(i.GuildID, uid); in {
 		return fmt.Sprintf("❌ %s is already in **%s**. Remove them first.", mention(uid), cur.Name)
 	}
@@ -165,7 +169,7 @@ func (m *Module) handleAdminDeleteConfirm(s *discordgo.Session, i *discordgo.Int
 	case err != nil || !ok || sq.GuildID != i.GuildID:
 		m.editText(s, i, "That squad is already gone.")
 	case delErr != nil:
-		m.editText(s, i, fmt.Sprintf("❌ Could not delete **%s**: %v", sq.Name, delErr))
+		m.editText(s, i, fmt.Sprintf("⚠️ Could not finish deleting **%s** (%v). It's out of matching and the bot will keep retrying.", sq.Name, delErr))
 	default:
 		m.editText(s, i, fmt.Sprintf("🗑️ Deleted **%s**.", sq.Name))
 	}
@@ -177,6 +181,7 @@ func (m *Module) refreshPermissions(guildID string) string {
 		return "❌ Could not load squads."
 	}
 	failed := 0
+	squads = slices.DeleteFunc(squads, database.Squad.Deleting)
 	for _, sq := range squads {
 		perms, err := m.squadOverwrites(guildID, sq.RoleID)
 		if err != nil {
@@ -337,6 +342,10 @@ func (m *Module) statusText(guildID string) string {
 	_, _, maxSize := gc.GetSquadsSizes()
 	for _, sq := range squads {
 		fmt.Fprintf(&b, "\n• %s <#%s>: %s, last chat <t:%d:R>", sq.Name, sq.ChannelID, plural(sq.Members, "member", "members"), sq.LastActivityAt.Unix())
+		if sq.Deleting() {
+			b.WriteString(" · 🗑️ deleting (retrying, check the logs)")
+			continue
+		}
 		if now.Sub(sq.CreatedAt) < young && sq.Members < maxSize {
 			b.WriteString(" · taking late joiners")
 		}

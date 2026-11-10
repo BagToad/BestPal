@@ -1,6 +1,7 @@
 package squads
 
 import (
+	"errors"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -62,6 +63,7 @@ func (m *Module) tickGuild(guildID string) {
 	lock.Lock()
 	defer lock.Unlock()
 	m.retryRoleOps(guildID)
+	m.reconcileDepartures(guildID)
 	m.checkQuiet(guildID)
 
 	gc := m.config.ForGuild(guildID)
@@ -84,6 +86,58 @@ func (m *Module) tickGuild(guildID string) {
 	if len(report.Created)+len(report.Plan.Joins)+len(report.Plan.Unmatched) > 0 {
 		m.config.Logger.Infof("squads: matched in %s: %d new squads, %d late joins, %d unmatched",
 			guildID, len(report.Created), len(report.Plan.Joins), len(report.Plan.Unmatched))
+	}
+}
+
+// reconcileEvery is how often every squad's roster is checked for people who
+// left while the bot wasn't watching.
+const reconcileEvery = time.Hour
+
+// reconcileDepartures removes squad members who are confirmed to have left
+// the server. Lookup failures keep the membership. Callers hold the guild
+// lock.
+func (m *Module) reconcileDepartures(guildID string) {
+	now := m.now()
+	m.mu.Lock()
+	if m.reconciled == nil {
+		m.reconciled = map[string]time.Time{}
+	}
+	due := now.Sub(m.reconciled[guildID]) >= reconcileEvery
+	if due {
+		m.reconciled[guildID] = now
+	}
+	m.mu.Unlock()
+	if !due {
+		return
+	}
+	squads, err := m.db.ListSquads(guildID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: list for departure check: %v", err)
+		return
+	}
+	api := m.dc(nil)
+	for _, sq := range squads {
+		if sq.Deleting() {
+			continue
+		}
+		ids, err := m.db.SquadMemberIDs(sq.ID)
+		if err != nil {
+			m.config.Logger.Warnf("squads: members of %s: %v", sq.Name, err)
+			continue
+		}
+		for _, uid := range ids {
+			_, err := api.Member(guildID, uid)
+			if err == nil {
+				continue
+			}
+			if discordCode(err) != discordgo.ErrCodeUnknownMember {
+				m.config.Logger.Warnf("squads: look up %s in %s: %v", uid, sq.Name, err)
+				continue
+			}
+			if _, err := m.removeMember(guildID, uid, sq.ID, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
+				m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
+			}
+		}
 	}
 }
 

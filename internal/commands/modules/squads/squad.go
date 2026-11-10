@@ -410,6 +410,15 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (d
 // attempt can finish the job. Callers hold the guild lock.
 func (m *Module) deleteSquad(sq database.Squad, why string) error {
 	api := m.dc(nil)
+	// Mark it first so a partial failure leaves it out of matching until the
+	// quiet check finishes the job.
+	if !sq.Deleting() {
+		if err := m.db.MarkSquadDeleting(sq.ID, why); err != nil {
+			m.config.Logger.Errorf("squads: mark %s deleting: %v", sq.Name, err)
+			return err
+		}
+		sq.DeleteReason = why
+	}
 	if sq.ChannelID != "" {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
@@ -491,7 +500,7 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 	var open []openSquad
 	young := gc.GetSquadsYoungFor()
 	for _, sq := range squads {
-		if now.Sub(sq.CreatedAt) >= young || sq.Members >= maxSize {
+		if sq.Deleting() || now.Sub(sq.CreatedAt) >= young || sq.Members >= maxSize {
 			continue
 		}
 		ids, err := m.db.SquadMemberIDs(sq.ID)
@@ -634,6 +643,8 @@ func (m *Module) checkQuiet(guildID string) {
 	now := m.now()
 	for _, sq := range squads {
 		switch {
+		case sq.Deleting():
+			_ = m.deleteSquad(sq, sq.DeleteReason)
 		case sq.Members < 2:
 			_ = m.deleteSquad(sq, "it dropped below 2 members")
 		case !sq.WarnedAt.IsZero() && now.Sub(sq.WarnedAt) >= deleteAfter:
@@ -670,7 +681,7 @@ func (m *Module) checkQuiet(guildID string) {
 // it finds and reports true when the squad should be left alone this round,
 // including when the channel can't be checked.
 func (m *Module) missedChat(sq database.Squad) bool {
-	last, err := m.dc(nil).LastHumanMessage(sq.ChannelID)
+	last, err := m.dc(nil).LastHumanMessage(sq.ChannelID, sq.LastActivityAt)
 	if discordCode(err) == discordgo.ErrCodeUnknownChannel {
 		return false
 	}

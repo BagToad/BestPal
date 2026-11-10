@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS squads (
 	welcome_message_id TEXT NOT NULL DEFAULT '',
 	created_at         INTEGER NOT NULL,
 	last_activity_at   INTEGER NOT NULL,
-	warned_at          INTEGER NOT NULL DEFAULT 0
+	warned_at          INTEGER NOT NULL DEFAULT 0,
+	delete_reason      TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_squads_guild ON squads(guild_id);
@@ -102,8 +103,13 @@ type Squad struct {
 	CreatedAt        time.Time
 	LastActivityAt   time.Time
 	WarnedAt         time.Time // zero when no deletion warning is pending
+	DeleteReason     string    // set once deletion has started; "" otherwise
 	Members          int
 }
+
+// Deleting reports whether the squad is being deleted, so it must not take
+// new members.
+func (sq Squad) Deleting() bool { return sq.DeleteReason != "" }
 
 const tagSep = "|"
 
@@ -349,7 +355,7 @@ func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 }
 
 const squadCols = `s.id, s.guild_id, s.name, s.channel_id, s.role_id, s.welcome_message_id,
-	s.created_at, s.last_activity_at, s.warned_at,
+	s.created_at, s.last_activity_at, s.warned_at, s.delete_reason,
 	(SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id)`
 
 type rowScanner interface{ Scan(dest ...any) error }
@@ -358,7 +364,7 @@ func scanSquad(r rowScanner) (Squad, error) {
 	var sq Squad
 	var created, active, warned int64
 	err := r.Scan(&sq.ID, &sq.GuildID, &sq.Name, &sq.ChannelID, &sq.RoleID, &sq.WelcomeMessageID,
-		&created, &active, &warned, &sq.Members)
+		&created, &active, &warned, &sq.DeleteReason, &sq.Members)
 	sq.CreatedAt = time.Unix(created, 0)
 	sq.LastActivityAt = time.Unix(active, 0)
 	if warned > 0 {
@@ -449,6 +455,44 @@ func (db *DB) SetSquadWelcome(id int64, messageID string) error {
 func (db *DB) TouchSquad(id int64, now time.Time) error {
 	_, err := db.conn.Exec(`UPDATE squads SET last_activity_at = ?, warned_at = 0 WHERE id = ?`, now.Unix(), id)
 	return err
+}
+
+// MarkSquadDeleting records that a squad's deletion has started, keeping the
+// first reason if it was already marked.
+func (db *DB) MarkSquadDeleting(id int64, reason string) error {
+	_, err := db.conn.Exec(`UPDATE squads SET delete_reason = ? WHERE id = ? AND delete_reason = ''`, reason, id)
+	return err
+}
+
+// migrateSquads adds columns introduced after the squads table was first
+// created.
+func (db *DB) migrateSquads() error {
+	rows, err := db.conn.Query(`PRAGMA table_info(squads)`)
+	if err != nil {
+		return fmt.Errorf("failed to check squads schema: %w", err)
+	}
+	have := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan squads schema: %w", err)
+		}
+		have = have || name == "delete_reason"
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read squads schema: %w", err)
+	}
+	if have {
+		return nil
+	}
+	if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("failed to add squads.delete_reason: %w", err)
+	}
+	return nil
 }
 
 // MarkSquadWarned records that a squad was warned it will be deleted.

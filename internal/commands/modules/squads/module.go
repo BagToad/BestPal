@@ -39,8 +39,9 @@ type Module struct {
 	now     func() time.Time
 	randN   func(n int) int
 
-	mu    sync.Mutex
-	locks map[string]*sync.Mutex
+	mu         sync.Mutex
+	locks      map[string]*sync.Mutex
+	reconciled map[string]time.Time // last departure check per guild
 
 	chMu     sync.Mutex
 	channels map[string]int64    // squad channel ID -> squad ID

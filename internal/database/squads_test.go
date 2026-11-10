@@ -119,3 +119,35 @@ func TestSquadLastMatch(t *testing.T) {
 	at, _ = db.SquadLastMatch("g")
 	assert.Equal(t, int64(42), at.Unix())
 }
+
+func TestMarkSquadDeleting(t *testing.T) {
+	db := newSquadDB(t)
+	now := time.Unix(1_800_000_000, 0)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl"}, []string{"a", "b"}, now)
+	require.NoError(t, err)
+	require.NoError(t, db.MarkSquadDeleting(sq.ID, "quiet"))
+	require.NoError(t, db.MarkSquadDeleting(sq.ID, "later reason"))
+	got, _, err := db.GetSquad(sq.ID)
+	require.NoError(t, err)
+	assert.True(t, got.Deleting())
+	assert.Equal(t, "quiet", got.DeleteReason, "the first reason is kept")
+}
+
+func TestMigrateSquadsAddsDeleteReason(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`ALTER TABLE squads DROP COLUMN delete_reason`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl"}, []string{"a"}, time.Now())
+	require.NoError(t, err)
+	squads, err := db.ListSquads("g")
+	require.NoError(t, err)
+	require.Len(t, squads, 1)
+	assert.False(t, squads[0].Deleting())
+}

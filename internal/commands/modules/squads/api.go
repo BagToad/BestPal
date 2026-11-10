@@ -30,9 +30,9 @@ type discordAPI interface {
 	DM(userID string, msg *discordgo.MessageSend) error
 	BotID() string
 	Channel(channelID string) (*discordgo.Channel, error)
-	// LastHumanMessage returns when a non-bot last posted in a channel
-	// (zero if nobody has among recent messages).
-	LastHumanMessage(channelID string) (time.Time, error)
+	// LastHumanMessage returns when a non-bot last posted in a channel after
+	// since (zero if nobody has).
+	LastHumanMessage(channelID string, since time.Time) (time.Time, error)
 }
 
 type sessionAPI struct{ s *discordgo.Session }
@@ -111,17 +111,33 @@ func (a sessionAPI) Channel(channelID string) (*discordgo.Channel, error) {
 	return a.s.Channel(channelID)
 }
 
-func (a sessionAPI) LastHumanMessage(channelID string) (time.Time, error) {
-	msgs, err := a.s.ChannelMessages(channelID, 50, "", "", "")
-	if err != nil {
-		return time.Time{}, err
-	}
-	for _, msg := range msgs {
-		if msg.Author != nil && !msg.Author.Bot {
-			return msg.Timestamp, nil
+// maxHistoryPages bounds how far back LastHumanMessage reads (100 messages a
+// page) before giving up with an error.
+const maxHistoryPages = 20
+
+var errHistoryTooLong = errors.New("too many bot messages to find the last human one")
+
+func (a sessionAPI) LastHumanMessage(channelID string, since time.Time) (time.Time, error) {
+	before := ""
+	for range maxHistoryPages {
+		msgs, err := a.s.ChannelMessages(channelID, 100, before, "", "")
+		if err != nil {
+			return time.Time{}, err
 		}
+		for _, msg := range msgs {
+			if !msg.Timestamp.After(since) {
+				return time.Time{}, nil
+			}
+			if msg.Author != nil && !msg.Author.Bot {
+				return msg.Timestamp, nil
+			}
+		}
+		if len(msgs) < 100 {
+			return time.Time{}, nil
+		}
+		before = msgs[len(msgs)-1].ID
 	}
-	return time.Time{}, nil
+	return time.Time{}, errHistoryTooLong
 }
 
 func (a sessionAPI) BotID() string {

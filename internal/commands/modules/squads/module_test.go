@@ -428,7 +428,7 @@ func makeSquad(t *testing.T, m *Module, api *fakeAPI, db *database.DB, uids ...s
 		member(api, uid, "role-eu")
 		group = append(group, &candidate{UserID: uid, Games: map[int64]string{1: "Game 1"}, Tags: map[string]bool{}})
 	}
-	sq, err := m.createSquad(guild, group)
+	sq, err := m.createSquad(guild, group, false)
 	require.NoError(t, err)
 	sq, _, err = db.GetSquad(sq.ID)
 	require.NoError(t, err)
@@ -612,12 +612,12 @@ func TestIntroLink(t *testing.T) {
 	assert.Equal(t, `[\[x\]\_y\_ z](https://discord.com/channels/`+guild+`/t2)`,
 		introLink(guild, &candidate{Name: "[x]_y_\nz", IntroID: "t2"}))
 
-	text, extra := welcomeText(guild, "Squad Owl", "r", []*candidate{
+	text, extra := welcomeText(guild, "Squad Owl", "r", "", []*candidate{
 		{UserID: "a", Name: "Alice", IntroID: "t1"}, {UserID: "b", Name: "Bob"}, {UserID: "c", Name: "Cy", IntroID: "t3"},
 	}, time.Hour)
 	assert.Contains(t, text, "📝 Intros: [Alice](https://discord.com/channels/"+guild+"/t1) · [Cy](https://discord.com/channels/"+guild+"/t3)")
 	assert.Empty(t, extra)
-	text, extra = welcomeText(guild, "Squad Owl", "r", []*candidate{{UserID: "b"}}, time.Hour)
+	text, extra = welcomeText(guild, "Squad Owl", "r", "", []*candidate{{UserID: "b"}}, time.Hour)
 	assert.NotContains(t, text, "Intros")
 	assert.Empty(t, extra)
 }
@@ -631,7 +631,7 @@ func TestWelcomeFitsWithFullSquadOfIntros(t *testing.T) {
 			IntroID: fmt.Sprintf("9876543210987654%02d", n),
 		})
 	}
-	text, extra := welcomeText("123456789012345678", "Squad Owl", "123456789012345678", group, time.Hour)
+	text, extra := welcomeText("123456789012345678", "Squad Owl", "123456789012345678", "", group, time.Hour)
 	assert.LessOrEqual(t, utf8.RuneCountInString(text), 2000)
 	for n := range group {
 		assert.Contains(t, text, mention(group[n].UserID))
@@ -895,4 +895,48 @@ func TestRetryRateLimited(t *testing.T) {
 	err = retryRateLimited(direct, func() error { calls++; return igdb.ErrBadRequest })
 	assert.ErrorIs(t, err, igdb.ErrBadRequest)
 	assert.Equal(t, 1, calls, "other errors are not retried")
+}
+
+func TestAdminCreate(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	existing := makeSquad(t, m, api, db, "a", "b")
+	member(api, "c", "role-eu")
+	member(api, "d", "role-na")
+	queue(t, m, api, db, now.Add(-time.Hour), []string{"q1"}, []int64{1}, "role-eu")
+	users := func(uids ...string) []*discordgo.ApplicationCommandInteractionDataOption {
+		var opts []*discordgo.ApplicationCommandInteractionDataOption
+		for n, uid := range uids {
+			opts = append(opts, &discordgo.ApplicationCommandInteractionDataOption{
+				Name: fmt.Sprintf("user%d", n+1), Type: discordgo.ApplicationCommandOptionUser, Value: uid})
+		}
+		return opts
+	}
+	create := func(uids ...string) string {
+		m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "create", users(uids...)...))
+		return editContent(api.lastEdit())
+	}
+	before, _ := db.ListSquads(guild)
+
+	assert.Contains(t, create("c", "a"), "<@a> is already in **"+existing.Name+"**")
+	assert.Contains(t, create("c", "ghost"), "<@ghost> isn't in the server")
+	assert.Contains(t, create("c", "c"), "at least two different members")
+	after, _ := db.ListSquads(guild)
+	assert.Len(t, after, len(before), "a failed create makes nothing")
+
+	out := create("c", "d", "q1")
+	assert.Contains(t, out, "✅ Created **")
+	sq, ok, _ := db.SquadForUser(guild, "q1")
+	require.True(t, ok)
+	assert.Equal(t, 3, sq.Members, "matching rules like region don't apply")
+	q, _ := db.SquadQueue(guild)
+	assert.Empty(t, q, "queued members leave the queue")
+	var welcome string
+	for _, s := range api.sent {
+		if s.ChannelID == sq.ChannelID {
+			welcome = s.Msg.Content
+			break
+		}
+	}
+	assert.Contains(t, welcome, "A moderator put this squad together.")
+	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "<@mod> created **"+sq.Name+"**")
 }

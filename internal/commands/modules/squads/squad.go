@@ -177,7 +177,9 @@ func (m *Module) unregisterChannel(channelID string) {
 
 // createSquad creates the role, channel and welcome post for a new group.
 // Callers hold the guild lock.
-func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad, error) {
+// createSquad makes a squad for group. byMod marks a squad a moderator put
+// together by hand, so the welcome doesn't claim they were matched.
+func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (database.Squad, error) {
 	gc := m.config.ForGuild(guildID)
 	category := gc.GetSquadsCategoryID()
 	if category == "" {
@@ -234,7 +236,11 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 		}
 	}
 
-	welcome, introPosts := welcomeText(guildID, name, role.ID, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter())
+	ground := commonGround(group)
+	if byMod {
+		ground = "A moderator put this squad together."
+	}
+	welcome, introPosts := welcomeText(guildID, name, role.ID, ground, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter())
 	msg, err := api.Send(ch.ID, &discordgo.MessageSend{
 		Content:         welcome,
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: ids},
@@ -271,7 +277,7 @@ const maxMessageLen = 2000
 // welcomeText builds the welcome post. Intro links go inline when they fit;
 // otherwise they come back as follow-up posts so the welcome never goes over
 // Discord's length limit.
-func welcomeText(guildID, name, roleID string, group []*candidate, quietLimit time.Duration) (string, []string) {
+func welcomeText(guildID, name, roleID, ground string, group []*candidate, quietLimit time.Duration) (string, []string) {
 	var head strings.Builder
 	fmt.Fprintf(&head, "## 🎉 Welcome to %s!\n", name)
 	var intros []string
@@ -284,7 +290,7 @@ func welcomeText(guildID, name, roleID string, group []*candidate, quietLimit ti
 			intros = append(intros, link)
 		}
 	}
-	tail := "\n\n" + commonGround(group) +
+	tail := "\n\n" + ground +
 		fmt.Sprintf("\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID) +
 		fmt.Sprintf("\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))
 	if len(intros) == 0 {
@@ -585,7 +591,7 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 		}
 	}
 	for _, group := range report.Plan.NewSquads {
-		sq, err := m.createSquad(guildID, group)
+		sq, err := m.createSquad(guildID, group, false)
 		if err != nil {
 			m.config.Logger.Errorf("squads: create squad: %v", err)
 			report.Failures = append(report.Failures, "create squad: "+err.Error())

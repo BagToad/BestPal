@@ -103,7 +103,7 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			},
 			{
 				Name:   "/squad-admin",
-				Value:  "Squad moderation\n• `status` / `user` / `dryrun` - see the queue, next pairing and what a pairing would do\n• `run-now` - pair now\n• `add` / `remove` / `delete` / `queue-remove` - manage squads and the queue\n• `refresh-permissions` - apply visibility changes to existing squads",
+				Value:  "Squad moderation\n• `status` / `user` / `dryrun` - see the queue, next pairing and what a pairing would do\n• `run-now` - pair now\n• `create` - make a squad from members you pick\n• `add` / `remove` / `delete` / `queue-remove` - manage squads and the queue\n• `refresh-permissions` - apply visibility changes to existing squads",
 				Inline: false,
 			},
 			{

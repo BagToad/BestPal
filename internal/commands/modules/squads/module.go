@@ -136,6 +136,14 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 	sub := func(name, desc string, opts ...*discordgo.ApplicationCommandOption) *discordgo.ApplicationCommandOption {
 		return &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionSubCommand, Name: name, Description: desc, Options: opts}
 	}
+	createOpts := func() []*discordgo.ApplicationCommandOption {
+		opts := make([]*discordgo.ApplicationCommandOption, maxCreateMembers)
+		for n := range opts {
+			opts[n] = &discordgo.ApplicationCommandOption{Type: discordgo.ApplicationCommandOptionUser,
+				Name: fmt.Sprintf("user%d", n+1), Description: "Member", Required: n < 2}
+		}
+		return opts
+	}
 	cmds["squad-admin"] = &types.Command{
 		ApplicationCommand: &discordgo.ApplicationCommand{
 			Name:                     "squad-admin",
@@ -147,6 +155,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 				sub("dryrun", "Show what pairing would do right now, without changing anything"),
 				sub("run-now", "Run pairing right now"),
 				sub("user", "Show someone's games, queue and squad", userOpt("Member")),
+				sub("create", "Make a squad from members you pick (ignores matching and size limits)", createOpts()...),
 				sub("add", "Add someone to a squad (ignores size limits)", userOpt("Member to add"), squadOpt),
 				sub("remove", "Remove someone from their squad", userOpt("Member to remove")),
 				sub("delete", "Delete a squad's channel and role", squadOpt),

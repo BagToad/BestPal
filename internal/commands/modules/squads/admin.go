@@ -53,6 +53,14 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 		m.adminDeferred(s, i, func() string { return m.userText(i.GuildID, userArg()) })
 	case "dryrun", "run-now":
 		m.adminRun(s, i, sub.Name == "dryrun")
+	case "create":
+		var uids []string
+		for n := 1; n <= maxCreateMembers; n++ {
+			if o := args[fmt.Sprintf("user%d", n)]; o != nil {
+				uids = append(uids, fmt.Sprint(o.Value))
+			}
+		}
+		m.adminLocked(s, i, func() string { return m.adminCreate(i, uids) })
 	case "add":
 		m.adminLocked(s, i, func() string { return m.adminAdd(i, userArg(), squadArg()) })
 	case "remove":
@@ -133,6 +141,70 @@ func (m *Module) adminAdd(i *discordgo.InteractionCreate, uid string, squadID in
 	}
 	m.modLog(i.GuildID, fmt.Sprintf("%s added %s to **%s**.", mention(userID(i)), mention(uid), sq.Name))
 	return fmt.Sprintf("✅ Added %s to **%s**.", mention(uid), sq.Name)
+}
+
+// maxCreateMembers is how many members /squad-admin create takes.
+const maxCreateMembers = 10
+
+// adminCreate makes a squad from hand-picked members, skipping matching.
+func (m *Module) adminCreate(i *discordgo.InteractionCreate, uids []string) string {
+	var resolved map[string]*discordgo.User
+	if r := i.ApplicationCommandData().Resolved; r != nil {
+		resolved = r.Users
+	}
+	seen := map[string]bool{}
+	var group []*candidate
+	var problems []string
+	rl := m.roleLookup(i.GuildID)
+	for _, uid := range uids {
+		if seen[uid] {
+			continue
+		}
+		seen[uid] = true
+		if u := resolved[uid]; u != nil && u.Bot {
+			problems = append(problems, mention(uid)+" is a bot")
+			continue
+		}
+		if cur, in, err := m.db.SquadForUser(i.GuildID, uid); err != nil {
+			return "❌ Could not check squads. Try again in a moment."
+		} else if in {
+			problems = append(problems, fmt.Sprintf("%s is already in **%s**", mention(uid), cur.Name))
+			continue
+		}
+		picks, err := m.db.SquadPicks(i.GuildID, uid)
+		if err != nil {
+			return "❌ Could not load games. Try again in a moment."
+		}
+		c, _, err := m.loadCandidate(i.GuildID, uid, picks, rl)
+		if err != nil {
+			problems = append(problems, mention(uid)+" isn't in the server")
+			continue
+		}
+		if e, queued, _ := m.db.SquadQueueEntryFor(i.GuildID, uid); queued {
+			c.IntroID = e.IntroThreadID
+		}
+		group = append(group, c)
+	}
+	if len(problems) > 0 {
+		return "❌ Nothing was created: " + strings.Join(problems, "; ") + "."
+	}
+	if len(group) < 2 {
+		return "❌ Pick at least two different members."
+	}
+	sq, err := m.createSquad(i.GuildID, group, true)
+	if err != nil {
+		if errors.Is(err, database.ErrSquadMember) {
+			return "❌ Someone joined a squad in the meantime. Try again."
+		}
+		m.config.Logger.Errorf("squads: admin create: %v", err)
+		return "❌ Could not create the squad: " + err.Error()
+	}
+	ids := make([]string, len(group))
+	for n, c := range group {
+		ids[n] = mention(c.UserID)
+	}
+	m.modLog(i.GuildID, fmt.Sprintf("%s created **%s** with %s.", mention(userID(i)), sq.Name, strings.Join(ids, " ")))
+	return fmt.Sprintf("✅ Created **%s** (<#%s>) with %s.", sq.Name, sq.ChannelID, strings.Join(ids, " "))
 }
 
 func (m *Module) adminRemove(i *discordgo.InteractionCreate, uid string) string {

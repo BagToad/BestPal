@@ -341,19 +341,48 @@ var linkTextEscaper = strings.NewReplacer(
 // linkSafeName drops emoji from a display name, because Discord won't render
 // a masked link whose text contains them, and collapses whitespace.
 func linkSafeName(name string) string {
-	name = strings.Map(func(r rune) rune {
-		switch {
-		case unicode.Is(unicode.So, r), unicode.Is(unicode.Sk, r) && r > 0x7f,
-			unicode.Is(unicode.Mn, r) && r >= 0xfe00 && r <= 0xfe0f, // variation selectors
-			r == 0x200d, r >= 0x1f1e6 && r <= 0x1f1ff, // ZWJ, regional indicators
-			r >= 0xe0020 && r <= 0xe007f: // tag sequences
-			return -1
-		case unicode.IsSpace(r):
-			return ' '
+	runes := []rune(name)
+	var b strings.Builder
+	for n, r := range runes {
+		// A character followed by an emoji presentation selector or keycap
+		// mark is an emoji (e.g. 1️⃣ or ‼️), even if it's normally a digit.
+		if n+1 < len(runes) && (runes[n+1] == 0xfe0f || runes[n+1] == 0x20e3) {
+			continue
 		}
-		return r
-	}, name)
-	return strings.Join(strings.Fields(name), " ")
+		switch {
+		case isEmojiRune(r):
+		case unicode.IsSpace(r):
+			b.WriteRune(' ')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// emojiPunct are emoji outside the symbol categories (punctuation and math).
+var emojiPunct = &unicode.RangeTable{R16: []unicode.Range16{
+	{Lo: 0x203c, Hi: 0x203c, Stride: 1}, // ‼
+	{Lo: 0x2049, Hi: 0x2049, Stride: 1}, // ⁉
+	{Lo: 0x2139, Hi: 0x2139, Stride: 1}, // ℹ
+	{Lo: 0x2194, Hi: 0x2199, Stride: 1}, // ↔ to ↙
+	{Lo: 0x21a9, Hi: 0x21aa, Stride: 1}, // ↩ ↪
+	{Lo: 0x25fb, Hi: 0x25fe, Stride: 1}, // ◻ to ◾
+	{Lo: 0x2934, Hi: 0x2935, Stride: 1}, // ⤴ ⤵
+	{Lo: 0x3030, Hi: 0x3030, Stride: 1}, // 〰
+	{Lo: 0x303d, Hi: 0x303d, Stride: 1}, // 〽
+}}
+
+func isEmojiRune(r rune) bool {
+	switch {
+	case unicode.Is(unicode.So, r), unicode.Is(unicode.Sk, r) && r > 0x7f, unicode.Is(emojiPunct, r):
+		return true
+	case r >= 0xfe00 && r <= 0xfe0f, r == 0x20e3, r == 0x200d: // variation selectors, keycap, ZWJ
+		return true
+	case r >= 0x1f1e6 && r <= 0x1f1ff, r >= 0xe0020 && r <= 0xe007f: // flags, tag sequences
+		return true
+	}
+	return false
 }
 
 // introLink is a [name](url) link to someone's intro post, or "" without one.

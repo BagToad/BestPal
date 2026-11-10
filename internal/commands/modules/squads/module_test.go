@@ -13,6 +13,7 @@ import (
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 
+	"github.com/Henry-Sarabia/igdb/v2"
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -866,4 +867,32 @@ func TestRankGames(t *testing.T) {
 func TestPopularityQuery(t *testing.T) {
 	assert.Equal(t, "fields game_id,value; where game_id = (7,42) & popularity_type = 1; limit 2;",
 		popularityQuery([]gameInfo{{ID: 7}, {ID: 42}}))
+}
+
+func TestRetryRateLimited(t *testing.T) {
+	orig := rateLimitPause
+	rateLimitPause = time.Millisecond
+	defer func() { rateLimitPause = orig }()
+	direct := func(fn func() error) error { return fn() }
+
+	calls := 0
+	err := retryRateLimited(direct, func() error {
+		calls++
+		if calls == 1 {
+			return igdb.ErrManyRequests
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, 2, calls, "a 429 is retried once")
+
+	calls = 0
+	err = retryRateLimited(direct, func() error { calls++; return igdb.ErrManyRequests })
+	assert.ErrorIs(t, err, igdb.ErrManyRequests)
+	assert.Equal(t, 2, calls, "gives up after one retry")
+
+	calls = 0
+	err = retryRateLimited(direct, func() error { calls++; return igdb.ErrBadRequest })
+	assert.ErrorIs(t, err, igdb.ErrBadRequest)
+	assert.Equal(t, 1, calls, "other errors are not retried")
 }

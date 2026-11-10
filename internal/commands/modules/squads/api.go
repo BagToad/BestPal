@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,34 +225,42 @@ func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 	opts := func(extra ...igdb.Option) []igdb.Option {
 		return append(append([]igdb.Option{gameFields, igdb.SetLimit(searchLimit)}, baseOnly...), extra...)
 	}
-	var tiers [][]*igdb.Game
-	err := src.client.Retry(func() error {
-		tiers = nil
-		svc, err := src.client.Games()
-		if err != nil {
-			return err
-		}
-		lookups := []func() ([]*igdb.Game, error){
-			func() ([]*igdb.Game, error) {
-				return svc.Index(opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, quoted))...)
-			},
-			func() ([]*igdb.Game, error) {
-				return svc.Search(term, opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, "*"+quoted+"*"))...)
-			},
-			func() ([]*igdb.Game, error) {
-				return svc.Search(term, opts()...)
-			},
-		}
-		for _, lookup := range lookups {
-			found, err := lookup()
-			if err != nil && !errors.Is(err, igdb.ErrNoResults) {
-				return err
-			}
-			tiers = append(tiers, found)
-		}
-		return nil
-	})
-	if err != nil {
+	lookups := []func(*igdb.GameService) ([]*igdb.Game, error){
+		func(svc *igdb.GameService) ([]*igdb.Game, error) {
+			return svc.Index(opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, quoted))...)
+		},
+		func(svc *igdb.GameService) ([]*igdb.Game, error) {
+			return svc.Search(term, opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, "*"+quoted+"*"))...)
+		},
+		func(svc *igdb.GameService) ([]*igdb.Game, error) {
+			return svc.Search(term, opts()...)
+		},
+	}
+	// The tiers run at once to cut the wait; 3 requests stay under IGDB's
+	// limit of 4 per second, and a rate-limited tier retries after a pause.
+	tiers := make([][]*igdb.Game, len(lookups))
+	errs := make([]error, len(lookups))
+	var wg sync.WaitGroup
+	for n, lookup := range lookups {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[n] = src.withBackoff(func() error {
+				svc, err := src.client.Games()
+				if err != nil {
+					return err
+				}
+				found, err := lookup(svc)
+				if err != nil && !errors.Is(err, igdb.ErrNoResults) {
+					return err
+				}
+				tiers[n] = found
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
 	var games []*igdb.Game
@@ -274,6 +283,26 @@ func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 	return out, nil
 }
 
+// rateLimitPause is how long to wait before retrying a request IGDB rejected
+// for exceeding its rate limit.
+var rateLimitPause = time.Second
+
+// withBackoff runs fn through the client's token refresh, retrying once after
+// a pause if IGDB answers 429 Too Many Requests.
+func (src *igdbSource) withBackoff(fn func() error) error {
+	return retryRateLimited(src.client.Retry, fn)
+}
+
+func retryRateLimited(retry func(func() error) error, fn func() error) error {
+	err := retry(fn)
+	var se igdb.ServerError
+	if errors.As(err, &se) && se.Status == http.StatusTooManyRequests {
+		time.Sleep(rateLimitPause)
+		err = retry(fn)
+	}
+	return err
+}
+
 // popularity looks up each game's IGDB page-visit score.
 func (src *igdbSource) popularity(games []gameInfo) (map[int64]float64, error) {
 	if len(games) == 0 {
@@ -284,7 +313,7 @@ func (src *igdbSource) popularity(games []gameInfo) (map[int64]float64, error) {
 		Value  float64 `json:"value"`
 	}
 	query := popularityQuery(games)
-	err := src.client.Retry(func() error {
+	err := src.withBackoff(func() error {
 		rows = nil
 		return src.client.Query("popularity_primitives", query, &rows)
 	})

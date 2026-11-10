@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gamerpal/internal/config"
@@ -337,12 +338,30 @@ var linkTextEscaper = strings.NewReplacer(
 	"~", "\\~", "`", "\\`", "|", "\\|", "<", "\\<", ">", "\\>",
 )
 
+// linkSafeName drops emoji from a display name, because Discord won't render
+// a masked link whose text contains them, and collapses whitespace.
+func linkSafeName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case unicode.Is(unicode.So, r), unicode.Is(unicode.Sk, r) && r > 0x7f,
+			unicode.Is(unicode.Mn, r) && r >= 0xfe00 && r <= 0xfe0f, // variation selectors
+			r == 0x200d, r >= 0x1f1e6 && r <= 0x1f1ff, // ZWJ, regional indicators
+			r >= 0xe0020 && r <= 0xe007f: // tag sequences
+			return -1
+		case unicode.IsSpace(r):
+			return ' '
+		}
+		return r
+	}, name)
+	return strings.Join(strings.Fields(name), " ")
+}
+
 // introLink is a [name](url) link to someone's intro post, or "" without one.
 func introLink(guildID string, c *candidate) string {
 	if c.IntroID == "" {
 		return ""
 	}
-	name := strings.TrimSpace(strings.NewReplacer("\n", " ", "\r", " ").Replace(c.Name))
+	name := linkSafeName(c.Name)
 	if name == "" {
 		name = "intro"
 	}

@@ -843,3 +843,24 @@ func TestIGDBString(t *testing.T) {
 	assert.Equal(t, `"Halo"`, igdbString("Halo"))
 	assert.Equal(t, `"say \"hi\" \\ bye"`, igdbString(`say "hi" \ bye`))
 }
+
+func TestRankGames(t *testing.T) {
+	games := []gameInfo{{ID: 1}, {ID: 2}, {ID: 3}, {ID: 4}, {ID: 5}}
+	tier := map[int64]int{1: 0, 2: 1, 3: 1, 4: 2, 5: 1}
+	pop := map[int64]float64{1: 0.001, 2: 0.01, 3: 0.5, 4: 0.9}
+	rankGames(games, tier, pop)
+	var ids []int64
+	for _, g := range games {
+		ids = append(ids, g.ID)
+	}
+	assert.Equal(t, []int64{1, 3, 2, 5, 4}, ids)
+
+	games = []gameInfo{{ID: 9}, {ID: 8}}
+	rankGames(games, map[int64]int{}, nil)
+	assert.Equal(t, int64(9), games[0].ID, "no scores keeps the original order")
+}
+
+func TestPopularityQuery(t *testing.T) {
+	assert.Equal(t, "fields game_id,value; where game_id = (7,42) & popularity_type = 1; limit 2;",
+		popularityQuery([]gameInfo{{ID: 7}, {ID: 42}}))
+}

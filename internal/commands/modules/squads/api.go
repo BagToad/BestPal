@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -196,8 +198,17 @@ var skippedTags = map[string]bool{"Indie": true}
 // searchLimit caps each IGDB query; the picker shows at most maxPicks-1.
 const searchLimit = 20
 
-// Search puts exact name matches first, then names containing the query,
-// then IGDB's full-text results, which catch typos and word order.
+// baseGameTypes are the IGDB game_type IDs worth picking: main games,
+// standalone expansions, remakes, remasters and expanded games. DLC, bundles,
+// mods, episodes, seasons, ports, packs and updates are left out.
+var baseGameTypes = []string{"0", "4", "8", "9", "10"}
+
+// popularityVisits is IGDB's page-visits popularity type.
+const popularityVisits = 1
+
+// Search finds base games (no DLC or editions) in three tiers: exact name
+// matches, names containing the query, then IGDB's full-text results, which
+// catch typos and word order. Each tier is sorted by popularity.
 func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 	query = strings.TrimSpace(query)
 	// The client doesn't escape the search term itself.
@@ -206,24 +217,29 @@ func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 		return nil, nil
 	}
 	quoted := igdbString(query)
-	var games []*igdb.Game
+	baseOnly := []igdb.Option{
+		igdb.SetFilter("game_type", igdb.OpContainsAtLeast, baseGameTypes...),
+		igdb.SetFilter("version_parent", igdb.OpEquals, "null"),
+	}
+	opts := func(extra ...igdb.Option) []igdb.Option {
+		return append(append([]igdb.Option{gameFields, igdb.SetLimit(searchLimit)}, baseOnly...), extra...)
+	}
+	var tiers [][]*igdb.Game
 	err := src.client.Retry(func() error {
-		games = nil
+		tiers = nil
 		svc, err := src.client.Games()
 		if err != nil {
 			return err
 		}
 		lookups := []func() ([]*igdb.Game, error){
 			func() ([]*igdb.Game, error) {
-				return svc.Index(gameFields, igdb.SetLimit(searchLimit),
-					igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, quoted))
+				return svc.Index(opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, quoted))...)
 			},
 			func() ([]*igdb.Game, error) {
-				return svc.Search(term, gameFields, igdb.SetLimit(searchLimit),
-					igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, "*"+quoted+"*"))
+				return svc.Search(term, opts(igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, "*"+quoted+"*"))...)
 			},
 			func() ([]*igdb.Game, error) {
-				return svc.Search(term, gameFields, igdb.SetLimit(searchLimit))
+				return svc.Search(term, opts()...)
 			},
 		}
 		for _, lookup := range lookups {
@@ -231,14 +247,76 @@ func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 			if err != nil && !errors.Is(err, igdb.ErrNoResults) {
 				return err
 			}
-			games = append(games, found...)
+			tiers = append(tiers, found)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return src.convert(games), nil
+	var games []*igdb.Game
+	tier := map[int64]int{}
+	for n, found := range tiers {
+		for _, g := range found {
+			if g == nil {
+				continue
+			}
+			if _, seen := tier[int64(g.ID)]; !seen {
+				tier[int64(g.ID)] = n
+			}
+			games = append(games, g)
+		}
+	}
+	out := src.convert(games)
+	// Without popularity the tiers keep IGDB's own order.
+	pop, _ := src.popularity(out)
+	rankGames(out, tier, pop)
+	return out, nil
+}
+
+// popularity looks up each game's IGDB page-visit score.
+func (src *igdbSource) popularity(games []gameInfo) (map[int64]float64, error) {
+	if len(games) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		GameID int64   `json:"game_id"`
+		Value  float64 `json:"value"`
+	}
+	query := popularityQuery(games)
+	err := src.client.Retry(func() error {
+		rows = nil
+		return src.client.Query("popularity_primitives", query, &rows)
+	})
+	if err != nil {
+		return nil, err
+	}
+	pop := make(map[int64]float64, len(rows))
+	for _, r := range rows {
+		pop[r.GameID] = r.Value
+	}
+	return pop, nil
+}
+
+func popularityQuery(games []gameInfo) string {
+	ids := make([]string, len(games))
+	for n, g := range games {
+		ids[n] = strconv.FormatInt(g.ID, 10)
+	}
+	return fmt.Sprintf("fields game_id,value; where game_id = (%s) & popularity_type = %d; limit %d;",
+		strings.Join(ids, ","), popularityVisits, len(games))
+}
+
+// rankGames orders games by tier, then by popularity, most popular first.
+// Games with no score sort last within their tier, in their original order.
+func rankGames(games []gameInfo, tier map[int64]int, pop map[int64]float64) {
+	sort.SliceStable(games, func(a, b int) bool {
+		ga, gb := games[a], games[b]
+		if tier[ga.ID] != tier[gb.ID] {
+			return tier[ga.ID] < tier[gb.ID]
+		}
+		return pop[ga.ID] > pop[gb.ID]
+	})
 }
 
 // igdbString quotes s as an Apicalypse string literal.

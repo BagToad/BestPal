@@ -10,6 +10,7 @@ import (
 
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -485,7 +486,8 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		m.unregisterChannel(sq.ChannelID)
 	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
-	m.modLog(sq.GuildID, fmt.Sprintf("deleted **%s** because %s.", sq.Name, why))
+	m.modLog(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(),
+		logField("Squad", "**"+sq.Name+"**", true), logField("Reason", capitalize(why), false))
 	return nil
 }
 
@@ -754,4 +756,12 @@ func humanDuration(d time.Duration) string {
 	default:
 		return plural(max(int(d.Minutes()), 1), "minute", "minutes")
 	}
+}
+
+func capitalize(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return strings.ToUpper(string(r[0])) + string(r[1:])
 }

@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
+	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -75,7 +77,8 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 			case !removed:
 				return mention(uid) + " isn't in the queue."
 			}
-			m.modLog(i.GuildID, fmt.Sprintf("%s took %s out of the queue.", mention(userID(i)), mention(uid)))
+			m.modLog(i.GuildID, "🚶 Removed from Squad Queue", utils.Colors.Warning(),
+				logField("Member", mention(uid), true), logField("By", mention(userID(i)), true))
 			return "✅ Took " + mention(uid) + " out of the queue."
 		})
 	case "delete":
@@ -139,7 +142,8 @@ func (m *Module) adminAdd(i *discordgo.InteractionCreate, uid string, squadID in
 		m.config.Logger.Errorf("squads: admin add: %v", err)
 		return "❌ Could not add them: " + err.Error()
 	}
-	m.modLog(i.GuildID, fmt.Sprintf("%s added %s to **%s**.", mention(userID(i)), mention(uid), sq.Name))
+	m.modLog(i.GuildID, "➕ Added to Squad", utils.Colors.Ok(),
+		logField("Member", mention(uid), true), logField("Squad", squadRef(sq), true), logField("By", mention(userID(i)), true))
 	return fmt.Sprintf("✅ Added %s to **%s**.", mention(uid), sq.Name)
 }
 
@@ -203,7 +207,9 @@ func (m *Module) adminCreate(i *discordgo.InteractionCreate, uids []string) stri
 	for n, c := range group {
 		ids[n] = mention(c.UserID)
 	}
-	m.modLog(i.GuildID, fmt.Sprintf("%s created **%s** with %s.", mention(userID(i)), sq.Name, strings.Join(ids, " ")))
+	m.modLog(i.GuildID, "🧑‍🤝‍🧑 Squad Created", utils.Colors.Ok(),
+		logField("Squad", squadRef(sq), true), logField("By", mention(userID(i)), true),
+		logField("Members", strings.Join(ids, " "), false))
 	return fmt.Sprintf("✅ Created **%s** (<#%s>) with %s.", sq.Name, sq.ChannelID, strings.Join(ids, " "))
 }
 
@@ -216,7 +222,8 @@ func (m *Module) adminRemove(i *discordgo.InteractionCreate, uid string) string 
 		m.config.Logger.Errorf("squads: admin remove: %v", err)
 		return "❌ Could not remove them: " + err.Error()
 	}
-	m.modLog(i.GuildID, fmt.Sprintf("%s removed %s from **%s**.", mention(userID(i)), mention(uid), sq.Name))
+	m.modLog(i.GuildID, "➖ Removed from Squad", utils.Colors.Warning(),
+		logField("Member", mention(uid), true), logField("Squad", squadRef(sq), true), logField("By", mention(userID(i)), true))
 	return fmt.Sprintf("✅ Removed %s from **%s**.", mention(uid), sq.Name)
 }
 
@@ -284,8 +291,11 @@ func (m *Module) adminRun(s *discordgo.Session, i *discordgo.InteractionCreate, 
 		return
 	}
 	if !dry {
-		m.modLog(i.GuildID, fmt.Sprintf("%s ran pairing: %d new squads, %d late joins, %d unmatched.",
-			mention(userID(i)), len(report.Created), len(report.Plan.Joins), len(report.Plan.Unmatched)))
+		m.modLog(i.GuildID, "🔁 Squad Pairing Run", utils.Colors.Info(),
+			logField("New squads", strconv.Itoa(len(report.Created)), true),
+			logField("Late joins", strconv.Itoa(len(report.Plan.Joins)), true),
+			logField("Unmatched", strconv.Itoa(len(report.Plan.Unmatched)), true),
+			logField("By", mention(userID(i)), true))
 	}
 	m.editText(s, i, reportText(report, dry))
 }

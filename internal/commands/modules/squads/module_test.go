@@ -467,8 +467,10 @@ func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	assert.False(t, ok)
 	assert.Contains(t, api.delCh, sq.ChannelID)
 	assert.Contains(t, api.delRoles, sq.RoleID)
-	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "quiet for too long")
 	assert.Equal(t, "modlog", api.sent[len(api.sent)-1].ChannelID)
+	log := modLogEntry(t, api)
+	assert.Equal(t, "🗑️ Squad Deleted", log.Title)
+	assert.Contains(t, embedText(log), "It was quiet for too long")
 }
 
 func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
@@ -537,7 +539,11 @@ func TestAdminCommands(t *testing.T) {
 
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "remove", userOpt("c")))
 	assert.Contains(t, editContent(api.lastEdit()), "Removed <@c>")
-	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "removed <@c> from **Squad Axolotl**")
+	log := modLogEntry(t, api)
+	assert.Equal(t, "➖ Removed from Squad", log.Title)
+	assert.Contains(t, embedText(log), "Member: <@c>")
+	assert.Contains(t, embedText(log), "Squad: **Squad Axolotl**")
+	assert.Contains(t, embedText(log), "By: <@mod>")
 
 	queue(t, m, api, db, now.Add(-time.Hour), []string{"q1", "q2"}, []int64{1}, "role-eu")
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "status"))
@@ -742,7 +748,7 @@ func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
 	require.NoError(t, m.tick())
 	_, ok, _ = db.GetSquad(sq.ID)
 	assert.False(t, ok, "the next check finishes the delete")
-	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "a mod deleted it")
+	assert.Contains(t, embedText(modLogEntry(t, api)), "Reason: A mod deleted it")
 }
 
 func TestDeparturesReconciledInFullSquads(t *testing.T) {
@@ -938,5 +944,31 @@ func TestAdminCreate(t *testing.T) {
 		}
 	}
 	assert.Contains(t, welcome, "A moderator put this squad together.")
-	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "<@mod> created **"+sq.Name+"**")
+	log := modLogEntry(t, api)
+	assert.Equal(t, "🧑‍🤝‍🧑 Squad Created", log.Title)
+	assert.Contains(t, embedText(log), "By: <@mod>")
+	assert.Contains(t, embedText(log), "Members: <@c> <@d> <@q1>")
+	assert.Contains(t, embedText(log), "Squad: **"+sq.Name+"** (<#"+sq.ChannelID+">)")
+}
+
+// modLogEntry returns the last mod log embed.
+func modLogEntry(t *testing.T, api *fakeAPI) *discordgo.MessageEmbed {
+	t.Helper()
+	for n := len(api.sent) - 1; n >= 0; n-- {
+		if sm := api.sent[n]; sm.ChannelID == "modlog" {
+			require.Empty(t, sm.Msg.Content, "mod log entries are embeds")
+			require.Len(t, sm.Msg.Embeds, 1)
+			return sm.Msg.Embeds[0]
+		}
+	}
+	t.Fatal("no mod log entry")
+	return nil
+}
+
+func embedText(e *discordgo.MessageEmbed) string {
+	parts := []string{e.Title, e.Description}
+	for _, f := range e.Fields {
+		parts = append(parts, f.Name+": "+f.Value)
+	}
+	return strings.Join(parts, "\n")
 }

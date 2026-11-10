@@ -341,18 +341,39 @@ func parseID(s string) (int64, bool) {
 	return n, err == nil && n > 0
 }
 
-// modLog posts an admin action to the mod action log, if one is configured.
-func (m *Module) modLog(guildID, text string) {
+// modLog posts a squad action to the mod action log as an embed, if a log
+// channel is configured.
+func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.MessageEmbedField) {
 	ch := m.config.ForGuild(guildID).GetGamerPalsModActionLogChannelID()
 	if ch == "" {
 		return
 	}
+	for _, f := range fields {
+		f.Value = truncate(f.Value, 1024)
+	}
 	if _, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
-		Content:         "🧑‍🤝‍🧑 **Squads:** " + text,
+		Embeds: []*discordgo.MessageEmbed{{
+			Title:     title,
+			Color:     color,
+			Fields:    fields,
+			Timestamp: m.now().Format(time.RFC3339),
+			Footer:    &discordgo.MessageEmbedFooter{Text: "Squads"},
+		}},
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}); err != nil {
 		m.config.Logger.Warnf("squads: mod log: %v", err)
 	}
+}
+
+func logField(name, value string, inline bool) *discordgo.MessageEmbedField {
+	return &discordgo.MessageEmbedField{Name: name, Value: value, Inline: inline}
+}
+
+func squadRef(sq database.Squad) string {
+	if sq.ChannelID == "" {
+		return "**" + sq.Name + "**"
+	}
+	return fmt.Sprintf("**%s** (<#%s>)", sq.Name, sq.ChannelID)
 }
 
 func mention(uid string) string { return "<@" + uid + ">" }

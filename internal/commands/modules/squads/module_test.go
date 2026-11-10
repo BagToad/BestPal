@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
@@ -607,11 +608,39 @@ func TestIntroLink(t *testing.T) {
 	assert.Equal(t, `[\[x\]\_y\_ z](https://discord.com/channels/`+guild+`/t2)`,
 		introLink(guild, &candidate{Name: "[x]_y_\nz", IntroID: "t2"}))
 
-	text := welcomeText(guild, "Squad Owl", "r", []*candidate{
+	text, extra := welcomeText(guild, "Squad Owl", "r", []*candidate{
 		{UserID: "a", Name: "Alice", IntroID: "t1"}, {UserID: "b", Name: "Bob"}, {UserID: "c", Name: "Cy", IntroID: "t3"},
 	}, time.Hour)
 	assert.Contains(t, text, "📝 Intros: [Alice](https://discord.com/channels/"+guild+"/t1) · [Cy](https://discord.com/channels/"+guild+"/t3)")
-	assert.NotContains(t, welcomeText(guild, "Squad Owl", "r", []*candidate{{UserID: "b"}}, time.Hour), "Intros")
+	assert.Empty(t, extra)
+	text, extra = welcomeText(guild, "Squad Owl", "r", []*candidate{{UserID: "b"}}, time.Hour)
+	assert.NotContains(t, text, "Intros")
+	assert.Empty(t, extra)
+}
+
+func TestWelcomeFitsWithFullSquadOfIntros(t *testing.T) {
+	var group []*candidate
+	for n := 0; n < 25; n++ {
+		group = append(group, &candidate{
+			UserID:  fmt.Sprintf("1234567890123456%02d", n),
+			Name:    strings.Repeat("ñ", 32),
+			IntroID: fmt.Sprintf("9876543210987654%02d", n),
+		})
+	}
+	text, extra := welcomeText("123456789012345678", "Squad Owl", "123456789012345678", group, time.Hour)
+	assert.LessOrEqual(t, utf8.RuneCountInString(text), 2000)
+	for n := range group {
+		assert.Contains(t, text, mention(group[n].UserID))
+	}
+	assert.NotContains(t, text, "Intros")
+	assert.Greater(t, len(extra), 1)
+	links := 0
+	for _, post := range extra {
+		assert.LessOrEqual(t, utf8.RuneCountInString(post), 2000)
+		assert.True(t, strings.HasPrefix(post, "📝 Intros: "))
+		links += strings.Count(post, "](https://discord.com/channels/")
+	}
+	assert.Equal(t, 25, links)
 }
 
 func TestOverwritesFollowCategory(t *testing.T) {

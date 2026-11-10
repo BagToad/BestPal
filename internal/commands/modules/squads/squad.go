@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
@@ -233,8 +234,9 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 		}
 	}
 
+	welcome, introPosts := welcomeText(guildID, name, role.ID, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter())
 	msg, err := api.Send(ch.ID, &discordgo.MessageSend{
-		Content:         welcomeText(guildID, name, role.ID, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter()),
+		Content:         welcome,
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: ids},
 		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "Leave squad", Emoji: &discordgo.ComponentEmoji{Name: "🚪"}, Style: discordgo.SecondaryButton,
@@ -251,29 +253,67 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	if err := m.db.SetSquadWelcome(sq.ID, msg.ID); err != nil {
 		m.config.Logger.Warnf("squads: save welcome for %s: %v", name, err)
 	}
+	for _, post := range introPosts {
+		if _, err := api.Send(ch.ID, &discordgo.MessageSend{
+			Content:         post,
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		}); err != nil {
+			m.config.Logger.Warnf("squads: intro links in %s: %v", name, err)
+			break
+		}
+	}
 	return sq, nil
 }
 
-func welcomeText(guildID, name, roleID string, group []*candidate, quietLimit time.Duration) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "## 🎉 Welcome to %s!\n", name)
+// maxMessageLen is Discord's limit on message content, in characters.
+const maxMessageLen = 2000
+
+// welcomeText builds the welcome post. Intro links go inline when they fit;
+// otherwise they come back as follow-up posts so the welcome never goes over
+// Discord's length limit.
+func welcomeText(guildID, name, roleID string, group []*candidate, quietLimit time.Duration) (string, []string) {
+	var head strings.Builder
+	fmt.Fprintf(&head, "## 🎉 Welcome to %s!\n", name)
 	var intros []string
 	for n, c := range group {
 		if n > 0 {
-			b.WriteString(" ")
+			head.WriteString(" ")
 		}
-		b.WriteString(mention(c.UserID))
+		head.WriteString(mention(c.UserID))
 		if link := introLink(guildID, c); link != "" {
 			intros = append(intros, link)
 		}
 	}
-	if len(intros) > 0 {
-		b.WriteString("\n📝 Intros: " + strings.Join(intros, " · "))
+	tail := "\n\n" + commonGround(group) +
+		fmt.Sprintf("\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID) +
+		fmt.Sprintf("\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))
+	if len(intros) == 0 {
+		return truncate(head.String()+tail, maxMessageLen), nil
 	}
-	b.WriteString("\n\n" + commonGround(group))
-	fmt.Fprintf(&b, "\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID)
-	fmt.Fprintf(&b, "\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))
-	return b.String()
+	const label = "📝 Intros: "
+	inline := head.String() + "\n" + label + strings.Join(intros, " · ") + tail
+	if utf8.RuneCountInString(inline) <= maxMessageLen {
+		return inline, nil
+	}
+	return truncate(head.String()+tail, maxMessageLen), chunkLinks(label, intros, maxMessageLen)
+}
+
+// chunkLinks joins links into as few posts as fit under limit, starting with label.
+func chunkLinks(label string, links []string, limit int) []string {
+	var posts []string
+	cur := label
+	for _, l := range links {
+		sep := " · "
+		if cur == label {
+			sep = ""
+		}
+		if cur != label && utf8.RuneCountInString(cur+sep+l) > limit {
+			posts = append(posts, cur)
+			cur, sep = label, ""
+		}
+		cur += sep + l
+	}
+	return append(posts, truncate(cur, limit))
 }
 
 func memberName(mem *discordgo.Member) string {

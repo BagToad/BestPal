@@ -21,6 +21,7 @@ import (
 	"gamerpal/internal/commands/modules/scamguard"
 	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/slidepuzzle"
+	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/commands/modules/status"
 	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/userstats"
@@ -116,6 +117,7 @@ func (h *ModuleHandler) registerModules() {
 		{"msgsearch", msgsearch.New(h.deps)},
 		{"eventfeed", eventfeed.New(h.deps)},
 		{"slidepuzzle", slidepuzzle.New(h.deps)},
+		{"squads", squads.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -211,6 +213,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Slide puzzle interaction received but slidepuzzle module not available")
 		}
+	case strings.HasPrefix(cid, "sq:"):
+		if sqMod, ok := h.GetModule("squads").(*squads.Module); ok {
+			sqMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("Squad interaction received but squads module not available")
+		}
 	case strings.HasPrefix(cid, "scamguard:"):
 		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
 			scamMod.HandleComponent(s, i)
@@ -245,6 +253,14 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 		}
 		return
 	}
+	if strings.HasPrefix(i.ModalSubmitData().CustomID, "sq:") {
+		if sqMod, ok := h.GetModule("squads").(*squads.Module); ok {
+			sqMod.HandleModalSubmit(s, i)
+		} else {
+			h.config.Logger.Warn("Squad modal submit received but squads module not available")
+		}
+		return
+	}
 	// Otherwise the LFG module handles modal submissions
 	if lfgMod, ok := h.GetModule("lfg").(*lfg.Module); ok {
 		lfgMod.HandleModalSubmit(s, i)
@@ -264,6 +280,10 @@ func (h *ModuleHandler) HandleAutocomplete(s *discordgo.Session, i *discordgo.In
 			lfgMod.HandleAutocomplete(s, i)
 		} else {
 			h.config.Logger.Warn("Autocomplete received for game-thread but LFG module not available")
+		}
+	case "squad-admin":
+		if sqMod, ok := h.GetModule("squads").(*squads.Module); ok {
+			sqMod.HandleAutocomplete(s, i)
 		}
 	case "give", "take", "managethings", "leaderboard":
 		if scoreMod, ok := h.GetModule("score").(*score.Module); ok {

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Henry-Sarabia/igdb/v2"
 )
@@ -75,6 +76,70 @@ func (c *Client) MultiplayerModes() (*igdb.MultiplayerModeService, error) {
 		return nil, err
 	}
 	return client.MultiplayerModes, nil
+}
+
+// Genres returns the Genres service, ensuring the client is initialized.
+func (c *Client) Genres() (*igdb.GenreService, error) {
+	client, err := c.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.Genres, nil
+}
+
+// Themes returns the Themes service, ensuring the client is initialized.
+func (c *Client) Themes() (*igdb.ThemeService, error) {
+	client, err := c.getClient()
+	if err != nil {
+		return nil, err
+	}
+	return client.Themes, nil
+}
+
+// apiURL is the IGDB API root. Exposed as a variable for testing.
+var apiURL = "https://api.igdb.com/v4/"
+
+var queryHTTP = &http.Client{Timeout: 15 * time.Second}
+
+// Query posts a raw Apicalypse query to an endpoint the igdb library doesn't
+// cover and decodes the JSON response into result. A 401 comes back as an
+// igdb.ServerError, so Retry refreshes the token as usual.
+func (c *Client) Query(endpoint, query string, result any) error {
+	if _, err := c.getClient(); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	token := c.token
+	c.mu.Unlock()
+
+	req, err := http.NewRequest(http.MethodPost, apiURL+endpoint, strings.NewReader(query))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Client-ID", c.clientID)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := queryHTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("igdb %s: %w", endpoint, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return fmt.Errorf("igdb %s: %w", endpoint, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg := string(body)
+		if len(msg) > 200 {
+			msg = msg[:200] + "..."
+		}
+		return igdb.ServerError{Status: resp.StatusCode, Msg: msg}
+	}
+	if err := json.Unmarshal(body, result); err != nil {
+		return fmt.Errorf("igdb %s: decode: %w", endpoint, err)
+	}
+	return nil
 }
 
 // getClient returns the underlying IGDB client, initializing it lazily if needed.

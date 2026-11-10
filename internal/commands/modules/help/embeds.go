@@ -53,6 +53,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 				Inline: false,
 			},
 			{
+				Name:   "/squad",
+				Value:  "Get matched into a small squad channel with people who play the same games\n• `/squad join` - pick your games and join the queue\n• `/squad leave` - leave the queue or your squad",
+				Inline: false,
+			},
+			{
 				Name:   "/help",
 				Value:  "Show this help message",
 				Inline: false,
@@ -94,6 +99,11 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			{
 				Name:   "/lfg-admin",
 				Value:  "LFG admin commands\n• `/lfg-admin setup-find-a-thread` - Set up find-a-thread panel\n• `/lfg-admin setup-looking-now` - Set up Looking NOW feed channel\n• `/lfg-admin refresh-thread-cache` - Rebuild thread cache",
+				Inline: false,
+			},
+			{
+				Name:   "/squad-admin",
+				Value:  "Squad moderation\n• `status` / `user` / `dryrun` - see the queue, next pairing and what a pairing would do\n• `run-now` - pair now\n• `create` - make a squad from members you pick\n• `add` / `remove` / `delete` / `queue-remove` - manage squads and the queue\n• `refresh-permissions` - apply visibility changes to existing squads\n• `intro-backfill` - add the Join a squad button to intros from the last N days",
 				Inline: false,
 			},
 			{

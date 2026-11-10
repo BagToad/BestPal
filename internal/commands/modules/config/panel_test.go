@@ -1,10 +1,13 @@
 package config
 
 import (
+	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/config"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // productionLikeRegistry mirrors the real per-module settings so the layout
@@ -112,6 +115,35 @@ func TestCategoryLayoutWithinDiscordLimits(t *testing.T) {
 		if total == 0 || total > 40 {
 			t.Errorf("category %q produced %d components, want 1..40", cat, total)
 		}
+	}
+}
+
+// TestSquadCategoriesWithinDiscordLimits renders the real squad settings,
+// which are spread over several categories to fit: at most 40 components per
+// panel and at most 5 modal-entered values per category (a modal's limit).
+func TestSquadCategoriesWithinDiscordLimits(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]any{"gamerpals_server_id": "guild1"})
+	cfg.ApplyRegistry(config.NewRegistry((&squads.Module{}).ConfigSettings()))
+	m := &Module{config: cfg}
+	cats := cfg.Registry().Categories()
+	require.Len(t, cats, 5)
+	for _, cat := range cats {
+		inner := categoryInner(t, m.renderCategory("guild1", cat, ""))
+		total := 1
+		for _, c := range inner {
+			total++
+			if ar, ok := c.(discordgo.ActionsRow); ok {
+				total += len(ar.Components)
+			}
+		}
+		assert.LessOrEqualf(t, total, 40, "category %q has %d components", cat, total)
+		modal := 0
+		for _, st := range cfg.Registry().ByCategory(cat) {
+			if !isSelectKind(st.Kind) && st.Kind != config.KindBool {
+				modal++
+			}
+		}
+		assert.LessOrEqualf(t, modal, 5, "category %q has %d modal fields", cat, modal)
 	}
 }
 

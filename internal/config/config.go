@@ -230,6 +230,7 @@ func setDefaults(v *viper.Viper) {
 
 	// event feed defaults: on, with reminders 1 hour and 1 day before start
 	v.SetDefault("event_feed_enabled", true)
+	v.SetDefault("squads_intro_button", true)
 	v.SetDefault("event_feed_notification_1", "1h")
 	v.SetDefault("event_feed_notification_2", "24h")
 

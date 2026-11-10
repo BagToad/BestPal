@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -311,4 +312,41 @@ func TestFailedRefreshKeepsExistingClient(t *testing.T) {
 	require.Error(t, client.RefreshToken())
 	assert.Equal(t, "tok-1", client.currentToken(), "old token should survive a failed refresh")
 	assert.NotNil(t, client.igdbClient)
+}
+
+func TestQuery(t *testing.T) {
+	var gotBody, gotAuth, gotID, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody, gotAuth, gotID, gotPath = string(b), r.Header.Get("Authorization"), r.Header.Get("Client-ID"), r.URL.Path
+		if r.Header.Get("Authorization") == "Bearer stale" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`[{"game_id":7,"value":0.5}]`))
+	}))
+	defer server.Close()
+	origURL, origFetch := apiURL, fetchTwitchAppToken
+	defer func() { apiURL, fetchTwitchAppToken = origURL, origFetch }()
+	apiURL = server.URL + "/v4/"
+	tokens := []string{"stale", "fresh"}
+	fetchTwitchAppToken = func(string, string) (string, error) {
+		tok := tokens[0]
+		tokens = tokens[1:]
+		return tok, nil
+	}
+
+	client := NewClient("id", "secret")
+	var out []struct {
+		GameID int64   `json:"game_id"`
+		Value  float64 `json:"value"`
+	}
+	err := client.Retry(func() error { return client.Query("popularity_primitives", "fields game_id,value;", &out) })
+	require.NoError(t, err)
+	assert.Equal(t, "/v4/popularity_primitives", gotPath)
+	assert.Equal(t, "fields game_id,value;", gotBody)
+	assert.Equal(t, "Bearer fresh", gotAuth)
+	assert.Equal(t, "id", gotID)
+	require.Len(t, out, 1)
+	assert.Equal(t, int64(7), out[0].GameID)
 }

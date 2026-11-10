@@ -57,6 +57,15 @@ CREATE TABLE IF NOT EXISTS squad_members (
 
 CREATE INDEX IF NOT EXISTS idx_squad_members_squad ON squad_members(squad_id);
 
+CREATE TABLE IF NOT EXISTS squad_role_ops (
+	guild_id  TEXT NOT NULL,
+	user_id   TEXT NOT NULL,
+	role_id   TEXT NOT NULL,
+	add_role  INTEGER NOT NULL,
+	failed_at INTEGER NOT NULL,
+	PRIMARY KEY (guild_id, user_id, role_id)
+);
+
 CREATE TABLE IF NOT EXISTS squad_state (
 	guild_id      TEXT PRIMARY KEY,
 	last_match_at INTEGER NOT NULL DEFAULT 0
@@ -414,6 +423,9 @@ func (db *DB) DeleteSquad(id int64) error {
 	if _, err := tx.Exec(`DELETE FROM squad_members WHERE squad_id = ?`, id); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM squad_role_ops WHERE role_id IN (SELECT role_id FROM squads WHERE id = ? AND role_id != '')`, id); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM squads WHERE id = ?`, id); err != nil {
 		return err
 	}
@@ -445,9 +457,52 @@ func (db *DB) MarkSquadWarned(id int64, now time.Time) error {
 	return err
 }
 
-// SquadGuilds returns every guild with queued members or squads.
+// SquadRoleOp is a squad role grant (Add) or revocation that failed and
+// should be retried.
+type SquadRoleOp struct {
+	GuildID string
+	UserID  string
+	RoleID  string
+	Add     bool
+}
+
+// SetSquadRoleOp records a role change to retry, replacing any earlier one
+// for the same member and role.
+func (db *DB) SetSquadRoleOp(op SquadRoleOp, now time.Time) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_role_ops (guild_id, user_id, role_id, add_role, failed_at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (guild_id, user_id, role_id) DO UPDATE SET add_role = excluded.add_role, failed_at = excluded.failed_at`,
+		op.GuildID, op.UserID, op.RoleID, op.Add, now.Unix())
+	return err
+}
+
+// ClearSquadRoleOp forgets a pending role change.
+func (db *DB) ClearSquadRoleOp(guildID, userID, roleID string) error {
+	_, err := db.conn.Exec(`DELETE FROM squad_role_ops WHERE guild_id = ? AND user_id = ? AND role_id = ?`, guildID, userID, roleID)
+	return err
+}
+
+// SquadRoleOps returns a guild's pending role changes, oldest first.
+func (db *DB) SquadRoleOps(guildID string) ([]SquadRoleOp, error) {
+	rows, err := db.conn.Query(`SELECT user_id, role_id, add_role FROM squad_role_ops WHERE guild_id = ? ORDER BY failed_at`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadRoleOp
+	for rows.Next() {
+		op := SquadRoleOp{GuildID: guildID}
+		if err := rows.Scan(&op.UserID, &op.RoleID, &op.Add); err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// SquadGuilds returns every guild with queued members, squads or pending
+// role changes.
 func (db *DB) SquadGuilds() ([]string, error) {
-	rows, err := db.conn.Query(`SELECT guild_id FROM squad_queue UNION SELECT guild_id FROM squads`)
+	rows, err := db.conn.Query(`SELECT guild_id FROM squad_queue UNION SELECT guild_id FROM squads UNION SELECT guild_id FROM squad_role_ops`)
 	if err != nil {
 		return nil, err
 	}

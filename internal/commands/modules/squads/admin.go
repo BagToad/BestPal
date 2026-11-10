@@ -47,9 +47,9 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 
 	switch sub.Name {
 	case "status":
-		m.respondText(s, i, m.statusText(i.GuildID))
+		m.adminDeferred(s, i, func() string { return m.statusText(i.GuildID) })
 	case "user":
-		m.respondText(s, i, m.userText(i.GuildID, userArg()))
+		m.adminDeferred(s, i, func() string { return m.userText(i.GuildID, userArg()) })
 	case "dryrun", "run-now":
 		m.adminRun(s, i, sub.Name == "dryrun")
 	case "add":
@@ -57,17 +57,18 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	case "remove":
 		m.adminLocked(s, i, func() string { return m.adminRemove(i, userArg()) })
 	case "queue-remove":
-		uid := userArg()
-		removed, err := m.db.DequeueSquadUser(i.GuildID, uid)
-		switch {
-		case err != nil:
-			m.respondText(s, i, "❌ Could not update the queue.")
-		case !removed:
-			m.respondText(s, i, mention(uid)+" isn't in the queue.")
-		default:
+		m.adminLocked(s, i, func() string {
+			uid := userArg()
+			removed, err := m.db.DequeueSquadUser(i.GuildID, uid)
+			switch {
+			case err != nil:
+				return "❌ Could not update the queue."
+			case !removed:
+				return mention(uid) + " isn't in the queue."
+			}
 			m.modLog(i.GuildID, fmt.Sprintf("%s took %s out of the queue.", mention(userID(i)), mention(uid)))
-			m.respondText(s, i, "✅ Took "+mention(uid)+" out of the queue.")
-		}
+			return "✅ Took " + mention(uid) + " out of the queue."
+		})
 	case "delete":
 		sq, ok, err := m.db.GetSquad(squadArg())
 		if err != nil || !ok || sq.GuildID != i.GuildID {
@@ -83,6 +84,15 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	case "refresh-permissions":
 		m.adminLocked(s, i, func() string { return m.refreshPermissions(i.GuildID) })
 	}
+}
+
+// adminDeferred defers, then shows fn's result, for commands that may make
+// slow Discord lookups.
+func (m *Module) adminDeferred(s *discordgo.Session, i *discordgo.InteractionCreate, fn func() string) {
+	if !m.deferReply(s, i) {
+		return
+	}
+	m.editText(s, i, fn())
 }
 
 // adminLocked defers, runs fn under the guild lock and shows its result.
@@ -146,15 +156,19 @@ func (m *Module) handleAdminDeleteConfirm(s *discordgo.Session, i *discordgo.Int
 	lock := m.guildLock(i.GuildID)
 	lock.Lock()
 	sq, ok, err := m.db.GetSquad(id)
+	var delErr error
 	if err == nil && ok && sq.GuildID == i.GuildID {
-		m.deleteSquad(sq, "a mod ("+mention(userID(i))+") deleted it")
+		delErr = m.deleteSquad(sq, "a mod ("+mention(userID(i))+") deleted it")
 	}
 	lock.Unlock()
-	if err != nil || !ok {
+	switch {
+	case err != nil || !ok || sq.GuildID != i.GuildID:
 		m.editText(s, i, "That squad is already gone.")
-		return
+	case delErr != nil:
+		m.editText(s, i, fmt.Sprintf("❌ Could not delete **%s**: %v", sq.Name, delErr))
+	default:
+		m.editText(s, i, fmt.Sprintf("🗑️ Deleted **%s**.", sq.Name))
 	}
-	m.editText(s, i, fmt.Sprintf("🗑️ Deleted **%s**.", sq.Name))
 }
 
 func (m *Module) refreshPermissions(guildID string) string {
@@ -164,7 +178,11 @@ func (m *Module) refreshPermissions(guildID string) string {
 	}
 	failed := 0
 	for _, sq := range squads {
-		if err := m.dc(nil).EditChannelPerms(sq.ChannelID, m.squadOverwrites(guildID, sq.RoleID)); err != nil {
+		perms, err := m.squadOverwrites(guildID, sq.RoleID)
+		if err != nil {
+			return "❌ Could not update permissions: " + err.Error()
+		}
+		if err := m.dc(nil).EditChannelPerms(sq.ChannelID, perms); err != nil {
 			m.config.Logger.Warnf("squads: refresh perms of %s: %v", sq.Name, err)
 			failed++
 		}

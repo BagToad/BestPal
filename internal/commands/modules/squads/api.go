@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -28,6 +29,10 @@ type discordAPI interface {
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
 	BotID() string
+	Channel(channelID string) (*discordgo.Channel, error)
+	// LastHumanMessage returns when a non-bot last posted in a channel
+	// (zero if nobody has among recent messages).
+	LastHumanMessage(channelID string) (time.Time, error)
 }
 
 type sessionAPI struct{ s *discordgo.Session }
@@ -95,6 +100,28 @@ func (a sessionAPI) DM(userID string, msg *discordgo.MessageSend) error {
 	}
 	_, err = a.s.ChannelMessageSendComplex(ch.ID, msg)
 	return err
+}
+
+func (a sessionAPI) Channel(channelID string) (*discordgo.Channel, error) {
+	if a.s.State != nil {
+		if c, err := a.s.State.Channel(channelID); err == nil && c != nil {
+			return c, nil
+		}
+	}
+	return a.s.Channel(channelID)
+}
+
+func (a sessionAPI) LastHumanMessage(channelID string) (time.Time, error) {
+	msgs, err := a.s.ChannelMessages(channelID, 50, "", "", "")
+	if err != nil {
+		return time.Time{}, err
+	}
+	for _, msg := range msgs {
+		if msg.Author != nil && !msg.Author.Bot {
+			return msg.Timestamp, nil
+		}
+	}
+	return time.Time{}, nil
 }
 
 func (a sessionAPI) BotID() string {
@@ -169,6 +196,9 @@ func (src *igdbSource) Search(query string) ([]gameInfo, error) {
 }
 
 func (src *igdbSource) Get(id int64) (gameInfo, error) {
+	if id <= 0 || id > math.MaxInt32 {
+		return gameInfo{}, fmt.Errorf("game %d not found", id)
+	}
 	var games []*igdb.Game
 	err := src.client.Retry(func() error {
 		svc, err := src.client.Games()

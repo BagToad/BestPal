@@ -61,6 +61,7 @@ func (m *Module) tickGuild(guildID string) {
 	lock := m.guildLock(guildID)
 	lock.Lock()
 	defer lock.Unlock()
+	m.retryRoleOps(guildID)
 	m.checkQuiet(guildID)
 
 	gc := m.config.ForGuild(guildID)
@@ -158,6 +159,11 @@ func (m *Module) OnMessageCreate(_ *discordgo.Session, mc *discordgo.MessageCrea
 	if !ok {
 		return
 	}
+	// Serialize with the quiet check so a reply can't land between its
+	// warning and recording that warning.
+	lock := m.guildLock(mc.GuildID)
+	lock.Lock()
+	defer lock.Unlock()
 	if err := m.db.TouchSquad(id, now); err != nil {
 		m.config.Logger.Warnf("squads: record activity: %v", err)
 	}

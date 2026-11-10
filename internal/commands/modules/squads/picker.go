@@ -44,14 +44,14 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	}
 	var b strings.Builder
 	if note != "" {
-		b.WriteString(note + "\n\n")
+		b.WriteString(truncate(note, 200) + "\n\n")
 	}
 	fmt.Fprintf(&b, "## 🎮 Your squad games (%d/%d)\n%s\n", len(picks), maxPicks, pickerIntro)
 	if len(picks) == 0 {
 		b.WriteString("\n*No games yet. Hit **Add a game** to search.*")
 	}
 	for n, p := range picks {
-		fmt.Fprintf(&b, "\n%d. %s", n+1, gameInfo{Name: p.Name, Year: p.Year}.label())
+		fmt.Fprintf(&b, "\n%d. %s", n+1, truncate(gameInfo{Name: p.Name, Year: p.Year}.label(), maxListedName))
 	}
 
 	finish := "Finish"
@@ -83,12 +83,16 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		}}})
 	}
 	return &discordgo.InteractionResponseData{
-		Content:         b.String(),
+		Content:         truncate(b.String(), 2000),
 		Flags:           discordgo.MessageFlagsEphemeral,
 		Components:      rows,
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}
 }
+
+// maxListedName bounds each game in the picker's list so 25 picks fit in a
+// 2,000-character message.
+const maxListedName = 50
 
 func truncate(s string, n int) string {
 	r := []rune(s)
@@ -336,27 +340,39 @@ func (m *Module) handleSquad(s *discordgo.Session, i *discordgo.InteractionCreat
 		if !m.squadsOpen(s, i, i.GuildID) {
 			return
 		}
-		m.respond(s, i, m.pickerView(pickerCtx{GuildID: i.GuildID}, uid, ""))
+		m.respond(s, i, m.pickerView(pickerCtx{GuildID: i.GuildID, ThreadID: m.lookupIntro(i.GuildID, uid)}, uid, ""))
 	case "leave":
-		sq, ok, err := m.db.SquadForUser(i.GuildID, uid)
-		if err != nil {
-			m.respondText(s, i, "❌ Could not load your squad. Try again in a moment.")
+		// Hold the guild lock so a running matcher can't place someone
+		// after they're told they left the queue.
+		if !m.deferReply(s, i) {
 			return
 		}
-		if ok {
-			m.respond(s, i, leaveConfirm(sq))
-			return
-		}
-		removed, err := m.db.DequeueSquadUser(i.GuildID, uid)
-		switch {
-		case err != nil:
-			m.respondText(s, i, "❌ Could not leave the queue. Try again in a moment.")
-		case removed:
-			m.respondText(s, i, "👋 You've left the squad queue. Your games are saved if you want to rejoin with `/squad join`.")
-		default:
-			m.respondText(s, i, "You're not in a squad or the queue.")
-		}
+		lock := m.guildLock(i.GuildID)
+		lock.Lock()
+		data := m.leaveQueue(i.GuildID, uid)
+		lock.Unlock()
+		m.edit(s, i, data)
 	}
+}
+
+// leaveQueue takes someone out of the queue, or asks them to confirm leaving
+// their squad. Callers hold the guild lock.
+func (m *Module) leaveQueue(guildID, uid string) *discordgo.InteractionResponseData {
+	sq, ok, err := m.db.SquadForUser(guildID, uid)
+	if err != nil {
+		return ephemeral("❌ Could not load your squad. Try again in a moment.")
+	}
+	if ok {
+		return leaveConfirm(sq)
+	}
+	removed, err := m.db.DequeueSquadUser(guildID, uid)
+	switch {
+	case err != nil:
+		return ephemeral("❌ Could not leave the queue. Try again in a moment.")
+	case removed:
+		return ephemeral("👋 You've left the squad queue. Your games are saved if you want to rejoin with `/squad join`.")
+	}
+	return ephemeral("You're not in a squad or the queue.")
 }
 
 func leaveConfirm(sq database.Squad) *discordgo.InteractionResponseData {

@@ -47,6 +47,9 @@ type Module struct {
 	touched  map[int64]time.Time // last recorded activity per squad
 
 	gameCache sync.Map // int64 -> gameInfo from recent searches
+
+	// introThread finds a member's latest intro thread ("" if unknown).
+	introThread func(guildID, userID string) string
 }
 
 // New creates the module.
@@ -63,6 +66,18 @@ func New(deps *types.Dependencies) *Module {
 	}
 	if deps.IGDBClient != nil {
 		m.games = &igdbSource{client: deps.IGDBClient}
+	}
+	if fc := deps.ForumCache; fc != nil {
+		m.introThread = func(guildID, userID string) string {
+			forum := m.config.ForGuild(guildID).GetGamerPalsIntroductionsForumChannelID()
+			if forum == "" {
+				return ""
+			}
+			if meta, ok := fc.GetLatestUserThread(forum, userID); ok && meta != nil {
+				return meta.ID
+			}
+			return ""
+		}
 	}
 	m.service = &Service{m: m}
 	return m
@@ -226,6 +241,14 @@ func (m *Module) edit(s *discordgo.Session, i *discordgo.InteractionCreate, data
 	}); err != nil {
 		m.config.Logger.Warnf("squads: edit response: %v", err)
 	}
+}
+
+// lookupIntro returns a member's intro thread, if it can be found.
+func (m *Module) lookupIntro(guildID, userID string) string {
+	if m.introThread == nil {
+		return ""
+	}
+	return m.introThread(guildID, userID)
 }
 
 func (m *Module) editText(s *discordgo.Session, i *discordgo.InteractionCreate, content string) {

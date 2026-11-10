@@ -23,28 +23,36 @@ type sentMsg struct {
 }
 
 type fakeAPI struct {
-	mu        sync.Mutex
-	nextID    int
-	responses []*discordgo.InteractionResponse
-	edits     []*discordgo.WebhookEdit
-	sent      []sentMsg
-	dms       []sentMsg
-	pins      []string
-	members   map[string]*discordgo.Member
-	roles     map[string]string // role ID -> name
-	channels  map[string]discordgo.GuildChannelCreateData
-	roleAdds  []string // "user:role"
-	roleRems  []string
-	delCh     []string
-	delRoles  []string
-	permEdits map[string][]*discordgo.PermissionOverwrite
-	dmErr     error
-	sendErr   map[string]error
+	mu         sync.Mutex
+	nextID     int
+	responses  []*discordgo.InteractionResponse
+	edits      []*discordgo.WebhookEdit
+	sent       []sentMsg
+	dms        []sentMsg
+	pins       []string
+	members    map[string]*discordgo.Member
+	roles      map[string]string // role ID -> name
+	channels   map[string]discordgo.GuildChannelCreateData
+	roleAdds   []string // "user:role"
+	roleRems   []string
+	delCh      []string
+	delRoles   []string
+	permEdits  map[string][]*discordgo.PermissionOverwrite
+	dmErr      error
+	sendErr    map[string]error
+	addErr     error
+	removeErr  error
+	deleteErr  error
+	memberErr  map[string]error
+	catPerms   []*discordgo.PermissionOverwrite
+	lastHuman  map[string]time.Time
+	historyErr error
 }
 
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{nextID: 100, members: map[string]*discordgo.Member{}, roles: map[string]string{},
-		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{}}
+		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{},
+		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}}
 }
 
 func (f *fakeAPI) id() string { f.nextID++; return fmt.Sprint(f.nextID) }
@@ -72,6 +80,9 @@ func (f *fakeAPI) Send(ch string, msg *discordgo.MessageSend) (*discordgo.Messag
 }
 func (f *fakeAPI) Pin(_, id string) error { f.pins = append(f.pins, id); return nil }
 func (f *fakeAPI) Member(_, uid string) (*discordgo.Member, error) {
+	if err := f.memberErr[uid]; err != nil {
+		return nil, err
+	}
 	if m, ok := f.members[uid]; ok {
 		return m, nil
 	}
@@ -84,10 +95,16 @@ func (f *fakeAPI) CreateRole(_ string, p *discordgo.RoleParams) (*discordgo.Role
 }
 func (f *fakeAPI) DeleteRole(_, id string) error { f.delRoles = append(f.delRoles, id); return nil }
 func (f *fakeAPI) AddRole(_, uid, rid string) error {
+	if f.addErr != nil {
+		return f.addErr
+	}
 	f.roleAdds = append(f.roleAdds, uid+":"+rid)
 	return nil
 }
 func (f *fakeAPI) RemoveRole(_, uid, rid string) error {
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	f.roleRems = append(f.roleRems, uid+":"+rid)
 	return nil
 }
@@ -100,7 +117,22 @@ func (f *fakeAPI) EditChannelPerms(id string, o []*discordgo.PermissionOverwrite
 	f.permEdits[id] = o
 	return nil
 }
-func (f *fakeAPI) DeleteChannel(id string) error { f.delCh = append(f.delCh, id); return nil }
+func (f *fakeAPI) DeleteChannel(id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	f.delCh = append(f.delCh, id)
+	return nil
+}
+func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
+	return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildCategory, PermissionOverwrites: f.catPerms}, nil
+}
+func (f *fakeAPI) LastHumanMessage(ch string) (time.Time, error) {
+	if f.historyErr != nil {
+		return time.Time{}, f.historyErr
+	}
+	return f.lastHuman[ch], nil
+}
 func (f *fakeAPI) DM(uid string, msg *discordgo.MessageSend) error {
 	if f.dmErr != nil {
 		return f.dmErr
@@ -314,7 +346,7 @@ func TestRunMatchCreatesSquad(t *testing.T) {
 }
 
 func TestPrivateVisibilityHidesChannel(t *testing.T) {
-	o := overwrites(guild, "squadrole", "mods", "bot", config.SquadVisibilityPrivate)
+	o := overwrites(guild, "squadrole", "mods", "bot", config.SquadVisibilityPrivate, nil)
 	assert.NotZero(t, o[0].Deny&discordgo.PermissionViewChannel)
 	assert.NotZero(t, o[1].Allow&discordgo.PermissionSendMessages)
 	assert.Equal(t, "bot", o[3].ID)
@@ -491,13 +523,14 @@ func TestAdminCommands(t *testing.T) {
 
 	queue(t, m, api, db, now.Add(-time.Hour), []string{"q1", "q2"}, []int64{1}, "role-eu")
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "status"))
-	status := api.lastResponse().Data.Content
+	assert.Equal(t, discordgo.InteractionResponseDeferredChannelMessageWithSource, api.lastResponse().Type)
+	status := editContent(api.lastEdit())
 	assert.Contains(t, status, "**Queue:** 2 (Europe 2)")
 	assert.Contains(t, status, "Squad Axolotl")
 
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "user", userOpt("q1")))
-	assert.Contains(t, api.lastResponse().Data.Content, "**Region:** Europe")
-	assert.Contains(t, api.lastResponse().Data.Content, "Game 1")
+	assert.Contains(t, editContent(api.lastEdit()), "**Region:** Europe")
+	assert.Contains(t, editContent(api.lastEdit()), "Game 1")
 
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "dryrun"))
 	dry := editContent(api.lastEdit())
@@ -538,4 +571,142 @@ func TestIntroThreadGetsJoinButton(t *testing.T) {
 	api.sendErr["t2"] = errors.New("nope")
 	m.postIntroPrompt(nil, &discordgo.Channel{ID: "t2", GuildID: guild, ParentID: "intros", OwnerID: "bob"}, 2)
 	assert.Len(t, api.sent, 1)
+}
+
+func TestOverwritesFollowCategory(t *testing.T) {
+	cat := []*discordgo.PermissionOverwrite{
+		{ID: guild, Type: discordgo.PermissionOverwriteTypeRole, Deny: discordgo.PermissionViewChannel},
+		{ID: "verified", Type: discordgo.PermissionOverwriteTypeRole, Allow: discordgo.PermissionViewChannel | discordgo.PermissionSendMessages},
+		{ID: "muted", Type: discordgo.PermissionOverwriteTypeMember, Deny: discordgo.PermissionSendMessages},
+	}
+	public := overwrites(guild, "squadrole", "mods", "bot", config.SquadVisibilityPublicReadOnly, cat)
+	assert.NotZero(t, public[0].Deny&discordgo.PermissionViewChannel, "unverified people still can't see it")
+	assert.NotZero(t, public[0].Deny&discordgo.PermissionSendMessages)
+	verified := public[2]
+	assert.Equal(t, "verified", verified.ID)
+	assert.NotZero(t, verified.Allow&discordgo.PermissionViewChannel, "verified people can read")
+	assert.Zero(t, verified.Allow&discordgo.PermissionSendMessages, "but not post")
+	assert.NotZero(t, public[3].Deny&discordgo.PermissionSendMessages, "member denies are kept")
+	assert.NotZero(t, cat[1].Allow&discordgo.PermissionSendMessages, "the category's overwrites aren't modified")
+
+	private := overwrites(guild, "squadrole", "mods", "bot", config.SquadVisibilityPrivate, cat)
+	assert.Zero(t, private[2].Allow&discordgo.PermissionViewChannel)
+	assert.NotZero(t, private[1].Allow&discordgo.PermissionViewChannel, "members see it")
+}
+
+func TestCreateSquadCopiesCategoryPermissions(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	api.catPerms = []*discordgo.PermissionOverwrite{{ID: "verified", Type: discordgo.PermissionOverwriteTypeRole, Allow: discordgo.PermissionViewChannel}}
+	sq := makeSquad(t, m, api, db, "a", "b")
+	perms := api.channels[sq.ChannelID].PermissionOverwrites
+	assert.Equal(t, sq.RoleID, perms[1].ID)
+	assert.Equal(t, "verified", perms[2].ID)
+}
+
+func TestFailedRoleChangesAreRetried(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	api.addErr = errors.New("discord hiccup")
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	ops, _ := db.SquadRoleOps(guild)
+	assert.Len(t, ops, 3)
+
+	api.addErr = nil
+	*now = now.Add(5 * time.Minute)
+	require.NoError(t, m.tick())
+	ops, _ = db.SquadRoleOps(guild)
+	assert.Empty(t, ops)
+	assert.Contains(t, api.roleAdds, "a:"+sq.RoleID)
+
+	api.removeErr = errors.New("discord hiccup")
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	ops, _ = db.SquadRoleOps(guild)
+	require.Len(t, ops, 1)
+	assert.False(t, ops[0].Add)
+	api.removeErr = nil
+	require.NoError(t, m.tick())
+	assert.Contains(t, api.roleRems, "a:"+sq.RoleID)
+	ops, _ = db.SquadRoleOps(guild)
+	assert.Empty(t, ops)
+}
+
+func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.deleteErr = errors.New("discord hiccup")
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.True(t, ok, "kept while the channel still exists")
+
+	api.deleteErr = nil
+	require.NoError(t, m.tick())
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, api.delCh, sq.ChannelID)
+}
+
+func TestOpenSquadSkippedWhenAMemberCantBeLoaded(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b", "c", "d", "e", "f", "g")
+	api.memberErr["a"] = errors.New("discord hiccup")
+	queue(t, m, api, db, now.Add(-49*time.Hour), []string{"x", "y"}, []int64{1}, "role-eu")
+	require.NoError(t, m.tick())
+	got, _, _ := db.GetSquad(sq.ID)
+	assert.Equal(t, 7, got.Members, "nobody joins a squad whose roster couldn't be checked")
+}
+
+func TestChatMissedWhileOfflineSavesSquad(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	*now = now.Add(7*24*time.Hour + time.Minute)
+	require.NoError(t, m.tick())
+	sq, _, _ = db.GetSquad(sq.ID)
+	require.False(t, sq.WarnedAt.IsZero())
+
+	// The bot was offline while people chatted.
+	api.lastHuman[sq.ChannelID] = now.Add(time.Hour)
+	*now = now.Add(3*24*time.Hour + time.Minute)
+	require.NoError(t, m.tick())
+	sq, ok, _ := db.GetSquad(sq.ID)
+	require.True(t, ok)
+	assert.True(t, sq.WarnedAt.IsZero())
+
+	// A failed history check never deletes.
+	api.historyErr = errors.New("discord hiccup")
+	*now = now.Add(30 * 24 * time.Hour)
+	require.NoError(t, m.tick())
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.True(t, ok)
+}
+
+func TestPickerFitsDiscordLimit(t *testing.T) {
+	m, _, db, now := newTestModule(t, nil)
+	for n := range maxPicks {
+		_, _, err := db.AddSquadPick(guild, "u", database.SquadPick{GameID: int64(n + 1), Name: strings.Repeat("Very Long Game Title ", 10), Year: 2020}, maxPicks, *now)
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.EnqueueSquadUser(guild, "u", "", *now))
+	view := m.pickerView(pickerCtx{GuildID: guild}, "u", "✅ Added **"+strings.Repeat("x", 300)+"**.")
+	assert.LessOrEqual(t, len([]rune(view.Content)), 2000)
+	assert.Contains(t, view.Content, "You're in the queue", "the footer isn't cut off")
+}
+
+func TestUnmatchedFallsBackToLookedUpIntro(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	m.introThread = func(_, uid string) string { return "found-" + uid }
+	member(api, "z", "role-eu")
+	_, _, _ = db.AddSquadPick(guild, "z", database.SquadPick{GameID: 1, Name: "G"}, maxPicks, *now)
+	require.NoError(t, db.EnqueueSquadUser(guild, "z", "", now.Add(-8*24*time.Hour)))
+	api.dmErr = errors.New("closed")
+	require.NoError(t, m.tick())
+	require.Len(t, api.sent, 1)
+	assert.Equal(t, "found-z", api.sent[0].ChannelID)
+}
+
+func TestSquadLeaveCommandDequeues(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	queue(t, m, api, db, *now, []string{"q"}, []int64{1})
+	m.handleSquad(nil, command("q", 0, "squad", "leave"))
+	assert.Contains(t, editContent(api.lastEdit()), "You've left the squad queue")
+	_, ok, _ := db.SquadQueueEntryFor(guild, "q")
+	assert.False(t, ok)
 }

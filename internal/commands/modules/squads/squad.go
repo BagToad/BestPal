@@ -52,22 +52,39 @@ func channelName(squadName string) string {
 	return strings.ReplaceAll(strings.ToLower(squadName), " ", "-")
 }
 
-// overwrites builds a squad channel's permissions. Members and mods can chat;
-// everyone else can read (public_readonly) or can't see it (private).
-func overwrites(guildID, roleID, modRoleID, botID, visibility string) []*discordgo.PermissionOverwrite {
+// overwrites builds a squad channel's permissions on top of its category's
+// (inherited), so whoever can't see the category can't see squads either.
+// Members and mods can chat; nobody else can post, and in private mode nobody
+// else can see the channel.
+func overwrites(guildID, roleID, modRoleID, botID, visibility string, inherited []*discordgo.PermissionOverwrite) []*discordgo.PermissionOverwrite {
 	const chat = discordgo.PermissionViewChannel | discordgo.PermissionSendMessages | discordgo.PermissionReadMessageHistory |
 		discordgo.PermissionSendMessagesInThreads | discordgo.PermissionAddReactions | discordgo.PermissionAttachFiles |
 		discordgo.PermissionEmbedLinks
-	everyone := &discordgo.PermissionOverwrite{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole,
-		Deny: discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads |
-			discordgo.PermissionCreatePublicThreads | discordgo.PermissionCreatePrivateThreads}
+	mask := int64(discordgo.PermissionSendMessages | discordgo.PermissionSendMessagesInThreads |
+		discordgo.PermissionCreatePublicThreads | discordgo.PermissionCreatePrivateThreads)
 	if visibility == config.SquadVisibilityPrivate {
-		everyone.Deny |= discordgo.PermissionViewChannel
+		mask |= discordgo.PermissionViewChannel
 	}
-	out := []*discordgo.PermissionOverwrite{
-		everyone,
-		{ID: roleID, Type: discordgo.PermissionOverwriteTypeRole, Allow: chat},
+	everyone := &discordgo.PermissionOverwrite{ID: guildID, Type: discordgo.PermissionOverwriteTypeRole}
+	var rest []*discordgo.PermissionOverwrite
+	for _, o := range inherited {
+		if o == nil || o.ID == roleID || (modRoleID != "" && o.ID == modRoleID) || (botID != "" && o.ID == botID) {
+			continue
+		}
+		c := *o
+		// Stripping the allows is enough for other roles and members: the
+		// everyone deny below then applies to them, while the squad role's
+		// allow still wins for members.
+		c.Allow &^= mask
+		if c.ID == guildID {
+			everyone = &c
+			continue
+		}
+		rest = append(rest, &c)
 	}
+	everyone.Deny |= mask
+	out := append([]*discordgo.PermissionOverwrite{everyone,
+		{ID: roleID, Type: discordgo.PermissionOverwriteTypeRole, Allow: chat}}, rest...)
 	if modRoleID != "" {
 		out = append(out, &discordgo.PermissionOverwrite{ID: modRoleID, Type: discordgo.PermissionOverwriteTypeRole,
 			Allow: chat | discordgo.PermissionManageMessages})
@@ -79,9 +96,70 @@ func overwrites(guildID, roleID, modRoleID, botID, visibility string) []*discord
 	return out
 }
 
-func (m *Module) squadOverwrites(guildID, roleID string) []*discordgo.PermissionOverwrite {
+// squadOverwrites builds a squad channel's permissions from the configured
+// category's.
+func (m *Module) squadOverwrites(guildID, roleID string) ([]*discordgo.PermissionOverwrite, error) {
 	gc := m.config.ForGuild(guildID)
-	return overwrites(guildID, roleID, gc.GetSquadsModRoleID(), m.dc(nil).BotID(), gc.GetSquadsVisibility())
+	api := m.dc(nil)
+	category := gc.GetSquadsCategoryID()
+	if category == "" {
+		return nil, errors.New("the squads category isn't set in /config → Squads")
+	}
+	cat, err := api.Channel(category)
+	if err != nil {
+		return nil, fmt.Errorf("load the squads category: %w", err)
+	}
+	return overwrites(guildID, roleID, gc.GetSquadsModRoleID(), api.BotID(), gc.GetSquadsVisibility(), cat.PermissionOverwrites), nil
+}
+
+// grantRole gives someone their squad role, recording it for retry if
+// Discord refuses.
+func (m *Module) grantRole(guildID, uid, roleID string) {
+	err := m.dc(nil).AddRole(guildID, uid, roleID)
+	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: roleID, Add: true}, err)
+}
+
+// revokeRole takes someone's squad role away, recording it for retry if
+// Discord refuses.
+func (m *Module) revokeRole(guildID, uid, roleID string) {
+	err := m.dc(nil).RemoveRole(guildID, uid, roleID)
+	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: roleID}, err)
+}
+
+// recordRoleOp clears a pending role change once it's done (or moot because
+// the member or role is gone) and saves it for retry otherwise.
+func (m *Module) recordRoleOp(op database.SquadRoleOp, err error) {
+	code := discordCode(err)
+	if err == nil || code == discordgo.ErrCodeUnknownMember || code == discordgo.ErrCodeUnknownRole {
+		if err := m.db.ClearSquadRoleOp(op.GuildID, op.UserID, op.RoleID); err != nil {
+			m.config.Logger.Warnf("squads: clear role retry: %v", err)
+		}
+		return
+	}
+	verb := "remove"
+	if op.Add {
+		verb = "give"
+	}
+	m.config.Logger.Warnf("squads: %s role %s for %s (will retry): %v", verb, op.RoleID, op.UserID, err)
+	if err := m.db.SetSquadRoleOp(op, m.now()); err != nil {
+		m.config.Logger.Errorf("squads: save role retry: %v", err)
+	}
+}
+
+// retryRoleOps retries failed squad role changes. Callers hold the guild lock.
+func (m *Module) retryRoleOps(guildID string) {
+	ops, err := m.db.SquadRoleOps(guildID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: load role retries: %v", err)
+		return
+	}
+	for _, op := range ops {
+		if op.Add {
+			m.grantRole(op.GuildID, op.UserID, op.RoleID)
+		} else {
+			m.revokeRole(op.GuildID, op.UserID, op.RoleID)
+		}
+	}
 }
 
 func (m *Module) registerChannel(channelID string, id int64) {
@@ -104,6 +182,12 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	if category == "" {
 		return database.Squad{}, errors.New("the squads category isn't set in /config → Squads")
 	}
+	// Read the category before creating anything so a bad category fails
+	// cleanly.
+	perms, err := m.squadOverwrites(guildID, "")
+	if err != nil {
+		return database.Squad{}, err
+	}
 	existing, err := m.db.ListSquads(guildID)
 	if err != nil {
 		return database.Squad{}, err
@@ -115,12 +199,13 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	if err != nil {
 		return database.Squad{}, fmt.Errorf("create role: %w", err)
 	}
+	perms[1].ID = role.ID
 	ch, err := api.CreateChannel(guildID, discordgo.GuildChannelCreateData{
 		Name:                 channelName(name),
 		Type:                 discordgo.ChannelTypeGuildText,
 		Topic:                name + ": a small group of pals matched on the games you play. Say hi!",
 		ParentID:             category,
-		PermissionOverwrites: m.squadOverwrites(guildID, role.ID),
+		PermissionOverwrites: perms,
 	})
 	if err != nil {
 		_ = api.DeleteRole(guildID, role.ID)
@@ -140,9 +225,7 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	m.registerChannel(ch.ID, sq.ID)
 
 	for _, uid := range ids {
-		if err := api.AddRole(guildID, uid, role.ID); err != nil {
-			m.config.Logger.Warnf("squads: give %s the %s role: %v", uid, name, err)
-		}
+		m.grantRole(guildID, uid, role.ID)
 	}
 
 	msg, err := api.Send(ch.ID, &discordgo.MessageSend{
@@ -225,9 +308,7 @@ func (m *Module) addMember(guildID string, sq database.Squad, c *candidate) erro
 		return err
 	}
 	api := m.dc(nil)
-	if err := api.AddRole(guildID, c.UserID, sq.RoleID); err != nil {
-		m.config.Logger.Warnf("squads: give %s the %s role: %v", c.UserID, sq.Name, err)
-	}
+	m.grantRole(guildID, c.UserID, sq.RoleID)
 	text := "👋 " + mention(c.UserID) + " joined the squad!"
 	var names []string
 	for _, name := range c.Games {
@@ -265,11 +346,10 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (d
 	}
 	sq.Members--
 	api := m.dc(nil)
-	if err := api.RemoveRole(guildID, uid, sq.RoleID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownMember {
-		m.config.Logger.Warnf("squads: remove %s role from %s: %v", sq.Name, uid, err)
-	}
+	m.revokeRole(guildID, uid, sq.RoleID)
 	if sq.Members < 2 {
-		m.deleteSquad(sq, "it dropped below 2 members")
+		// A failed delete is retried by the quiet check.
+		_ = m.deleteSquad(sq, "it dropped below 2 members")
 		return sq, nil
 	}
 	if _, err := api.Send(sq.ChannelID, &discordgo.MessageSend{
@@ -281,26 +361,33 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (d
 	return sq, nil
 }
 
-// deleteSquad removes a squad's channel, role and records. Callers hold the
-// guild lock.
-func (m *Module) deleteSquad(sq database.Squad, why string) {
+// deleteSquad removes a squad's channel, role and records. If Discord
+// refuses to delete the channel or role, the records are kept so a later
+// attempt can finish the job. Callers hold the guild lock.
+func (m *Module) deleteSquad(sq database.Squad, why string) error {
 	api := m.dc(nil)
 	if sq.ChannelID != "" {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
+			return fmt.Errorf("delete channel: %w", err)
 		}
-		m.unregisterChannel(sq.ChannelID)
 	}
 	if sq.RoleID != "" {
 		if err := api.DeleteRole(sq.GuildID, sq.RoleID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownRole {
 			m.config.Logger.Warnf("squads: delete role of %s: %v", sq.Name, err)
+			return fmt.Errorf("delete role: %w", err)
 		}
 	}
 	if err := m.db.DeleteSquad(sq.ID); err != nil {
 		m.config.Logger.Errorf("squads: delete %s: %v", sq.Name, err)
+		return err
+	}
+	if sq.ChannelID != "" {
+		m.unregisterChannel(sq.ChannelID)
 	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
 	m.modLog(sq.GuildID, fmt.Sprintf("deleted **%s** because %s.", sq.Name, why))
+	return nil
 }
 
 // matchReport is what a matcher run did (or would do, for a dry run).
@@ -366,11 +453,27 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 		if err != nil {
 			return report, err
 		}
+		// Skip a squad this run unless every member loads, so its size and
+		// compatibility are never judged on a partial roster.
 		os := openSquad{ID: sq.ID, Name: sq.Name}
+		complete := true
 		for _, uid := range ids {
-			if c, _, err := m.loadCandidate(guildID, uid, picks[uid], rl); err == nil {
-				os.Members = append(os.Members, c)
+			c, gone, err := m.loadCandidate(guildID, uid, picks[uid], rl)
+			if err != nil {
+				complete = false
+				if gone && !dry {
+					if _, err := m.removeMember(guildID, uid, sq.ID, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
+						m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
+					}
+				} else if !gone {
+					m.config.Logger.Warnf("squads: look up %s in %s: %v", uid, sq.Name, err)
+				}
+				break
 			}
+			os.Members = append(os.Members, c)
+		}
+		if !complete {
+			continue
 		}
 		open = append(open, os)
 		byID[sq.ID] = sq
@@ -456,6 +559,9 @@ func (m *Module) notifyUnmatched(guildID, uid, threadID string) {
 			}}},
 		}
 	}
+	if threadID == "" {
+		threadID = m.lookupIntro(guildID, uid)
+	}
 	api := m.dc(nil)
 	err := api.DM(uid, msg(unmatchedText))
 	if err == nil {
@@ -484,10 +590,16 @@ func (m *Module) checkQuiet(guildID string) {
 	for _, sq := range squads {
 		switch {
 		case sq.Members < 2:
-			m.deleteSquad(sq, "it dropped below 2 members")
+			_ = m.deleteSquad(sq, "it dropped below 2 members")
 		case !sq.WarnedAt.IsZero() && now.Sub(sq.WarnedAt) >= deleteAfter:
-			m.deleteSquad(sq, "it was quiet for too long")
+			if m.missedChat(sq) {
+				continue
+			}
+			_ = m.deleteSquad(sq, "it was quiet for too long")
 		case sq.WarnedAt.IsZero() && now.Sub(sq.LastActivityAt) >= warnAfter:
+			if m.missedChat(sq) {
+				continue
+			}
 			_, err := m.dc(nil).Send(sq.ChannelID, &discordgo.MessageSend{
 				Content: fmt.Sprintf("👀 <@&%s> it's been quiet in here for %s. This squad will be deleted <t:%d:R> unless someone says something!",
 					sq.RoleID, humanDuration(warnAfter), now.Add(deleteAfter).Unix()),
@@ -506,6 +618,28 @@ func (m *Module) checkQuiet(guildID string) {
 			}
 		}
 	}
+}
+
+// missedChat checks the channel itself for chat the bot didn't see (e.g.
+// while it was offline) before a squad is warned or deleted. It records any
+// it finds and reports true when the squad should be left alone this round,
+// including when the channel can't be checked.
+func (m *Module) missedChat(sq database.Squad) bool {
+	last, err := m.dc(nil).LastHumanMessage(sq.ChannelID)
+	if discordCode(err) == discordgo.ErrCodeUnknownChannel {
+		return false
+	}
+	if err != nil {
+		m.config.Logger.Warnf("squads: check recent chat in %s: %v", sq.Name, err)
+		return true
+	}
+	if last.Unix() <= sq.LastActivityAt.Unix() {
+		return false
+	}
+	if err := m.db.TouchSquad(sq.ID, last); err != nil {
+		m.config.Logger.Warnf("squads: record missed activity in %s: %v", sq.Name, err)
+	}
+	return true
 }
 
 // humanDuration renders 48h as "2 days", 90m as "1 hour" etc.

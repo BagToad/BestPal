@@ -334,6 +334,7 @@ func TestRunMatchCreatesSquad(t *testing.T) {
 	assert.Equal(t, sq.ChannelID, welcome.ChannelID)
 	assert.Contains(t, welcome.Msg.Content, "Welcome to Squad Axolotl")
 	assert.Contains(t, welcome.Msg.Content, "6 of you play **Game 1**")
+	assert.Contains(t, welcome.Msg.Content, "[intro](https://discord.com/channels/"+guild+"/intro-u1)")
 	assert.ElementsMatch(t, people, welcome.Msg.AllowedMentions.Users)
 	assert.Len(t, api.pins, 1)
 
@@ -370,6 +371,7 @@ func TestLateJoinerFillsYoungSquad(t *testing.T) {
 	last := api.sent[len(api.sent)-1]
 	assert.Equal(t, sq.ChannelID, last.ChannelID)
 	assert.Contains(t, last.Msg.Content, "<@late> joined the squad! They play **Game 1**.")
+	assert.Contains(t, last.Msg.Content, "📝 Intro: [intro](https://discord.com/channels/"+guild+"/intro-late)")
 }
 
 func TestUnmatchedPersonIsDMedOrPingedInIntro(t *testing.T) {
@@ -586,6 +588,20 @@ func TestIntroButtonToggle(t *testing.T) {
 
 	m, _, _, _ = newTestModule(t, map[string]any{config.KeySquadsEnabled: false})
 	assert.False(t, m.wantsIntroButton(intro))
+}
+
+func TestIntroLink(t *testing.T) {
+	assert.Empty(t, introLink(guild, &candidate{UserID: "a", Name: "Alice"}))
+	assert.Equal(t, "[Alice](https://discord.com/channels/"+guild+"/t1)",
+		introLink(guild, &candidate{UserID: "a", Name: "Alice", IntroID: "t1"}))
+	assert.Equal(t, `[\[x\]\_y\_ z](https://discord.com/channels/`+guild+`/t2)`,
+		introLink(guild, &candidate{Name: "[x]_y_\nz", IntroID: "t2"}))
+
+	text := welcomeText(guild, "Squad Owl", "r", []*candidate{
+		{UserID: "a", Name: "Alice", IntroID: "t1"}, {UserID: "b", Name: "Bob"}, {UserID: "c", Name: "Cy", IntroID: "t3"},
+	}, time.Hour)
+	assert.Contains(t, text, "📝 Intros: [Alice](https://discord.com/channels/"+guild+"/t1) · [Cy](https://discord.com/channels/"+guild+"/t3)")
+	assert.NotContains(t, welcomeText(guild, "Squad Owl", "r", []*candidate{{UserID: "b"}}, time.Hour), "Intros")
 }
 
 func TestOverwritesFollowCategory(t *testing.T) {

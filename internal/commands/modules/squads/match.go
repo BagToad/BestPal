@@ -11,6 +11,8 @@ import (
 // member of an existing squad (used to score late joiners against it).
 type candidate struct {
 	UserID    string
+	Name      string // display name, for intro links
+	IntroID   string // intro thread ID, "" when unknown
 	QueuedAt  time.Time
 	Region    string // region key, "" when unknown (matches any region)
 	Age       int    // 1-based age group slot, 0 when unknown (matches any age)

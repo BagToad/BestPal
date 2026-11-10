@@ -227,9 +227,14 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	for _, uid := range ids {
 		m.grantRole(guildID, uid, role.ID)
 	}
+	for _, c := range group {
+		if c.IntroID == "" {
+			c.IntroID = m.lookupIntro(guildID, c.UserID)
+		}
+	}
 
 	msg, err := api.Send(ch.ID, &discordgo.MessageSend{
-		Content:         welcomeText(name, role.ID, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter()),
+		Content:         welcomeText(guildID, name, role.ID, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter()),
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: ids},
 		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 			discordgo.Button{Label: "Leave squad", Emoji: &discordgo.ComponentEmoji{Name: "🚪"}, Style: discordgo.SecondaryButton,
@@ -249,19 +254,52 @@ func (m *Module) createSquad(guildID string, group []*candidate) (database.Squad
 	return sq, nil
 }
 
-func welcomeText(name, roleID string, group []*candidate, quietLimit time.Duration) string {
+func welcomeText(guildID, name, roleID string, group []*candidate, quietLimit time.Duration) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## 🎉 Welcome to %s!\n", name)
+	var intros []string
 	for n, c := range group {
 		if n > 0 {
 			b.WriteString(" ")
 		}
 		b.WriteString(mention(c.UserID))
+		if link := introLink(guildID, c); link != "" {
+			intros = append(intros, link)
+		}
+	}
+	if len(intros) > 0 {
+		b.WriteString("\n📝 Intros: " + strings.Join(intros, " · "))
 	}
 	b.WriteString("\n\n" + commonGround(group))
 	fmt.Fprintf(&b, "\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID)
 	fmt.Fprintf(&b, "\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))
 	return b.String()
+}
+
+func memberName(mem *discordgo.Member) string {
+	if mem == nil || (mem.Nick == "" && mem.User == nil) {
+		return ""
+	}
+	return mem.DisplayName()
+}
+
+// linkTextEscaper keeps a display name from breaking out of masked-link text
+// or adding formatting.
+var linkTextEscaper = strings.NewReplacer(
+	"\\", "\\\\", "[", "\\[", "]", "\\]", "*", "\\*", "_", "\\_",
+	"~", "\\~", "`", "\\`", "|", "\\|", "<", "\\<", ">", "\\>",
+)
+
+// introLink is a [name](url) link to someone's intro post, or "" without one.
+func introLink(guildID string, c *candidate) string {
+	if c.IntroID == "" {
+		return ""
+	}
+	name := strings.TrimSpace(strings.NewReplacer("\n", " ", "\r", " ").Replace(c.Name))
+	if name == "" {
+		name = "intro"
+	}
+	return fmt.Sprintf("[%s](https://discord.com/channels/%s/%s)", linkTextEscaper.Replace(name), guildID, c.IntroID)
 }
 
 // commonGround describes what a group shares, for the welcome post.
@@ -320,6 +358,12 @@ func (m *Module) addMember(guildID string, sq database.Squad, c *candidate) erro
 	}
 	if len(names) > 0 {
 		text += " They play " + joinAnd(names) + "."
+	}
+	if c.IntroID == "" {
+		c.IntroID = m.lookupIntro(guildID, c.UserID)
+	}
+	if link := introLink(guildID, c); link != "" {
+		text += "\n📝 Intro: " + link
 	}
 	if _, err := api.Send(sq.ChannelID, &discordgo.MessageSend{
 		Content:         text,
@@ -434,6 +478,7 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			continue
 		}
 		c.QueuedAt = e.QueuedAt
+		c.IntroID = e.IntroThreadID
 		threads[e.UserID] = e.IntroThreadID
 		cands = append(cands, c)
 	}
@@ -531,7 +576,7 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	if err != nil {
 		return nil, discordCode(err) == discordgo.ErrCodeUnknownMember, err
 	}
-	c := &candidate{UserID: uid, Games: map[int64]string{}, Tags: map[string]bool{}}
+	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}}
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {

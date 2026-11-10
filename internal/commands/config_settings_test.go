@@ -90,6 +90,7 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeySlidePuzzleGridSize,
 		config.KeySlidePuzzleRoundDuration,
 		config.KeySquadsEnabled,
+		config.KeySquadsIntroButton,
 		config.KeySquadsCategoryID,
 		config.KeySquadsVisibility,
 		config.KeySquadsModRoleID,

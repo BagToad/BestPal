@@ -101,17 +101,21 @@ const introPrompt = "👋 **Want to meet people who play what you play?**\n" +
 
 // OnIntroThread posts the Join a squad button on a new intro post.
 func (m *Module) OnIntroThread(s *discordgo.Session, thread *discordgo.Channel) {
+	if m.wantsIntroButton(thread) {
+		go m.postIntroPrompt(s, thread, 3)
+	}
+}
+
+func (m *Module) wantsIntroButton(thread *discordgo.Channel) bool {
 	if thread == nil || thread.OwnerID == "" {
-		return
+		return false
 	}
 	gc := m.config.ForGuild(thread.GuildID)
-	if !gc.GetSquadsEnabled() {
-		return
+	if !gc.GetSquadsEnabled() || !gc.GetSquadsIntroButton() {
+		return false
 	}
-	if forum := gc.GetGamerPalsIntroductionsForumChannelID(); forum == "" || thread.ParentID != forum {
-		return
-	}
-	go m.postIntroPrompt(s, thread, 3)
+	forum := gc.GetGamerPalsIntroductionsForumChannelID()
+	return forum != "" && thread.ParentID == forum
 }
 
 var introRetryDelay = 3 * time.Second

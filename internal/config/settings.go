@@ -65,6 +65,7 @@ const (
 	KeySlidePuzzleRoundDuration = "slide_puzzle_round_duration"
 
 	KeySquadsEnabled          = "squads_enabled"
+	KeySquadsIntroButton      = "squads_intro_button"
 	KeySquadsCategoryID       = "squads_category_id"
 	KeySquadsVisibility       = "squads_visibility"
 	KeySquadsModRoleID        = "squads_mod_role_id"

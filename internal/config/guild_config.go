@@ -541,9 +541,12 @@ const (
 	squadsDefaultQuietDelete   = 3 * 24 * time.Hour
 )
 
-// GetSquadsEnabled reports whether intro posts get a "Join a squad" button
-// and the matcher runs.
+// GetSquadsEnabled reports whether people can join squads and the matcher runs.
 func (gc *GuildConfig) GetSquadsEnabled() bool { return gc.resolveBool(KeySquadsEnabled) }
+
+// GetSquadsIntroButton reports whether new intro posts get a "Join a squad"
+// button (only while squads are enabled).
+func (gc *GuildConfig) GetSquadsIntroButton() bool { return gc.resolveBool(KeySquadsIntroButton) }
 
 // GetSquadsCategoryID returns the category new squad channels are created in.
 func (gc *GuildConfig) GetSquadsCategoryID() string { return gc.resolveString(KeySquadsCategoryID) }

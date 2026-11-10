@@ -15,7 +15,10 @@ func (m *Module) ConfigSettings() []config.Setting {
 	sq, timing := config.CategorySquads, config.CategorySquadTiming
 	out := []config.Setting{
 		{Key: config.KeySquadsEnabled, Category: sq, Label: "Squads enabled",
-			Description: "Adds a Join a squad button to new intro posts and runs the matcher.", Kind: config.KindBool, Default: false},
+			Description: "Lets people join with /squad join and runs the matcher.", Kind: config.KindBool, Default: false},
+		{Key: config.KeySquadsIntroButton, Category: sq, Label: "Post on intros",
+			Description: "Posts a Join a squad button on new intro posts while squads are enabled. Turn off to test with /squad join only.",
+			Kind:        config.KindBool, Default: true},
 		{Key: config.KeySquadsCategoryID, Category: sq, Label: "Squads category",
 			Description: "Category new squad channels are created in.", Kind: config.KindCategory},
 		{Key: config.KeySquadsVisibility, Category: sq, Label: "Channel visibility",

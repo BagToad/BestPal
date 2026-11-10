@@ -169,6 +169,7 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *fakeAPI, *databas
 	base := map[string]any{
 		"gamerpals_server_id":                 guild,
 		config.KeySquadsEnabled:               true,
+		config.KeySquadsIntroButton:           true,
 		config.KeySquadsCategoryID:            "cat",
 		config.KeySquadsModRoleID:             "mods",
 		config.KeySquadsRegionEURoleID:        "role-eu",
@@ -571,6 +572,20 @@ func TestIntroThreadGetsJoinButton(t *testing.T) {
 	api.sendErr["t2"] = errors.New("nope")
 	m.postIntroPrompt(nil, &discordgo.Channel{ID: "t2", GuildID: guild, ParentID: "intros", OwnerID: "bob"}, 2)
 	assert.Len(t, api.sent, 1)
+}
+
+func TestIntroButtonToggle(t *testing.T) {
+	intro := &discordgo.Channel{ID: "t1", GuildID: guild, ParentID: "intros", OwnerID: "alice"}
+	m, _, _, _ := newTestModule(t, nil)
+	assert.True(t, m.wantsIntroButton(intro))
+	assert.False(t, m.wantsIntroButton(&discordgo.Channel{ID: "t2", GuildID: guild, ParentID: "other", OwnerID: "alice"}))
+
+	m, _, _, _ = newTestModule(t, map[string]any{config.KeySquadsIntroButton: false})
+	assert.False(t, m.wantsIntroButton(intro), "intro posting can be off while squads are enabled")
+	assert.Contains(t, m.statusText(guild), "Post on intros is off")
+
+	m, _, _, _ = newTestModule(t, map[string]any{config.KeySquadsEnabled: false})
+	assert.False(t, m.wantsIntroButton(intro))
 }
 
 func TestOverwritesFollowCategory(t *testing.T) {

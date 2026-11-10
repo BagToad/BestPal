@@ -276,6 +276,8 @@ func (m *Module) statusText(guildID string) string {
 	var problems []string
 	if !gc.GetSquadsEnabled() {
 		problems = append(problems, "Squads are **off** (no intro buttons, no pairing).")
+	} else if !gc.GetSquadsIntroButton() {
+		problems = append(problems, "Intro posts don't get a Join button (Post on intros is off), so only /squad join works.")
 	}
 	if gc.GetSquadsCategoryID() == "" {
 		problems = append(problems, "No squads category set, so squads can't be created.")

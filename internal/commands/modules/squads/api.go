@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,23 +193,57 @@ var gameFields = igdb.SetFields("id", "name", "first_release_date", "genres", "t
 // skippedTags are too broad to say anything about someone's taste.
 var skippedTags = map[string]bool{"Indie": true}
 
+// searchLimit caps each IGDB query; the picker shows at most maxPicks-1.
+const searchLimit = 20
+
+// Search puts exact name matches first, then names containing the query,
+// then IGDB's full-text results, which catch typos and word order.
 func (src *igdbSource) Search(query string) ([]gameInfo, error) {
+	query = strings.TrimSpace(query)
+	// The client doesn't escape the search term itself.
+	term := strings.TrimSpace(strings.ReplaceAll(query, `"`, ""))
+	if term == "" {
+		return nil, nil
+	}
+	quoted := igdbString(query)
 	var games []*igdb.Game
 	err := src.client.Retry(func() error {
+		games = nil
 		svc, err := src.client.Games()
 		if err != nil {
 			return err
 		}
-		games, err = svc.Search(query, gameFields, igdb.SetLimit(20))
-		if errors.Is(err, igdb.ErrNoResults) {
-			games, err = nil, nil
+		lookups := []func() ([]*igdb.Game, error){
+			func() ([]*igdb.Game, error) {
+				return svc.Index(gameFields, igdb.SetLimit(searchLimit),
+					igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, quoted))
+			},
+			func() ([]*igdb.Game, error) {
+				return svc.Search(term, gameFields, igdb.SetLimit(searchLimit),
+					igdb.SetFilter("name", igdb.OpEqualsCaseInsensitive, "*"+quoted+"*"))
+			},
+			func() ([]*igdb.Game, error) {
+				return svc.Search(term, gameFields, igdb.SetLimit(searchLimit))
+			},
 		}
-		return err
+		for _, lookup := range lookups {
+			found, err := lookup()
+			if err != nil && !errors.Is(err, igdb.ErrNoResults) {
+				return err
+			}
+			games = append(games, found...)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return src.convert(games), nil
+}
+
+// igdbString quotes s as an Apicalypse string literal.
+func igdbString(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
 func (src *igdbSource) Get(id int64) (gameInfo, error) {

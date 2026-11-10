@@ -838,3 +838,8 @@ func TestSquadLeaveCommandDequeues(t *testing.T) {
 	_, ok, _ := db.SquadQueueEntryFor(guild, "q")
 	assert.False(t, ok)
 }
+
+func TestIGDBString(t *testing.T) {
+	assert.Equal(t, `"Halo"`, igdbString("Halo"))
+	assert.Equal(t, `"say \"hi\" \\ bye"`, igdbString(`say "hi" \ bye`))
+}

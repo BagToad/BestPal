@@ -1,6 +1,7 @@
 package squads
 
 import (
+	"maps"
 	"math"
 	"slices"
 	"sort"
@@ -117,19 +118,27 @@ func pairScore(a, b *candidate) (score float64, ok bool) {
 	return score, true
 }
 
-// groupScore is c's average score against a group, and whether c overlaps
-// with at least one of its members.
+// groupScore is c's average score against a group. ok is true only when c
+// shares at least one exact game with every member, preserving a game common
+// to the whole squad as it grows.
 func groupScore(c *candidate, group []*candidate) (float64, bool) {
 	if len(group) == 0 {
 		return 0, false
 	}
-	total, any := 0.0, false
+	common := maps.Clone(c.Games)
+	total := 0.0
 	for _, m := range group {
 		s, ok := pairScore(c, m)
+		if !ok {
+			return 0, false
+		}
 		total += s
-		any = any || ok
+		maps.DeleteFunc(common, func(id int64, _ string) bool {
+			_, shared := m.Games[id]
+			return !shared
+		})
 	}
-	return total / float64(len(group)), any
+	return total / float64(len(group)), len(common) > 0
 }
 
 func fitsGroup(c *candidate, group []*candidate, relaxed bool) bool {

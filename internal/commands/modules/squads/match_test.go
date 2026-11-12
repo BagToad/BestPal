@@ -121,6 +121,36 @@ func TestSharedGenreCannotJoinOpenSquad(t *testing.T) {
 	assert.Equal(t, []string{"late"}, ids(p.Waiting))
 }
 
+func TestSquadMustShareOneGameAcrossEveryMember(t *testing.T) {
+	queue := []*candidate{
+		person("seed", "eu", 1, 5*time.Hour, 1, 2),
+		person("game-one", "eu", 1, time.Hour, 1),
+		person("game-two-a", "eu", 1, time.Hour, 2),
+		person("game-two-b", "eu", 1, time.Hour, 2),
+	}
+
+	p := buildPlan(queue, nil, matchParams{Min: 2, Target: 3, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 168 * time.Hour}, t0)
+	require.Len(t, p.NewSquads, 1)
+	assert.ElementsMatch(t, []string{"seed", "game-two-a", "game-two-b"}, ids(p.NewSquads[0]))
+	assert.Equal(t, []string{"game-one"}, ids(p.Waiting))
+}
+
+func TestLateJoinMustShareOneGameWithWholeSquad(t *testing.T) {
+	members := []*candidate{
+		person("m1", "eu", 2, 0, 1, 2),
+		person("m2", "eu", 2, 0, 1, 3),
+	}
+	queue := []*candidate{
+		person("shares-with-one", "eu", 2, 50*time.Hour, 2),
+		person("shares-common", "eu", 2, 50*time.Hour, 1),
+	}
+
+	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
+	require.Len(t, p.Joins, 1)
+	assert.Equal(t, "shares-common", p.Joins[0].User.UserID)
+	assert.Equal(t, []string{"shares-with-one"}, ids(p.Waiting))
+}
+
 func TestPlatformIsOnlyABonus(t *testing.T) {
 	a, b := person("a", "", 0, 0, 1), person("b", "", 0, 0, 1)
 	base, _ := pairScore(a, b)

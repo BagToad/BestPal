@@ -135,6 +135,18 @@ func TestSquadMustShareOneGameAcrossEveryMember(t *testing.T) {
 	assert.Equal(t, []string{"game-one"}, ids(p.Waiting))
 }
 
+func TestPairwiseOverlapWithoutAGroupwideGameCannotFormSquad(t *testing.T) {
+	queue := []*candidate{
+		person("a", "eu", 1, 5*time.Hour, 1, 2),
+		person("b", "eu", 1, time.Hour, 2, 3),
+		person("c", "eu", 1, time.Hour, 1, 3),
+	}
+
+	p := buildPlan(queue, nil, matchParams{Min: 2, Target: 3, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 168 * time.Hour}, t0)
+	assert.Empty(t, p.NewSquads)
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, ids(p.Waiting))
+}
+
 func TestLateJoinMustShareOneGameWithWholeSquad(t *testing.T) {
 	members := []*candidate{
 		person("m1", "eu", 2, 0, 1, 2),
@@ -149,6 +161,24 @@ func TestLateJoinMustShareOneGameWithWholeSquad(t *testing.T) {
 	require.Len(t, p.Joins, 1)
 	assert.Equal(t, "shares-common", p.Joins[0].User.UserID)
 	assert.Equal(t, []string{"shares-with-one"}, ids(p.Waiting))
+}
+
+func TestMultipleLateJoinsPreserveGroupwideSharedGame(t *testing.T) {
+	members := []*candidate{
+		person("m1", "eu", 2, 0, 1, 2),
+		person("m2", "eu", 2, 0, 1, 3),
+	}
+	queue := []*candidate{
+		person("first", "eu", 2, 50*time.Hour, 1, 4),
+		person("second", "eu", 2, 50*time.Hour, 1, 5),
+		person("breaks-common", "eu", 2, 50*time.Hour, 2, 4),
+	}
+
+	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
+	require.Len(t, p.Joins, 2)
+	assert.Equal(t, "first", p.Joins[0].User.UserID)
+	assert.Equal(t, "second", p.Joins[1].User.UserID)
+	assert.Equal(t, []string{"breaks-common"}, ids(p.Waiting))
 }
 
 func TestPlatformIsOnlyABonus(t *testing.T) {

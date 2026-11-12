@@ -166,7 +166,7 @@ func TestLateJoinMustShareOneGameWithWholeSquad(t *testing.T) {
 func TestMultipleLateJoinsPreserveGroupwideSharedGame(t *testing.T) {
 	members := []*candidate{
 		person("m1", "eu", 2, 0, 1, 2),
-		person("m2", "eu", 2, 0, 1, 3),
+		person("m2", "eu", 2, 0, 1, 2),
 	}
 	queue := []*candidate{
 		person("first", "eu", 2, 50*time.Hour, 1, 4),

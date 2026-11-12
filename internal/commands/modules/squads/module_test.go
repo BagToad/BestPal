@@ -660,8 +660,9 @@ func TestSquadPostSendsStandaloneJoinPrompt(t *testing.T) {
 	assert.Empty(t, api.sent[0].Msg.AllowedMentions.Users)
 	btn := api.sent[0].Msg.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
 	assert.Equal(t, prefix+"join:"+guild+"::", btn.CustomID, "the standalone button is open to anyone")
+	assert.Equal(t, discordgo.InteractionResponseDeferredChannelMessageWithSource, api.lastResponse().Type)
 	assert.Equal(t, discordgo.MessageFlagsEphemeral, api.lastResponse().Data.Flags, "the command acknowledgement stays private")
-	assert.Contains(t, api.lastResponse().Data.Content, "Posted")
+	assert.Contains(t, editContent(api.lastEdit()), "Posted")
 }
 
 func TestSquadPostRequiresModeratorAndEnabledFeature(t *testing.T) {

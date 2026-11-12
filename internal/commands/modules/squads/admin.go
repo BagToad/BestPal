@@ -116,12 +116,15 @@ func (m *Module) handlePost(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.respondText(s, i, "❌ Squads aren't open right now.")
 		return
 	}
-	if _, err := m.dc(s).Send(i.ChannelID, channelPromptMsg(i.GuildID)); err != nil {
-		m.config.Logger.Errorf("squads: post join prompt in %s: %v", i.ChannelID, err)
-		m.respondText(s, i, "❌ Could not post the squad prompt. Try again in a moment.")
+	if !m.deferReply(s, i) {
 		return
 	}
-	m.respondText(s, i, "✅ Posted the squad prompt.")
+	if _, err := m.dc(s).Send(i.ChannelID, channelPromptMsg(i.GuildID)); err != nil {
+		m.config.Logger.Errorf("squads: post join prompt in %s: %v", i.ChannelID, err)
+		m.editText(s, i, "❌ Could not post the squad prompt. Try again in a moment.")
+		return
+	}
+	m.editText(s, i, "✅ Posted the squad prompt.")
 }
 
 // adminDeferred defers, then shows fn's result, for commands that may make

@@ -47,11 +47,10 @@ type plan struct {
 	Waiting   []*candidate
 }
 
-// Score weights. A shared game counts most, then shared genres/themes, then a
-// shared platform as a small bonus.
+// Score weights. Exact shared games determine compatibility; a shared
+// platform is only a small bonus when ranking compatible candidates.
 const (
 	gameWeight     = 3.0
-	tagWeight      = 1.0
 	platformWeight = 0.5
 )
 
@@ -101,19 +100,21 @@ func cosine[K comparable, V any](a, b map[K]V) float64 {
 	return float64(shared) / math.Sqrt(float64(len(a)*len(b)))
 }
 
-// pairScore rates how well two people fit. ok is false when they share no
-// game, genre or theme, which means they don't count as a match.
+// pairScore rates how well two people fit. An exact shared game is required;
+// genres and themes are retained for summaries but do not affect matching.
 func pairScore(a, b *candidate) (score float64, ok bool) {
 	g := cosine(a.Games, b.Games)
-	t := cosine(a.Tags, b.Tags)
-	score = gameWeight*g + tagWeight*t
+	if g == 0 {
+		return 0, false
+	}
+	score = gameWeight * g
 	for p := range a.Platforms {
 		if b.Platforms[p] {
 			score += platformWeight
 			break
 		}
 	}
-	return score, g > 0 || t > 0
+	return score, true
 }
 
 // groupScore is c's average score against a group, and whether c overlaps
@@ -171,7 +172,7 @@ func grow(group, pool []*candidate, limit int, relaxed bool) []*candidate {
 // buildPlan decides who goes where:
 //
 //  1. Full squads (target size) of people with the same region and age group
-//     who share games or genres, seeded by whoever has waited longest.
+//     who share at least one exact game, seeded by whoever has waited longest.
 //  2. People past the fallback wait join the best open squad (same region and
 //     age first, then neighbours), or seed a smaller squad of at least the
 //     minimum size with neighbours.

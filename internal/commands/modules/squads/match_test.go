@@ -57,7 +57,7 @@ func TestBuildPlanFormsFullSquadsWithinRegionAndAge(t *testing.T) {
 	assert.Equal(t, []string{"eu-older"}, ids(p.Waiting))
 }
 
-func TestBuildPlanPrefersSharedGamesOverGenres(t *testing.T) {
+func TestBuildPlanRequiresSharedGamesDespiteSharedGenres(t *testing.T) {
 	seed := withTags(person("seed", "eu", 1, 5*time.Hour, 10, 11, 12), "Shooter")
 	queue := []*candidate{seed}
 	for n := range 3 {
@@ -84,17 +84,41 @@ func TestOverlapIsARatio(t *testing.T) {
 	assert.Greater(t, sf, sb, "2 of 3 shared should beat 2 of 25 shared")
 }
 
-func TestNoSharedGamesOrGenresIsNotAMatch(t *testing.T) {
+func TestSharedGenreWithoutSharedGameIsNotAMatch(t *testing.T) {
 	var queue []*candidate
 	for n := range 6 {
-		queue = append(queue, withTags(person(fmt.Sprintf("u%d", n), "eu", 1, 3*24*time.Hour, int64(n)), fmt.Sprintf("tag%d", n)))
+		queue = append(queue, withTags(person(fmt.Sprintf("u%d", n), "eu", 1, 3*24*time.Hour, int64(n)), "RPG"))
 	}
 	p := buildPlan(queue, nil, params, t0)
 	assert.Empty(t, p.NewSquads)
 	assert.Len(t, p.Waiting, 6)
 
-	_, ok := pairScore(person("x", "", 0, 0, 1), withTags(person("y", "", 0, 0, 2), "RPG"))
+	_, ok := pairScore(withTags(person("x", "", 0, 0, 1), "RPG"), withTags(person("y", "", 0, 0, 2), "RPG"))
 	assert.False(t, ok)
+}
+
+func TestSharedGenresDoNotAffectMatchScore(t *testing.T) {
+	a := withTags(person("a", "", 0, 0, 1, 2), "RPG")
+	b := withTags(person("b", "", 0, 0, 1, 3), "RPG")
+	c := withTags(person("c", "", 0, 0, 1, 3), "Shooter")
+
+	withSharedGenre, ok := pairScore(a, b)
+	require.True(t, ok)
+	withoutSharedGenre, ok := pairScore(a, c)
+	require.True(t, ok)
+	assert.Equal(t, withoutSharedGenre, withSharedGenre)
+}
+
+func TestSharedGenreCannotJoinOpenSquad(t *testing.T) {
+	members := []*candidate{
+		withTags(person("m1", "eu", 2, 0, 1), "RPG"),
+		withTags(person("m2", "eu", 2, 0, 1), "RPG"),
+	}
+	queue := []*candidate{withTags(person("late", "eu", 2, 50*time.Hour, 2), "RPG")}
+
+	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
+	assert.Empty(t, p.Joins)
+	assert.Equal(t, []string{"late"}, ids(p.Waiting))
 }
 
 func TestPlatformIsOnlyABonus(t *testing.T) {

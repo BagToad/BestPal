@@ -32,7 +32,7 @@ func joinButton(guildID, ownerID, threadID string) discordgo.Button {
 	}
 }
 
-const pickerIntro = "Add the games you play the most. You'll be matched with people in your region and age group who play the same games (or similar ones). The more you add, the better your chances."
+const pickerIntro = "Add the games you play the most. You'll be matched with people in your region and age group who play the same games. If you're willing to try new games, you can also opt into matches based on shared genres."
 
 // pickerView renders the picker: the current picks, Add/Finish buttons and a
 // menu to remove a pick.
@@ -41,6 +41,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	if err != nil {
 		m.config.Logger.Errorf("squads: load picks: %v", err)
 		return ephemeral("❌ Could not load your games. Try again in a moment.")
+	}
+	tryNew, err := m.db.SquadTryNewGames(ctx.GuildID, uid)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load try-new-games preference: %v", err)
+		return ephemeral("❌ Could not load your squad preferences. Try again in a moment.")
 	}
 	var b strings.Builder
 	if note != "" {
@@ -53,6 +58,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	for n, p := range picks {
 		fmt.Fprintf(&b, "\n%d. %s", n+1, truncate(gameInfo{Name: p.Name, Year: p.Year}.label(), maxListedName))
 	}
+	if tryNew {
+		b.WriteString("\n\n✅ **Willing to try new games:** You may also be matched by shared genres.")
+	} else {
+		b.WriteString("\n\n**Willing to try new games?** Opt in to also be matched by shared genres.")
+	}
 
 	finish := "Finish"
 	if sq, ok, _ := m.db.SquadForUser(ctx.GuildID, uid); ok {
@@ -63,11 +73,20 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		finish = "Done"
 	}
 
+	tryStyle := discordgo.SecondaryButton
+	tryEmoji := "🎲"
+	if tryNew {
+		tryStyle = discordgo.SuccessButton
+		tryEmoji = "✅"
+	}
 	rows := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Add a game", Emoji: &discordgo.ComponentEmoji{Name: "➕"}, Style: discordgo.PrimaryButton,
 			CustomID: ctx.id("add"), Disabled: len(picks) >= maxPicks},
 		discordgo.Button{Label: finish, Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton,
 			CustomID: ctx.id("done"), Disabled: len(picks) == 0},
+	}}, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+		discordgo.Button{Label: "I'm willing to try new games", Emoji: &discordgo.ComponentEmoji{Name: tryEmoji},
+			Style: tryStyle, CustomID: ctx.id("trynew")},
 	}}}
 	if len(picks) > 0 {
 		var opts []discordgo.SelectMenuOption
@@ -275,6 +294,24 @@ func (m *Module) handleRemovePick(s *discordgo.Session, i *discordgo.Interaction
 
 func (m *Module) handleBack(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
 	m.update(s, i, m.pickerView(ctx, userID(i), ""))
+}
+
+func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
+	uid := userID(i)
+	enabled, err := m.db.SquadTryNewGames(ctx.GuildID, uid)
+	if err == nil {
+		err = m.db.SetSquadTryNewGames(ctx.GuildID, uid, !enabled)
+	}
+	if err != nil {
+		m.config.Logger.Errorf("squads: update try-new-games preference: %v", err)
+		m.update(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
+		return
+	}
+	note := "Genre matching is off. We'll only match you by exact games."
+	if !enabled {
+		note = "✅ You're open to trying new games. We may also match you by shared genres."
+	}
+	m.update(s, i, m.pickerView(ctx, uid, note))
 }
 
 // handleDone puts the person in the queue (or just saves, if they're

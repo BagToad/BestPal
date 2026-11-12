@@ -681,7 +681,11 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	if err != nil {
 		return nil, discordCode(err) == discordgo.ErrCodeUnknownMember, err
 	}
-	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}}
+	tryNew, err := m.db.SquadTryNewGames(guildID, uid)
+	if err != nil {
+		return nil, false, err
+	}
+	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}, TryNew: tryNew}
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {

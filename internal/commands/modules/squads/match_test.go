@@ -27,6 +27,11 @@ func withTags(c *candidate, tags ...string) *candidate {
 	return c
 }
 
+func willing(c *candidate) *candidate {
+	c.TryNew = true
+	return c
+}
+
 var params = matchParams{Min: 3, Target: 6, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 7 * 24 * time.Hour}
 
 func ids(group []*candidate) []string {
@@ -107,6 +112,60 @@ func TestSharedGenresDoNotAffectMatchScore(t *testing.T) {
 	withoutSharedGenre, ok := pairScore(a, c)
 	require.True(t, ok)
 	assert.Equal(t, withoutSharedGenre, withSharedGenre)
+}
+
+func TestOptedInMembersCanMatchBySharedGenre(t *testing.T) {
+	var queue []*candidate
+	for n := range 6 {
+		queue = append(queue, willing(withTags(person(fmt.Sprintf("u%d", n), "eu", 1, time.Hour, int64(n+1)), "RPG")))
+	}
+
+	p := buildPlan(queue, nil, params, t0)
+	require.Len(t, p.NewSquads, 1)
+	assert.Len(t, p.NewSquads[0], 6)
+}
+
+func TestGenreMatchRequiresEveryMemberToOptIn(t *testing.T) {
+	var queue []*candidate
+	for n := range 6 {
+		c := withTags(person(fmt.Sprintf("u%d", n), "eu", 1, time.Hour, int64(n+1)), "RPG")
+		if n > 0 {
+			c = willing(c)
+		}
+		queue = append(queue, c)
+	}
+
+	p := buildPlan(queue, nil, params, t0)
+	assert.Empty(t, p.NewSquads)
+	assert.Len(t, p.Waiting, 6)
+}
+
+func TestGenreMatchRequiresAGroupwideSharedGenre(t *testing.T) {
+	queue := []*candidate{
+		willing(withTags(person("a", "eu", 1, time.Hour, 1), "RPG", "Fantasy")),
+		willing(withTags(person("b", "eu", 1, time.Hour, 2), "Fantasy", "Adventure")),
+		willing(withTags(person("c", "eu", 1, time.Hour, 3), "RPG", "Adventure")),
+	}
+
+	p := buildPlan(queue, nil, matchParams{Min: 2, Target: 3, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 168 * time.Hour}, t0)
+	assert.Empty(t, p.NewSquads)
+	assert.Len(t, p.Waiting, 3)
+}
+
+func TestGenreLateJoinRequiresWholeSquadOptIn(t *testing.T) {
+	open := []openSquad{{ID: 1, Members: []*candidate{
+		willing(withTags(person("m1", "eu", 1, 0, 1), "RPG")),
+		willing(withTags(person("m2", "eu", 1, 0, 2), "RPG")),
+	}}}
+	queue := []*candidate{
+		willing(withTags(person("genre-late", "eu", 1, 50*time.Hour, 3), "RPG")),
+		withTags(person("not-opted-in", "eu", 1, 50*time.Hour, 4), "RPG"),
+	}
+
+	p := buildPlan(queue, open, params, t0)
+	require.Len(t, p.Joins, 1)
+	assert.Equal(t, "genre-late", p.Joins[0].User.UserID)
+	assert.Equal(t, []string{"not-opted-in"}, ids(p.Waiting))
 }
 
 func TestSharedGenreCannotJoinOpenSquad(t *testing.T) {

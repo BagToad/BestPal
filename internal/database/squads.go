@@ -33,6 +33,13 @@ CREATE TABLE IF NOT EXISTS squad_queue (
 	PRIMARY KEY (guild_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS squad_preferences (
+	guild_id      TEXT NOT NULL,
+	user_id       TEXT NOT NULL,
+	try_new_games INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (guild_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS squads (
 	id                 INTEGER PRIMARY KEY AUTOINCREMENT,
 	guild_id           TEXT NOT NULL,
@@ -90,6 +97,26 @@ type SquadQueueEntry struct {
 	UserID        string
 	QueuedAt      time.Time
 	IntroThreadID string
+}
+
+// SquadTryNewGames reports whether a member opted into genre-based matching.
+// Missing preferences default to false so existing members remain game-only.
+func (db *DB) SquadTryNewGames(guildID, userID string) (bool, error) {
+	var enabled bool
+	err := db.conn.QueryRow(`SELECT try_new_games FROM squad_preferences WHERE guild_id = ? AND user_id = ?`,
+		guildID, userID).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// SetSquadTryNewGames updates a member's genre-matching preference.
+func (db *DB) SetSquadTryNewGames(guildID, userID string, enabled bool) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, try_new_games) VALUES (?, ?, ?)
+		ON CONFLICT (guild_id, user_id) DO UPDATE SET try_new_games = excluded.try_new_games`,
+		guildID, userID, enabled)
+	return err
 }
 
 // Squad is one squad and its channel/role.

@@ -1,6 +1,7 @@
 // Package squads groups new pals into small squads. Members pick the games
 // they play from an IGDB search, wait in a queue, and a matcher groups people
-// with the same region and age group who share at least one exact game.
+// with the same region and age group who share an exact game, or—when every
+// member opts in—a genre or theme.
 // Each squad gets a role and a channel, which is deleted once it goes quiet.
 package squads
 
@@ -307,6 +308,8 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		m.handleRemovePick(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "back":
 		m.handleBack(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+	case "trynew":
+		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "done":
 		m.handleDone(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "leave":

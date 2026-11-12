@@ -64,6 +64,23 @@ func TestEnqueueKeepsPlace(t *testing.T) {
 	assert.False(t, removed)
 }
 
+func TestSquadTryNewGamesPreference(t *testing.T) {
+	db := newSquadDB(t)
+	enabled, err := db.SquadTryNewGames("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled, "existing members default to game-only matching")
+
+	require.NoError(t, db.SetSquadTryNewGames("g", "u", true))
+	enabled, err = db.SquadTryNewGames("g", "u")
+	require.NoError(t, err)
+	assert.True(t, enabled)
+
+	require.NoError(t, db.SetSquadTryNewGames("g", "u", false))
+	enabled, err = db.SquadTryNewGames("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled)
+}
+
 func TestCreateSquadMembership(t *testing.T) {
 	db := newSquadDB(t)
 	now := time.Unix(1000, 0)

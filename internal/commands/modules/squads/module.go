@@ -123,7 +123,7 @@ func (m *Module) guildLock(guildID string) *sync.Mutex {
 	return l
 }
 
-// Register adds /squad and /squad-admin.
+// Register adds /squad, /squad-admin and /squad-post.
 func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependencies) {
 	guildOnly := &[]discordgo.InteractionContextType{discordgo.InteractionContextGuild}
 	cmds["squad"] = &types.Command{
@@ -183,6 +183,15 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			},
 		},
 		HandlerFunc: m.handleAdmin,
+	}
+	cmds["squad-post"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "squad-post",
+			Description:              "Post a standalone Join a squad button in this channel",
+			DefaultMemberPermissions: &banPerms,
+			Contexts:                 guildOnly,
+		},
+		HandlerFunc: m.handlePost,
 	}
 }
 

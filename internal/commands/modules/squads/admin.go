@@ -105,6 +105,25 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 }
 
+// handlePost sends a standalone prompt rather than using the interaction's
+// public response, so the channel only shows the feature invitation.
+func (m *Module) handlePost(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if !m.canManage(i) {
+		m.respondText(s, i, "❌ You need the Ban Members permission to post the squad prompt.")
+		return
+	}
+	if !m.config.ForGuild(i.GuildID).GetSquadsEnabled() {
+		m.respondText(s, i, "❌ Squads aren't open right now.")
+		return
+	}
+	if _, err := m.dc(s).Send(i.ChannelID, channelPromptMsg(i.GuildID)); err != nil {
+		m.config.Logger.Errorf("squads: post join prompt in %s: %v", i.ChannelID, err)
+		m.respondText(s, i, "❌ Could not post the squad prompt. Try again in a moment.")
+		return
+	}
+	m.respondText(s, i, "✅ Posted the squad prompt.")
+}
+
 // adminDeferred defers, then shows fn's result, for commands that may make
 // slow Discord lookups.
 func (m *Module) adminDeferred(s *discordgo.Session, i *discordgo.InteractionCreate, fn func() string) {

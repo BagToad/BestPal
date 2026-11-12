@@ -647,6 +647,39 @@ func TestIntroThreadGetsJoinButton(t *testing.T) {
 	assert.Len(t, api.sent, 1)
 }
 
+func TestSquadPostSendsStandaloneJoinPrompt(t *testing.T) {
+	m, api, _, _ := newTestModule(t, nil)
+	i := command("mod", discordgo.PermissionBanMembers, "squad-post", "")
+	i.ChannelID = "general"
+
+	m.handlePost(nil, i)
+
+	require.Len(t, api.sent, 1)
+	assert.Equal(t, "general", api.sent[0].ChannelID)
+	assert.Equal(t, introPrompt, api.sent[0].Msg.Content)
+	assert.Empty(t, api.sent[0].Msg.AllowedMentions.Users)
+	btn := api.sent[0].Msg.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)
+	assert.Equal(t, prefix+"join:"+guild+"::", btn.CustomID, "the standalone button is open to anyone")
+	assert.Equal(t, discordgo.MessageFlagsEphemeral, api.lastResponse().Data.Flags, "the command acknowledgement stays private")
+	assert.Contains(t, api.lastResponse().Data.Content, "Posted")
+}
+
+func TestSquadPostRequiresModeratorAndEnabledFeature(t *testing.T) {
+	m, api, _, _ := newTestModule(t, nil)
+	i := command("rando", 0, "squad-post", "")
+	i.ChannelID = "general"
+	m.handlePost(nil, i)
+	assert.Empty(t, api.sent)
+	assert.Contains(t, api.lastResponse().Data.Content, "Ban Members")
+
+	m2, api2, _, _ := newTestModule(t, map[string]any{config.KeySquadsEnabled: false})
+	i2 := command("mod", discordgo.PermissionBanMembers, "squad-post", "")
+	i2.ChannelID = "general"
+	m2.handlePost(nil, i2)
+	assert.Empty(t, api2.sent)
+	assert.Contains(t, api2.lastResponse().Data.Content, "aren't open")
+}
+
 func TestIntroButtonToggle(t *testing.T) {
 	intro := &discordgo.Channel{ID: "t1", GuildID: guild, ParentID: "intros", OwnerID: "alice"}
 	m, _, _, _ := newTestModule(t, nil)

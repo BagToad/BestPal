@@ -164,6 +164,17 @@ func introPromptMsg(guildID, ownerID, threadID string) *discordgo.MessageSend {
 	}
 }
 
+// channelPromptMsg is a standalone Join a squad post that anyone can use.
+func channelPromptMsg(guildID string) *discordgo.MessageSend {
+	return &discordgo.MessageSend{
+		Content:         introPrompt,
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			joinButton(guildID, "", ""),
+		}}},
+	}
+}
+
 // OnIntroThread posts the Join a squad button on a new intro post.
 func (m *Module) OnIntroThread(s *discordgo.Session, thread *discordgo.Channel) {
 	if m.wantsIntroButton(thread) {

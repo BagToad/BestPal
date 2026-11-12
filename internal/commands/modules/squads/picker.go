@@ -297,21 +297,27 @@ func (m *Module) handleBack(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
+	if !m.deferUpdate(s, i) {
+		return
+	}
 	uid := userID(i)
+	lock := m.guildLock(ctx.GuildID)
+	lock.Lock()
 	enabled, err := m.db.SquadTryNewGames(ctx.GuildID, uid)
 	if err == nil {
 		err = m.db.SetSquadTryNewGames(ctx.GuildID, uid, !enabled)
 	}
+	lock.Unlock()
 	if err != nil {
 		m.config.Logger.Errorf("squads: update try-new-games preference: %v", err)
-		m.update(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
+		m.edit(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
 		return
 	}
 	note := "Genre matching is off. We'll only match you by exact games."
 	if !enabled {
 		note = "✅ You're open to trying new games. We may also match you by shared genres."
 	}
-	m.update(s, i, m.pickerView(ctx, uid, note))
+	m.edit(s, i, m.pickerView(ctx, uid, note))
 }
 
 // handleDone puts the person in the queue (or just saves, if they're

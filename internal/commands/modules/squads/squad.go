@@ -693,7 +693,7 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 }
 
 const unmatchedText = "😔 **We couldn't find you a squad yet.**\n" +
-	"This usually means nobody in your region and age group picked the same or similar games recently. " +
+	"This usually means nobody in your region and age group picked the same games recently. " +
 	"You've been taken out of the squad queue for now.\n\n" +
 	"Want to try again? Hit the button to rejoin. You can change your games too. Adding a few more gives you a better chance."
 

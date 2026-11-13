@@ -1,6 +1,6 @@
 // Package squads groups new pals into small squads. Members pick the games
 // they play from an IGDB search, wait in a queue, and a matcher groups people
-// with the same region and age group who share games (or at least genres).
+// with the same region and age group who share at least one exact game.
 // Each squad gets a role and a channel, which is deleted once it goes quiet.
 package squads
 

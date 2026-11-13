@@ -335,4 +335,10 @@ func TestCommonGround(t *testing.T) {
 	}
 	assert.Equal(t, "You were matched because 3 of you play **Game 1** and 2 of you play **Game 2**. You're also into **Shooter** and **Survival**.", commonGround(g))
 	assert.Equal(t, "You were matched as new pals in the same part of the world.", commonGround([]*candidate{person("x", "", 0, 0, 1), person("y", "", 0, 0, 2)}))
+	genreGroup := []*candidate{
+		withTags(person("a", "", 0, 0, 1), "RPG", "Fantasy"),
+		withTags(person("b", "", 0, 0, 2), "RPG", "Fantasy"),
+		withTags(person("c", "", 0, 0, 3), "RPG"),
+	}
+	assert.Equal(t, "You were matched because you're all into **RPG**.", commonGround(genreGroup))
 }

@@ -408,8 +408,11 @@ func commonGround(group []*candidate) string {
 		parts = append(parts, fmt.Sprintf("%d of you play **%s**", g.Count, g.Name))
 	}
 	var tagNames []string
-	for n, t := range tags {
-		if n == 3 {
+	for _, t := range tags {
+		if len(parts) == 0 && t.Count != len(group) {
+			continue
+		}
+		if len(tagNames) == 3 {
 			break
 		}
 		tagNames = append(tagNames, "**"+t.Name+"**")

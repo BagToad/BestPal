@@ -308,8 +308,10 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		m.handleRemovePick(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "back":
 		m.handleBack(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
-	case "trynew":
-		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+	case "trynewon":
+		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, true)
+	case "trynewoff":
+		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, false)
 	case "done":
 		m.handleDone(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "leave":

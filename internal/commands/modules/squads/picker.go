@@ -75,9 +75,13 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 
 	tryStyle := discordgo.SecondaryButton
 	tryEmoji := "🎲"
+	tryLabel := "I'm willing to try new games"
+	tryAction := "trynewon"
 	if tryNew {
 		tryStyle = discordgo.SuccessButton
 		tryEmoji = "✅"
+		tryLabel = "Disable genre matching"
+		tryAction = "trynewoff"
 	}
 	rows := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Add a game", Emoji: &discordgo.ComponentEmoji{Name: "➕"}, Style: discordgo.PrimaryButton,
@@ -85,8 +89,8 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		discordgo.Button{Label: finish, Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton,
 			CustomID: ctx.id("done"), Disabled: len(picks) == 0},
 	}}, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		discordgo.Button{Label: "I'm willing to try new games", Emoji: &discordgo.ComponentEmoji{Name: tryEmoji},
-			Style: tryStyle, CustomID: ctx.id("trynew")},
+		discordgo.Button{Label: tryLabel, Emoji: &discordgo.ComponentEmoji{Name: tryEmoji},
+			Style: tryStyle, CustomID: ctx.id(tryAction)},
 	}}}
 	if len(picks) > 0 {
 		var opts []discordgo.SelectMenuOption
@@ -296,17 +300,14 @@ func (m *Module) handleBack(s *discordgo.Session, i *discordgo.InteractionCreate
 	m.update(s, i, m.pickerView(ctx, userID(i), ""))
 }
 
-func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
+func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx, enabled bool) {
 	if !m.deferUpdate(s, i) {
 		return
 	}
 	uid := userID(i)
 	lock := m.guildLock(ctx.GuildID)
 	lock.Lock()
-	enabled, err := m.db.SquadTryNewGames(ctx.GuildID, uid)
-	if err == nil {
-		err = m.db.SetSquadTryNewGames(ctx.GuildID, uid, !enabled)
-	}
+	err := m.db.SetSquadTryNewGames(ctx.GuildID, uid, enabled)
 	lock.Unlock()
 	if err != nil {
 		m.config.Logger.Errorf("squads: update try-new-games preference: %v", err)
@@ -314,7 +315,7 @@ func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.Interactio
 		return
 	}
 	note := "Genre matching is off. We'll only match you by exact games."
-	if !enabled {
+	if enabled {
 		note = "✅ You're open to trying new games. We may also match you by shared genres."
 	}
 	m.edit(s, i, m.pickerView(ctx, uid, note))

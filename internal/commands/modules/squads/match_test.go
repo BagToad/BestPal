@@ -168,6 +168,20 @@ func TestGenreLateJoinRequiresWholeSquadOptIn(t *testing.T) {
 	assert.Equal(t, []string{"not-opted-in"}, ids(p.Waiting))
 }
 
+func TestGenreLateJoinRejectsSquadWithNonOptedInMember(t *testing.T) {
+	open := []openSquad{{ID: 1, Members: []*candidate{
+		withTags(person("m1", "eu", 1, 0, 1), "RPG"),
+		willing(withTags(person("m2", "eu", 1, 0, 2), "RPG")),
+	}}}
+	queue := []*candidate{
+		willing(withTags(person("late", "eu", 1, 50*time.Hour, 1, 2), "RPG")),
+	}
+
+	p := buildPlan(queue, open, params, t0)
+	assert.Empty(t, p.Joins)
+	assert.Equal(t, []string{"late"}, ids(p.Waiting))
+}
+
 func TestSharedGenreCannotJoinOpenSquad(t *testing.T) {
 	members := []*candidate{
 		withTags(person("m1", "eu", 2, 0, 1), "RPG"),

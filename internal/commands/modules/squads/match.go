@@ -20,6 +20,7 @@ type candidate struct {
 	Platforms map[string]bool
 	Games     map[int64]string // IGDB game ID -> name
 	Tags      map[string]bool  // IGDB genre and theme names
+	TryNew    bool             // opted into genre/theme matching
 }
 
 // openSquad is an existing squad that can still take late joiners.
@@ -48,10 +49,11 @@ type plan struct {
 	Waiting   []*candidate
 }
 
-// Score weights. Exact shared games determine compatibility; a shared
-// platform is only a small bonus when ranking compatible candidates.
+// Score weights. Exact games remain the strongest signal. Genres/themes are
+// considered only when both people opted into trying new games.
 const (
 	gameWeight     = 3.0
+	tagWeight      = 1.0
 	platformWeight = 0.5
 )
 
@@ -101,14 +103,18 @@ func cosine[K comparable, V any](a, b map[K]V) float64 {
 	return float64(shared) / math.Sqrt(float64(len(a)*len(b)))
 }
 
-// pairScore rates how well two people fit. An exact shared game is required;
-// genres and themes are retained for summaries but do not affect matching.
+// pairScore rates how well two people fit. Exact shared games always count;
+// shared genres/themes count only when both people opted in.
 func pairScore(a, b *candidate) (score float64, ok bool) {
 	g := cosine(a.Games, b.Games)
-	if g == 0 {
+	t := 0.0
+	if a.TryNew && b.TryNew {
+		t = cosine(a.Tags, b.Tags)
+	}
+	if g == 0 && t == 0 {
 		return 0, false
 	}
-	score = gameWeight * g
+	score = gameWeight*g + tagWeight*t
 	for p := range a.Platforms {
 		if b.Platforms[p] {
 			score += platformWeight
@@ -118,14 +124,16 @@ func pairScore(a, b *candidate) (score float64, ok bool) {
 	return score, true
 }
 
-// groupScore is c's average score against a group. ok is true only when c
-// shares at least one exact game with every member, preserving a game common
-// to the whole squad as it grows.
+// groupScore is c's average score against a group. ok is true when the whole
+// prospective squad shares an exact game, or when everyone opted in and the
+// whole squad shares a genre/theme.
 func groupScore(c *candidate, group []*candidate) (float64, bool) {
 	if len(group) == 0 {
 		return 0, false
 	}
 	common := maps.Clone(c.Games)
+	commonTags := maps.Clone(c.Tags)
+	allTryNew := c.TryNew
 	total := 0.0
 	for _, m := range group {
 		s, ok := pairScore(c, m)
@@ -137,8 +145,12 @@ func groupScore(c *candidate, group []*candidate) (float64, bool) {
 			_, shared := m.Games[id]
 			return !shared
 		})
+		allTryNew = allTryNew && m.TryNew
+		maps.DeleteFunc(commonTags, func(tag string, _ bool) bool {
+			return !m.Tags[tag]
+		})
 	}
-	return total / float64(len(group)), len(common) > 0
+	return total / float64(len(group)), len(common) > 0 || allTryNew && len(commonTags) > 0
 }
 
 func fitsGroup(c *candidate, group []*candidate, relaxed bool) bool {
@@ -181,7 +193,8 @@ func grow(group, pool []*candidate, limit int, relaxed bool) []*candidate {
 // buildPlan decides who goes where:
 //
 //  1. Full squads (target size) of people with the same region and age group
-//     who share at least one exact game, seeded by whoever has waited longest.
+//     who share an exact game, or a genre/theme when everyone opted in,
+//     seeded by whoever has waited longest.
 //  2. People past the fallback wait join the best open squad (same region and
 //     age first, then neighbours), or seed a smaller squad of at least the
 //     minimum size with neighbours.

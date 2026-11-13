@@ -408,8 +408,11 @@ func commonGround(group []*candidate) string {
 		parts = append(parts, fmt.Sprintf("%d of you play **%s**", g.Count, g.Name))
 	}
 	var tagNames []string
-	for n, t := range tags {
-		if n == 3 {
+	for _, t := range tags {
+		if len(parts) == 0 && t.Count != len(group) {
+			continue
+		}
+		if len(tagNames) == 3 {
 			break
 		}
 		tagNames = append(tagNames, "**"+t.Name+"**")
@@ -681,7 +684,11 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	if err != nil {
 		return nil, discordCode(err) == discordgo.ErrCodeUnknownMember, err
 	}
-	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}}
+	tryNew, err := m.db.SquadTryNewGames(guildID, uid)
+	if err != nil {
+		return nil, false, err
+	}
+	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}, TryNew: tryNew}
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {

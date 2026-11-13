@@ -301,6 +301,23 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	m.HandleComponent(nil, component("alice", ctx.id("rm"), "2"))
 	assert.Contains(t, api.lastResponse().Data.Content, "1. Deep Rock Galactic (2018)")
 	assert.NotContains(t, api.lastResponse().Data.Content, "Valheim")
+	m.HandleComponent(nil, component("alice", ctx.id("trynewon")))
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, api.lastResponse().Type)
+	assert.Contains(t, editContent(api.lastEdit()), "Willing to try new games")
+	tryNew, err := db.SquadTryNewGames(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, tryNew)
+
+	// Replaying a stale interaction is idempotent rather than toggling consent off.
+	m.HandleComponent(nil, component("alice", ctx.id("trynewon")))
+	tryNew, err = db.SquadTryNewGames(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, tryNew)
+	m.HandleComponent(nil, component("alice", ctx.id("trynewoff")))
+	tryNew, err = db.SquadTryNewGames(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, tryNew)
+	m.HandleComponent(nil, component("alice", ctx.id("trynewon")))
 
 	m.HandleComponent(nil, component("alice", ctx.id("done")))
 	assert.Contains(t, editContent(api.lastEdit()), "You're in the squad queue")
@@ -375,6 +392,22 @@ func TestRunMatchCreatesSquad(t *testing.T) {
 	api.channels = map[string]discordgo.GuildChannelCreateData{}
 	require.NoError(t, m.tick())
 	assert.Empty(t, api.channels)
+}
+
+func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for n := range 6 {
+		uid := fmt.Sprintf("u%d", n)
+		queue(t, m, api, db, now.Add(-time.Hour), []string{uid}, []int64{int64(n + 1)}, "role-eu", "role-25")
+		require.NoError(t, db.SetSquadTryNewGames(guild, uid, true))
+	}
+
+	require.NoError(t, m.tick())
+	squads, err := db.ListSquads(guild)
+	require.NoError(t, err)
+	require.Len(t, squads, 1)
+	assert.Equal(t, 6, squads[0].Members)
+	assert.Contains(t, api.sent[0].Msg.Content, "matched because you're all into **Shooter**")
 }
 
 func TestPrivateVisibilityHidesChannel(t *testing.T) {

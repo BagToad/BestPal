@@ -57,6 +57,7 @@ environment (see `config.example.yaml`).
 | Command | Description |
 |---------|-------------|
 | `/config` | Open the server configuration panel (edit channels, roles, features) |
+| `/squad-post` | Post a standalone Join a squad invitation in the current channel |
 
 ### Super-Admin (DM Only; IDs listed in `config.yaml`)
 | Command | Description |

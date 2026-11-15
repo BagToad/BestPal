@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -460,6 +461,52 @@ func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, squads)
 	assert.NotContains(t, m.userText(guild, "u0"), "Kids")
+}
+
+func TestRunMatchUsesPersistedPreviousPartners(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	previous, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Previous"}, []string{"u1", "u2"}, now.Add(-3*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(previous.ID, now.Add(-2*time.Hour)))
+
+	people := []string{"u1", "u2", "u3", "u4", "u5", "u6", "u7"}
+	queue(t, m, api, db, now.Add(-time.Hour), people, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, m.tick())
+
+	squads, err := db.ListSquads(guild)
+	require.NoError(t, err)
+	require.Len(t, squads, 1)
+	members, err := db.SquadMemberIDs(squads[0].ID)
+	require.NoError(t, err)
+	assert.False(t, slices.Contains(members, "u1") && slices.Contains(members, "u2"), "previous partners must not be rematched")
+}
+
+func TestRunMatchRejectsLateJoinAvoidedByExistingMember(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for _, uid := range []string{"existing", "teammate", "late", "new-partner"} {
+		member(api, uid, "role-eu", "role-25")
+		_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{GameID: 1, Name: "Game 1"}, maxPicks, now.Add(-5*time.Hour))
+		require.NoError(t, err)
+	}
+
+	current, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Current", ChannelID: "current-channel", RoleID: "current-role"},
+		[]string{"existing", "teammate", "late"}, now.Add(-4*time.Hour))
+	require.NoError(t, err)
+	_, removed, err := db.RemoveSquadMember(guild, "late", database.SquadLeaveVoluntary, now.Add(-3*time.Hour))
+	require.NoError(t, err)
+	require.True(t, removed)
+	newer, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Newer"}, []string{"late", "new-partner"}, now.Add(-2*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(newer.ID, now.Add(-time.Hour)))
+	require.NoError(t, db.EnqueueSquadUser(guild, "late", "intro-late", now.Add(-49*time.Hour)))
+
+	require.NoError(t, m.tick())
+	members, err := db.SquadMemberIDs(current.ID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"existing", "teammate"}, members)
+	_, queued, err := db.SquadQueueEntryFor(guild, "late")
+	require.NoError(t, err)
+	assert.True(t, queued, "one-sided persisted avoidance must reject the late join")
 }
 
 func TestPrivateVisibilityHidesChannel(t *testing.T) {

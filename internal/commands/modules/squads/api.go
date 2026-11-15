@@ -31,6 +31,7 @@ type discordAPI interface {
 	RemoveRole(guildID, userID, roleID string) error
 	CreateChannel(guildID string, data discordgo.GuildChannelCreateData) (*discordgo.Channel, error)
 	EditChannelPerms(channelID string, overwrites []*discordgo.PermissionOverwrite) error
+	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
 	BotID() string
@@ -98,6 +99,33 @@ func (a sessionAPI) EditChannelPerms(channelID string, overwrites []*discordgo.P
 	return err
 }
 
+func (a sessionAPI) FreezeChannel(channelID string) error {
+	channel, err := a.Channel(channelID)
+	if err != nil {
+		return err
+	}
+	return a.EditChannelPerms(channelID, frozenOverwrites(channel.PermissionOverwrites, a.BotID()))
+}
+
+func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []*discordgo.PermissionOverwrite {
+	blocked := int64(discordgo.PermissionSendMessages | discordgo.PermissionAddReactions |
+		discordgo.PermissionCreatePublicThreads | discordgo.PermissionCreatePrivateThreads |
+		discordgo.PermissionSendMessagesInThreads)
+	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(current))
+	for _, overwrite := range current {
+		if overwrite == nil {
+			continue
+		}
+		copy := *overwrite
+		if copy.ID != botID {
+			copy.Allow &^= blocked
+			copy.Deny |= blocked
+		}
+		overwrites = append(overwrites, &copy)
+	}
+	return overwrites
+}
+
 func (a sessionAPI) DeleteChannel(channelID string) error {
 	_, err := a.s.ChannelDelete(channelID)
 	return err
@@ -121,22 +149,32 @@ func (a sessionAPI) Channel(channelID string) (*discordgo.Channel, error) {
 	return a.s.Channel(channelID)
 }
 
+const maxTranscriptHistoryPages = 50
+
+var errTranscriptHistoryTooLong = errors.New("squad transcript exceeds history limit")
+
 func (a sessionAPI) ChannelMessages(channelID string) ([]*discordgo.Message, error) {
+	return collectTranscriptMessages(func(before string) ([]*discordgo.Message, error) {
+		return a.s.ChannelMessages(channelID, 100, before, "", "")
+	})
+}
+
+func collectTranscriptMessages(fetch func(before string) ([]*discordgo.Message, error)) ([]*discordgo.Message, error) {
 	var all []*discordgo.Message
 	before := ""
-	for {
-		msgs, err := a.s.ChannelMessages(channelID, 100, before, "", "")
+	for range maxTranscriptHistoryPages {
+		msgs, err := fetch(before)
 		if err != nil {
 			return nil, err
 		}
 		all = append(all, msgs...)
 		if len(msgs) < 100 {
-			break
+			slices.Reverse(all)
+			return all, nil
 		}
 		before = msgs[len(msgs)-1].ID
 	}
-	slices.Reverse(all)
-	return all, nil
+	return nil, errTranscriptHistoryTooLong
 }
 
 // maxHistoryPages bounds how far back LastHumanMessage reads (100 messages a

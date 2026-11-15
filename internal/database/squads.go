@@ -50,7 +50,11 @@ CREATE TABLE IF NOT EXISTS squads (
 	created_at         INTEGER NOT NULL,
 	last_activity_at   INTEGER NOT NULL,
 	warned_at          INTEGER NOT NULL DEFAULT 0,
-	delete_reason      TEXT NOT NULL DEFAULT ''
+	delete_reason      TEXT NOT NULL DEFAULT '',
+	deletion_transcript      BLOB NOT NULL DEFAULT X'',
+	deletion_transcript_name TEXT NOT NULL DEFAULT '',
+	deletion_transcript_type TEXT NOT NULL DEFAULT '',
+	deletion_log_sent        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_squads_guild ON squads(guild_id);
@@ -689,6 +693,33 @@ func (db *DB) MarkSquadDeleting(id int64, reason string) error {
 	return err
 }
 
+type SquadDeletionTranscript struct {
+	Name        string
+	ContentType string
+	Data        []byte
+	LogSent     bool
+}
+
+func (db *DB) SquadDeletionTranscript(id int64) (SquadDeletionTranscript, error) {
+	var transcript SquadDeletionTranscript
+	err := db.conn.QueryRow(`SELECT deletion_transcript_name, deletion_transcript_type,
+		deletion_transcript, deletion_log_sent FROM squads WHERE id = ?`, id).
+		Scan(&transcript.Name, &transcript.ContentType, &transcript.Data, &transcript.LogSent)
+	return transcript, err
+}
+
+func (db *DB) SaveSquadDeletionTranscript(id int64, transcript SquadDeletionTranscript) error {
+	_, err := db.conn.Exec(`UPDATE squads SET deletion_transcript_name = ?,
+		deletion_transcript_type = ?, deletion_transcript = ? WHERE id = ?`,
+		transcript.Name, transcript.ContentType, transcript.Data, id)
+	return err
+}
+
+func (db *DB) MarkSquadDeletionLogSent(id int64) error {
+	_, err := db.conn.Exec(`UPDATE squads SET deletion_log_sent = 1 WHERE id = ?`, id)
+	return err
+}
+
 // migrateSquads adds columns introduced after the squads table was first
 // created.
 func (db *DB) migrateSquads() error {
@@ -696,7 +727,7 @@ func (db *DB) migrateSquads() error {
 	if err != nil {
 		return fmt.Errorf("failed to check squads schema: %w", err)
 	}
-	have := false
+	have := map[string]bool{}
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, ctype string
@@ -705,15 +736,32 @@ func (db *DB) migrateSquads() error {
 			rows.Close()
 			return fmt.Errorf("failed to scan squads schema: %w", err)
 		}
-		have = have || name == "delete_reason"
+		have[name] = true
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to read squads schema: %w", err)
 	}
-	if !have {
+	if !have["delete_reason"] {
 		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("failed to add squads.delete_reason: %w", err)
+		}
+	}
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"deletion_transcript", "BLOB NOT NULL DEFAULT X''"},
+		{"deletion_transcript_name", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_type", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		if have[column.name] {
+			continue
+		}
+		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN ` + column.name + ` ` + column.def); err != nil {
+			return fmt.Errorf("failed to add squads.%s: %w", column.name, err)
 		}
 	}
 	// Repair open history left by rolling back to a version that predates

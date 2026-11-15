@@ -378,18 +378,20 @@ func parseID(s string) (int64, bool) {
 // modLog posts a squad action to the mod action log as an embed, if a log
 // channel is configured.
 func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.MessageEmbedField) {
-	m.modLogFiles(guildID, title, color, nil, fields...)
+	if err := m.modLogFiles(guildID, title, color, nil, fields...); err != nil {
+		m.config.Logger.Warnf("squads: mod log: %v", err)
+	}
 }
 
-func (m *Module) modLogFiles(guildID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) {
+func (m *Module) modLogFiles(guildID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) error {
 	ch := m.config.ForGuild(guildID).GetGamerPalsModActionLogChannelID()
 	if ch == "" {
-		return
+		return nil
 	}
 	for _, f := range fields {
 		f.Value = truncate(f.Value, 1024)
 	}
-	if _, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
+	_, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
 		Embeds: []*discordgo.MessageEmbed{{
 			Title:     title,
 			Color:     color,
@@ -399,9 +401,8 @@ func (m *Module) modLogFiles(guildID, title string, color int, files []*discordg
 		}},
 		Files:           files,
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
-	}); err != nil {
-		m.config.Logger.Warnf("squads: mod log: %v", err)
-	}
+	})
+	return err
 }
 
 func logField(name, value string, inline bool) *discordgo.MessageEmbedField {

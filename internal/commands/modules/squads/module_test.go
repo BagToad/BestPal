@@ -1,6 +1,8 @@
 package squads
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -43,6 +45,7 @@ type fakeAPI struct {
 	delCh       []string
 	delRoles    []string
 	permEdits   map[string][]*discordgo.PermissionOverwrite
+	permErr     error
 	dmErr       error
 	sendErr     map[string]error
 	addErr      error
@@ -130,8 +133,21 @@ func (f *fakeAPI) CreateChannel(_ string, d discordgo.GuildChannelCreateData) (*
 	return &discordgo.Channel{ID: id, Name: d.Name}, nil
 }
 func (f *fakeAPI) EditChannelPerms(id string, o []*discordgo.PermissionOverwrite) error {
+	if f.permErr != nil {
+		return f.permErr
+	}
 	f.permEdits[id] = o
 	return nil
+}
+func (f *fakeAPI) FreezeChannel(id string) error {
+	if f.permErr != nil {
+		return f.permErr
+	}
+	channel, err := f.Channel(id)
+	if err != nil {
+		return err
+	}
+	return f.EditChannelPerms(id, frozenOverwrites(channel.PermissionOverwrites, f.BotID()))
 }
 func (f *fakeAPI) DeleteChannel(id string) error {
 	if f.deleteErr != nil {
@@ -141,6 +157,9 @@ func (f *fakeAPI) DeleteChannel(id string) error {
 	return nil
 }
 func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
+	if created, ok := f.channels[id]; ok {
+		return &discordgo.Channel{ID: id, Type: created.Type, PermissionOverwrites: created.PermissionOverwrites}, nil
+	}
 	return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildCategory, PermissionOverwrites: f.catPerms}, nil
 }
 func (f *fakeAPI) ChannelMessages(id string) ([]*discordgo.Message, error) {
@@ -636,8 +655,8 @@ func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	assert.Equal(t, fmt.Sprintf("squad-%d-transcript.txt", sq.ID), logMessage.Files[0].Name)
 	transcript, err := io.ReadAll(logMessage.Files[0].Reader)
 	require.NoError(t, err)
-	assert.Contains(t, string(transcript), "alice (a) · message m1\nhello squad")
-	assert.Contains(t, string(transcript), "bob (b) · message m2\nhi!\nAttachment: cat.png (https://cdn.example/cat.png)")
+	assert.Contains(t, string(transcript), "alice (a) · message m1 · type 0\n  hello squad")
+	assert.Contains(t, string(transcript), "bob (b) · message m2 · type 0\n  hi!\n  Attachment: cat.png (https://cdn.example/cat.png)")
 }
 
 func TestSquadDeletionWaitsForCompleteTranscript(t *testing.T) {
@@ -652,6 +671,69 @@ func TestSquadDeletionWaitsForCompleteTranscript(t *testing.T) {
 	assert.True(t, ok)
 	assert.Empty(t, api.delCh)
 	assert.Empty(t, api.delRoles)
+}
+
+func TestSquadDeletionRetriesPersistedTranscriptDelivery(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{
+		ID: "m1", Timestamp: time.Unix(100, 0), Author: &discordgo.User{ID: "a", Username: "alice"}, Content: "saved",
+	}}
+	api.sendErr["modlog"] = errors.New("missing attach files")
+
+	err := m.deleteSquad(sq, "a mod deleted it")
+	require.ErrorContains(t, err, "deliver deletion transcript")
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.True(t, ok, "the database row retains the transcript for retry")
+	assert.Contains(t, api.delCh, sq.ChannelID)
+	persisted, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Contains(t, string(persisted.Data), "saved")
+
+	delete(api.sendErr, "modlog")
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	require.Len(t, modLogMessage(t, api).Files, 1)
+}
+
+func TestTranscriptPaginationIsChronologicalAndBounded(t *testing.T) {
+	page := func(high, low int) []*discordgo.Message {
+		messages := make([]*discordgo.Message, 0, high-low+1)
+		for id := high; id >= low; id-- {
+			messages = append(messages, &discordgo.Message{ID: fmt.Sprint(id)})
+		}
+		return messages
+	}
+	pages := map[string][]*discordgo.Message{"": page(200, 101), "101": page(100, 1), "1": {}}
+	messages, err := collectTranscriptMessages(func(before string) ([]*discordgo.Message, error) { return pages[before], nil })
+	require.NoError(t, err)
+	require.Len(t, messages, 200)
+	assert.Equal(t, "1", messages[0].ID)
+	assert.Equal(t, "200", messages[len(messages)-1].ID)
+
+	_, err = collectTranscriptMessages(func(string) ([]*discordgo.Message, error) { return page(100, 1), nil })
+	require.ErrorIs(t, err, errTranscriptHistoryTooLong)
+}
+
+func TestTranscriptCompressionAndFrozenPermissions(t *testing.T) {
+	sq := database.Squad{ID: 42, Name: "Axolotl", ChannelID: "channel"}
+	large := strings.Repeat("same transcript line\n", maxTranscriptUploadBytes/10)
+	transcript, err := squadTranscript(sq, []*discordgo.Message{{Content: large}}, time.Unix(100, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "application/zip", transcript.ContentType)
+	zr, err := zip.NewReader(bytes.NewReader(transcript.Data), int64(len(transcript.Data)))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1)
+
+	blocked := int64(discordgo.PermissionSendMessages | discordgo.PermissionAddReactions)
+	overwrites := frozenOverwrites([]*discordgo.PermissionOverwrite{
+		{ID: "member", Allow: blocked}, {ID: "bot", Allow: blocked},
+	}, "bot")
+	assert.Zero(t, overwrites[0].Allow&blocked)
+	assert.Equal(t, blocked, overwrites[0].Deny&blocked)
+	assert.Equal(t, blocked, overwrites[1].Allow&blocked, "the bot remains able to read and operate")
 }
 
 func TestInactiveMembersGetDailyDMUntilTheySpeak(t *testing.T) {

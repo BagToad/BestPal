@@ -12,9 +12,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const maxTranscriptUploadBytes = 9 << 20
+const (
+	maxTranscriptUploadBytes  = 9 << 20
+	unavailableTranscriptType = "application/x-bestpal-transcript-unavailable"
+)
 
-func squadTranscriptFile(sq database.Squad, messages []*discordgo.Message, generatedAt time.Time) (*discordgo.File, error) {
+func squadTranscript(sq database.Squad, messages []*discordgo.Message, generatedAt time.Time) (database.SquadDeletionTranscript, error) {
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "Squad channel transcript: %s\n", sq.Name)
 	fmt.Fprintf(&out, "Channel ID: %s\n", sq.ChannelID)
@@ -29,29 +32,40 @@ func squadTranscriptFile(sq database.Squad, messages []*discordgo.Message, gener
 	name := fmt.Sprintf("squad-%d-transcript.txt", sq.ID)
 	data := out.Bytes()
 	if len(data) <= maxTranscriptUploadBytes {
-		return &discordgo.File{Name: name, ContentType: "text/plain; charset=utf-8", Reader: bytes.NewReader(data)}, nil
+		return database.SquadDeletionTranscript{Name: name, ContentType: "text/plain; charset=utf-8", Data: bytes.Clone(data)}, nil
 	}
 
 	var compressed bytes.Buffer
 	zw := zip.NewWriter(&compressed)
 	w, err := zw.Create(name)
 	if err != nil {
-		return nil, err
+		return database.SquadDeletionTranscript{}, err
 	}
 	if _, err := w.Write(data); err != nil {
-		return nil, err
+		return database.SquadDeletionTranscript{}, err
 	}
 	if err := zw.Close(); err != nil {
-		return nil, err
+		return database.SquadDeletionTranscript{}, err
 	}
 	if compressed.Len() > maxTranscriptUploadBytes {
-		return nil, fmt.Errorf("transcript is too large to upload (%d MiB compressed)", compressed.Len()>>20)
+		return database.SquadDeletionTranscript{}, fmt.Errorf("transcript is too large to upload (%d MiB compressed)", compressed.Len()>>20)
 	}
-	return &discordgo.File{
+	return database.SquadDeletionTranscript{
 		Name:        fmt.Sprintf("squad-%d-transcript.zip", sq.ID),
 		ContentType: "application/zip",
-		Reader:      bytes.NewReader(compressed.Bytes()),
+		Data:        bytes.Clone(compressed.Bytes()),
 	}, nil
+}
+
+func unavailableTranscript(reason string) database.SquadDeletionTranscript {
+	return database.SquadDeletionTranscript{Name: "unavailable", ContentType: unavailableTranscriptType, Data: []byte(reason)}
+}
+
+func transcriptFile(transcript database.SquadDeletionTranscript) *discordgo.File {
+	if transcript.Name == "" || transcript.ContentType == unavailableTranscriptType {
+		return nil
+	}
+	return &discordgo.File{Name: transcript.Name, ContentType: transcript.ContentType, Reader: bytes.NewReader(transcript.Data)}
 }
 
 func writeTranscriptMessage(out *bytes.Buffer, msg *discordgo.Message) {
@@ -67,13 +81,21 @@ func writeTranscriptMessage(out *bytes.Buffer, msg *discordgo.Message) {
 			author = msg.Author.Username
 		}
 	}
-	fmt.Fprintf(out, "\n[%s] %s (%s) · message %s\n", msg.Timestamp.UTC().Format(time.RFC3339), author, authorID, msg.ID)
+	fmt.Fprintf(out, "\n[%s] %s (%s) · message %s · type %d\n", msg.Timestamp.UTC().Format(time.RFC3339), author, authorID, msg.ID, msg.Type)
+	if msg.EditedTimestamp != nil {
+		fmt.Fprintf(out, "  Edited: %s\n", msg.EditedTimestamp.UTC().Format(time.RFC3339))
+	}
+	if msg.MessageReference != nil && msg.MessageReference.MessageID != "" {
+		fmt.Fprintf(out, "  Reply to: %s\n", msg.MessageReference.MessageID)
+	}
 	if msg.Content != "" {
-		out.WriteString(msg.Content + "\n")
+		for line := range strings.SplitSeq(msg.Content, "\n") {
+			fmt.Fprintf(out, "  %s\n", line)
+		}
 	}
 	for _, attachment := range msg.Attachments {
 		if attachment != nil {
-			fmt.Fprintf(out, "Attachment: %s (%s)\n", attachment.Filename, attachment.URL)
+			fmt.Fprintf(out, "  Attachment: %s (%s)\n", attachment.Filename, attachment.URL)
 		}
 	}
 	for _, embed := range msg.Embeds {
@@ -81,15 +103,20 @@ func writeTranscriptMessage(out *bytes.Buffer, msg *discordgo.Message) {
 			continue
 		}
 		if embed.Title != "" {
-			fmt.Fprintf(out, "Embed title: %s\n", embed.Title)
+			fmt.Fprintf(out, "  Embed title: %s\n", embed.Title)
 		}
 		if embed.Description != "" {
-			fmt.Fprintf(out, "Embed description: %s\n", embed.Description)
+			fmt.Fprintf(out, "  Embed description: %s\n", embed.Description)
 		}
 		for _, field := range embed.Fields {
 			if field != nil {
-				fmt.Fprintf(out, "Embed field: %s: %s\n", field.Name, field.Value)
+				fmt.Fprintf(out, "  Embed field: %s: %s\n", field.Name, field.Value)
 			}
+		}
+	}
+	for _, sticker := range msg.StickerItems {
+		if sticker != nil {
+			fmt.Fprintf(out, "  Sticker: %s (%s)\n", sticker.Name, sticker.ID)
 		}
 	}
 }

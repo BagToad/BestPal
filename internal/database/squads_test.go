@@ -333,3 +333,23 @@ func TestMigrateSquadsSeparatesRollbackRejoinToSameSquad(t *testing.T) {
 	assert.Equal(t, 1, active)
 	assert.Equal(t, 2, total)
 }
+
+func TestSquadDeletionTranscriptPersistsUntilDeletion(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a", "b"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	want := SquadDeletionTranscript{Name: "transcript.txt", ContentType: "text/plain", Data: []byte("hello")}
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, want))
+
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want.Name, got.Name)
+	assert.Equal(t, want.ContentType, got.ContentType)
+	assert.Equal(t, want.Data, got.Data)
+	assert.False(t, got.LogSent)
+
+	require.NoError(t, db.MarkSquadDeletionLogSent(sq.ID))
+	got, err = db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.True(t, got.LogSent)
+}

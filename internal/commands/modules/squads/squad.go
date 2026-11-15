@@ -558,17 +558,22 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			return fmt.Errorf("load remaining members: %w", err)
 		}
 	}
-	var transcript *discordgo.File
-	if sq.ChannelID != "" && m.config.ForGuild(sq.GuildID).GetGamerPalsModActionLogChannelID() != "" {
-		messages, err := api.ChannelMessages(sq.ChannelID)
-		if err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
-			m.config.Logger.Warnf("squads: capture transcript of %s: %v", sq.Name, err)
-			return fmt.Errorf("capture channel transcript: %w", err)
+	logChannel := m.config.ForGuild(sq.GuildID).GetGamerPalsModActionLogChannelID()
+	var transcript database.SquadDeletionTranscript
+	if logChannel != "" {
+		var err error
+		transcript, err = m.db.SquadDeletionTranscript(sq.ID)
+		if err != nil {
+			return fmt.Errorf("load deletion transcript: %w", err)
 		}
-		if err == nil {
-			transcript, err = squadTranscriptFile(sq, messages, m.now())
+		if transcript.Name == "" {
+			transcript, err = m.captureSquadTranscript(api, sq)
 			if err != nil {
-				return fmt.Errorf("build channel transcript: %w", err)
+				m.config.Logger.Warnf("squads: capture transcript of %s: %v", sq.Name, err)
+				return err
+			}
+			if err := m.db.SaveSquadDeletionTranscript(sq.ID, transcript); err != nil {
+				return fmt.Errorf("save deletion transcript: %w", err)
 			}
 		}
 	}
@@ -584,6 +589,25 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
 			return fmt.Errorf("delete channel: %w", err)
+		}
+	}
+	if logChannel != "" && !transcript.LogSent {
+		fields := []*discordgo.MessageEmbedField{
+			logField("Squad", "**"+sq.Name+"**", true),
+			logField("Reason", capitalize(why), false),
+		}
+		var files []*discordgo.File
+		if file := transcriptFile(transcript); file != nil {
+			files = append(files, file)
+		} else {
+			fields = append(fields, logField("Transcript", "Unavailable: "+string(transcript.Data), false))
+		}
+		if err := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
+			m.config.Logger.Warnf("squads: deliver deletion transcript of %s: %v", sq.Name, err)
+			return fmt.Errorf("deliver deletion transcript: %w", err)
+		}
+		if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+			return fmt.Errorf("record deletion log delivery: %w", err)
 		}
 	}
 	if err := m.db.DeleteSquad(sq.ID, m.now()); err != nil {
@@ -606,13 +630,32 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
-	var files []*discordgo.File
-	if transcript != nil {
-		files = append(files, transcript)
-	}
-	m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files,
-		logField("Squad", "**"+sq.Name+"**", true), logField("Reason", capitalize(why), false))
 	return nil
+}
+
+func (m *Module) captureSquadTranscript(api discordAPI, sq database.Squad) (database.SquadDeletionTranscript, error) {
+	if sq.ChannelID == "" {
+		return unavailableTranscript("the squad had no channel"), nil
+	}
+	if err := api.FreezeChannel(sq.ChannelID); err != nil {
+		if discordCode(err) == discordgo.ErrCodeUnknownChannel {
+			return unavailableTranscript("the channel had already been deleted"), nil
+		}
+		return database.SquadDeletionTranscript{}, fmt.Errorf("freeze channel for transcript: %w", err)
+	}
+	messages, err := api.ChannelMessages(sq.ChannelID)
+	if err != nil {
+		code := discordCode(err)
+		if errors.Is(err, errTranscriptHistoryTooLong) || code == discordgo.ErrCodeUnknownChannel || code == 50001 || code == 50013 {
+			return unavailableTranscript(err.Error()), nil
+		}
+		return database.SquadDeletionTranscript{}, fmt.Errorf("capture channel transcript: %w", err)
+	}
+	transcript, err := squadTranscript(sq, messages, m.now())
+	if err != nil {
+		return unavailableTranscript(err.Error()), nil
+	}
+	return transcript, nil
 }
 
 // matchReport is what a matcher run did (or would do, for a dry run).

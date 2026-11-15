@@ -558,6 +558,20 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			return fmt.Errorf("load remaining members: %w", err)
 		}
 	}
+	var transcript *discordgo.File
+	if sq.ChannelID != "" && m.config.ForGuild(sq.GuildID).GetGamerPalsModActionLogChannelID() != "" {
+		messages, err := api.ChannelMessages(sq.ChannelID)
+		if err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
+			m.config.Logger.Warnf("squads: capture transcript of %s: %v", sq.Name, err)
+			return fmt.Errorf("capture channel transcript: %w", err)
+		}
+		if err == nil {
+			transcript, err = squadTranscriptFile(sq, messages, m.now())
+			if err != nil {
+				return fmt.Errorf("build channel transcript: %w", err)
+			}
+		}
+	}
 	if sq.ChannelID != "" {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
@@ -590,7 +604,11 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
-	m.modLog(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(),
+	var files []*discordgo.File
+	if transcript != nil {
+		files = append(files, transcript)
+	}
+	m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files,
 		logField("Squad", "**"+sq.Name+"**", true), logField("Reason", capitalize(why), false))
 	return nil
 }

@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -52,6 +53,7 @@ type fakeAPI struct {
 	catPerms    []*discordgo.PermissionOverwrite
 	lastHuman   map[string]time.Time
 	humanByUser map[string]map[string]time.Time
+	messages    map[string][]*discordgo.Message
 	historyErr  error
 	prompted    map[string]bool // thread ID -> already has a join button
 }
@@ -59,7 +61,8 @@ type fakeAPI struct {
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{nextID: 100, members: map[string]*discordgo.Member{}, roles: map[string]string{},
 		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{},
-		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}, humanByUser: map[string]map[string]time.Time{}}
+		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}, humanByUser: map[string]map[string]time.Time{},
+		messages: map[string][]*discordgo.Message{}}
 }
 
 func (f *fakeAPI) id() string { f.nextID++; return fmt.Sprint(f.nextID) }
@@ -139,6 +142,12 @@ func (f *fakeAPI) DeleteChannel(id string) error {
 }
 func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
 	return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildCategory, PermissionOverwrites: f.catPerms}, nil
+}
+func (f *fakeAPI) ChannelMessages(id string) ([]*discordgo.Message, error) {
+	if f.historyErr != nil {
+		return nil, f.historyErr
+	}
+	return f.messages[id], nil
 }
 func (f *fakeAPI) LastHumanMessage(ch string, since time.Time) (time.Time, error) {
 	if f.historyErr != nil {
@@ -585,6 +594,10 @@ func makeSquad(t *testing.T, m *Module, api *fakeAPI, db *database.DB, uids ...s
 func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.messages[sq.ChannelID] = []*discordgo.Message{
+		{ID: "m1", Timestamp: now.Add(time.Minute), Author: &discordgo.User{ID: "a", Username: "alice"}, Content: "hello squad"},
+		{ID: "m2", Timestamp: now.Add(2 * time.Minute), Author: &discordgo.User{ID: "b", Username: "bob"}, Content: "hi!", Attachments: []*discordgo.MessageAttachment{{Filename: "cat.png", URL: "https://cdn.example/cat.png"}}},
+	}
 
 	*now = now.Add(7*24*time.Hour - time.Minute)
 	require.NoError(t, m.tick())
@@ -618,6 +631,27 @@ func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	log := modLogEntry(t, api)
 	assert.Equal(t, "🗑️ Squad Deleted", log.Title)
 	assert.Contains(t, embedText(log), "It was quiet for too long")
+	logMessage := modLogMessage(t, api)
+	require.Len(t, logMessage.Files, 1)
+	assert.Equal(t, fmt.Sprintf("squad-%d-transcript.txt", sq.ID), logMessage.Files[0].Name)
+	transcript, err := io.ReadAll(logMessage.Files[0].Reader)
+	require.NoError(t, err)
+	assert.Contains(t, string(transcript), "alice (a) · message m1\nhello squad")
+	assert.Contains(t, string(transcript), "bob (b) · message m2\nhi!\nAttachment: cat.png (https://cdn.example/cat.png)")
+}
+
+func TestSquadDeletionWaitsForCompleteTranscript(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.historyErr = errors.New("history unavailable")
+
+	err := m.deleteSquad(sq, "a mod deleted it")
+	require.ErrorContains(t, err, "capture channel transcript")
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.True(t, ok)
+	assert.Empty(t, api.delCh)
+	assert.Empty(t, api.delRoles)
 }
 
 func TestInactiveMembersGetDailyDMUntilTheySpeak(t *testing.T) {
@@ -1331,11 +1365,17 @@ func TestAdminCreate(t *testing.T) {
 // modLogEntry returns the last mod log embed.
 func modLogEntry(t *testing.T, api *fakeAPI) *discordgo.MessageEmbed {
 	t.Helper()
+	msg := modLogMessage(t, api)
+	require.Empty(t, msg.Content, "mod log entries are embeds")
+	require.Len(t, msg.Embeds, 1)
+	return msg.Embeds[0]
+}
+
+func modLogMessage(t *testing.T, api *fakeAPI) *discordgo.MessageSend {
+	t.Helper()
 	for n := len(api.sent) - 1; n >= 0; n-- {
 		if sm := api.sent[n]; sm.ChannelID == "modlog" {
-			require.Empty(t, sm.Msg.Content, "mod log entries are embeds")
-			require.Len(t, sm.Msg.Embeds, 1)
-			return sm.Msg.Embeds[0]
+			return sm.Msg
 		}
 	}
 	t.Fatal("no mod log entry")

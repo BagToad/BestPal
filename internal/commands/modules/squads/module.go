@@ -378,6 +378,10 @@ func parseID(s string) (int64, bool) {
 // modLog posts a squad action to the mod action log as an embed, if a log
 // channel is configured.
 func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.MessageEmbedField) {
+	m.modLogFiles(guildID, title, color, nil, fields...)
+}
+
+func (m *Module) modLogFiles(guildID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) {
 	ch := m.config.ForGuild(guildID).GetGamerPalsModActionLogChannelID()
 	if ch == "" {
 		return
@@ -393,6 +397,7 @@ func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.M
 			Timestamp: m.now().Format(time.RFC3339),
 			Footer:    &discordgo.MessageEmbedFooter{Text: "Squads"},
 		}},
+		Files:           files,
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}); err != nil {
 		m.config.Logger.Warnf("squads: mod log: %v", err)

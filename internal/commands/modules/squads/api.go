@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,7 @@ type discordAPI interface {
 	DM(userID string, msg *discordgo.MessageSend) error
 	BotID() string
 	Channel(channelID string) (*discordgo.Channel, error)
+	ChannelMessages(channelID string) ([]*discordgo.Message, error)
 	// LastHumanMessage returns when a non-bot last posted in a channel after
 	// since (zero if nobody has).
 	LastHumanMessage(channelID string, since time.Time) (time.Time, error)
@@ -117,6 +119,24 @@ func (a sessionAPI) Channel(channelID string) (*discordgo.Channel, error) {
 		}
 	}
 	return a.s.Channel(channelID)
+}
+
+func (a sessionAPI) ChannelMessages(channelID string) ([]*discordgo.Message, error) {
+	var all []*discordgo.Message
+	before := ""
+	for {
+		msgs, err := a.s.ChannelMessages(channelID, 100, before, "", "")
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, msgs...)
+		if len(msgs) < 100 {
+			break
+		}
+		before = msgs[len(msgs)-1].ID
+	}
+	slices.Reverse(all)
+	return all, nil
 }
 
 // maxHistoryPages bounds how far back LastHumanMessage reads (100 messages a

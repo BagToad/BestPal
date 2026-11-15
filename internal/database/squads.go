@@ -539,8 +539,8 @@ func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, er
 			WHERE guild_id = ? AND user_id = ?
 			ORDER BY joined_at DESC, id DESC LIMIT 1
 		) AND partner.user_id != latest.user_id
-			AND partner.joined_at < CASE WHEN latest.left_at = 0 THEN 9223372036854775807 ELSE latest.left_at END
-			AND latest.joined_at < CASE WHEN partner.left_at = 0 THEN 9223372036854775807 ELSE partner.left_at END`, guildID, userID)
+			AND partner.joined_at <= CASE WHEN latest.left_at = 0 THEN 9223372036854775807 ELSE latest.left_at END
+			AND latest.joined_at <= CASE WHEN partner.left_at = 0 THEN 9223372036854775807 ELSE partner.left_at END`, guildID, userID)
 	if err != nil {
 		return nil, err
 	}

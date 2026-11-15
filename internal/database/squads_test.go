@@ -216,3 +216,29 @@ func TestMigrateSquadsTreatsExistingMembersAsActive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, reminders, "deploying engagement tracking must not nag established squads")
 }
+
+func TestMigrateSquadsClosesHistoryForMembersRemovedDuringRollback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollback.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	joined := time.Unix(1000, 0)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl", ChannelID: "ch"}, []string{"a", "b"}, joined)
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`DELETE FROM squad_members WHERE guild_id = 'g' AND user_id = 'a'`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	reminders, err := db.DueSquadReminders("g", joined.Add(30*24*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, reminders, 1)
+	assert.Equal(t, "b", reminders[0].UserID)
+	var leftAt int64
+	var reason string
+	require.NoError(t, db.conn.QueryRow(`SELECT left_at, leave_reason FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = 'a'`, sq.ID).Scan(&leftAt, &reason))
+	assert.NotZero(t, leftAt)
+	assert.Equal(t, SquadLeaveDeleted, reason)
+}

@@ -432,6 +432,7 @@ func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Dur
 	rows, err := db.conn.Query(`SELECT h.id, h.guild_id, h.user_id, h.squad_id, s.name, s.channel_id
 		FROM squad_membership_history h
 		JOIN squads s ON s.id = h.squad_id
+		JOIN squad_members sm ON sm.squad_id = h.squad_id AND sm.user_id = h.user_id
 		WHERE h.guild_id = ? AND h.left_at = 0 AND h.first_message_at = 0
 			AND s.delete_reason = ''
 			AND CASE WHEN h.last_reminder_at = 0 THEN h.joined_at ELSE h.last_reminder_at END <= ?
@@ -621,9 +622,20 @@ func (db *DB) migrateSquads() error {
 	}
 	// Existing members predate engagement tracking. Treat them as already
 	// active so deploying reminders never nags established squads.
-	_, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
+	if _, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
 		(guild_id, user_id, squad_id, joined_at, first_message_at)
-		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`)
+		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`); err != nil {
+		return err
+	}
+	// Repair open history left by rolling back to a version that predates
+	// membership tracking. These rows must never produce reminders or ghosting.
+	_, err = db.conn.Exec(`UPDATE squad_membership_history
+		SET left_at = CAST(strftime('%s', 'now') AS INTEGER), leave_reason = ?
+		WHERE left_at = 0 AND NOT EXISTS (
+			SELECT 1 FROM squad_members m
+			WHERE m.squad_id = squad_membership_history.squad_id
+				AND m.user_id = squad_membership_history.user_id
+		)`, SquadLeaveDeleted)
 	return err
 }
 

@@ -781,7 +781,7 @@ func TestAdminSquadTrends(t *testing.T) {
 		"a": {{GameID: 1, Name: "Game 1", Tags: []string{"Shooter", "Survival"}}},
 		"b": {
 			{GameID: 1, Name: "Game 1", Tags: []string{"shooter", "Kids"}},
-			{GameID: 2, Name: "Game 2", Tags: []string{"Adventure"}},
+			{GameID: 2, Name: "Game 2", Tags: []string{"Adventure", "Shooter"}},
 		},
 		"c": {{GameID: 2, Name: "Game 2", Tags: []string{"Shooter"}}},
 	}
@@ -802,6 +802,17 @@ func TestAdminSquadTrends(t *testing.T) {
 
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "trends"))
 	assert.Contains(t, editContent(api.lastEdit()), "Squad trends")
+
+	api.memberErr["c"] = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
+	out = m.trendsText(guild)
+	assert.Contains(t, out, "**Regions:** Europe (**2**)")
+	assert.NotContains(t, out, "North America")
+}
+
+func TestAdminSquadTrendsEmpty(t *testing.T) {
+	m, _, _, _ := newTestModule(t, nil)
+	out := m.trendsText(guild)
+	assert.Equal(t, "## 📊 Squad trends\n**Games:** none\n**Age groups:** none\n**Regions:** none\n**Platforms:** none\n**Genres/themes:** none", out)
 }
 
 func TestChannelDeletedByHandCleansUp(t *testing.T) {

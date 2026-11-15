@@ -621,9 +621,16 @@ func (c *popularityCounter) add(label string) {
 	if label == "" {
 		return
 	}
-	key := strings.ToLower(label)
+	c.addKey(strings.ToLower(label), label)
+}
+
+func (c *popularityCounter) addKey(key, label string) {
+	label = strings.TrimSpace(label)
+	if key == "" || label == "" {
+		return
+	}
 	c.counts[key]++
-	if c.labels[key] == "" {
+	if c.labels[key] == "" || label < c.labels[key] {
 		c.labels[key] = label
 	}
 }
@@ -684,8 +691,12 @@ func (m *Module) trendsText(guildID string) string {
 			}
 		}
 		seenTags := map[string]bool{}
+		seenGames := map[int64]bool{}
 		for _, pick := range picks {
-			games.add(pick.Name)
+			if !seenGames[pick.GameID] {
+				seenGames[pick.GameID] = true
+				games.addKey(strconv.FormatInt(pick.GameID, 10), gameInfo{Name: pick.Name, Year: pick.Year}.label())
+			}
 			for _, tag := range pick.Tags {
 				key := strings.ToLower(strings.TrimSpace(tag))
 				if !allowedSquadTag(tag) || seenTags[key] {

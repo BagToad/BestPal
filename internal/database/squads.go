@@ -438,11 +438,11 @@ func (db *DB) MarkSquadMemberMessaged(squadID int64, userID string, now time.Tim
 	return err
 }
 
-func (db *DB) SquadMembershipJoinedAt(squadID int64, userID string) (time.Time, error) {
-	var joinedAt int64
-	err := db.conn.QueryRow(`SELECT joined_at FROM squad_membership_history
-		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, squadID, userID).Scan(&joinedAt)
-	return time.Unix(joinedAt, 0), err
+func (db *DB) SquadMembershipEngagement(squadID int64, userID string) (time.Time, bool, error) {
+	var joinedAt, firstMessageAt int64
+	err := db.conn.QueryRow(`SELECT joined_at, first_message_at FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, squadID, userID).Scan(&joinedAt, &firstMessageAt)
+	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
 }
 
 // DueSquadReminders returns current members who have never spoken and have not

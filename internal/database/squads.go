@@ -437,7 +437,11 @@ func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Dur
 		JOIN squad_members sm ON sm.squad_id = h.squad_id AND sm.user_id = h.user_id
 		WHERE h.guild_id = ? AND h.left_at = 0 AND h.first_message_at = 0
 			AND s.delete_reason = ''
-			AND CASE WHEN h.last_reminder_at = 0 THEN h.joined_at ELSE h.last_reminder_at END <= ?
+			AND CASE
+				WHEN h.last_reminder_at = 0 THEN h.joined_at
+				WHEN h.last_reminder_at < 0 THEN -h.last_reminder_at
+				ELSE h.last_reminder_at
+			END <= ?
 		ORDER BY h.joined_at, h.id`, guildID, cutoff)
 	if err != nil {
 		return nil, err
@@ -451,7 +455,7 @@ func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Dur
 			return nil, err
 		}
 		r.JoinedAt = time.Unix(joinedAt, 0)
-		if lastReminderAt != 0 {
+		if lastReminderAt > 0 {
 			r.LastReminderAt = time.Unix(lastReminderAt, 0)
 		}
 		out = append(out, r)
@@ -464,6 +468,14 @@ func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Dur
 func (db *DB) MarkSquadReminder(historyID int64, now time.Time) error {
 	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
 		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, now.Unix(), historyID)
+	return err
+}
+
+// MarkSquadReminderReconcileFailed backs off a failed history scan without
+// claiming that history was successfully checked through this timestamp.
+func (db *DB) MarkSquadReminderReconcileFailed(historyID int64, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
+		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, -now.Unix(), historyID)
 	return err
 }
 

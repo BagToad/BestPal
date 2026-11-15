@@ -761,7 +761,7 @@ func TestAdminUserCompatibilityRegister(t *testing.T) {
 
 	text := m.userText(guild, "a")
 	assert.Contains(t, text, "2 shared games across 2 users")
-	assert.Contains(t, text, "1 users in the same timezone/region")
+	assert.Contains(t, text, "1 user in the same timezone/region")
 	assert.Contains(t, text, "2 users in the same age group")
 }
 

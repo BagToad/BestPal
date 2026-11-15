@@ -572,8 +572,9 @@ func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.Squa
 			sharedGameUsers++
 		}
 	}
-	return fmt.Sprintf("\n**Compatibility register:** %d shared games across %d users · %d users in the same timezone/region · %d users in the same age group",
-		len(sharedGames), sharedGameUsers, sameRegion, sameAge)
+	return fmt.Sprintf("\n**Compatibility register:** %s across %s · %s in the same timezone/region · %s in the same age group",
+		plural(len(sharedGames), "shared game", "shared games"), plural(sharedGameUsers, "user", "users"),
+		plural(sameRegion, "user", "users"), plural(sameAge, "user", "users"))
 }
 
 func (m *Module) ghostersText(guildID string) string {

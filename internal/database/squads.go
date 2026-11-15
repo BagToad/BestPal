@@ -65,6 +65,25 @@ CREATE TABLE IF NOT EXISTS squad_members (
 
 CREATE INDEX IF NOT EXISTS idx_squad_members_squad ON squad_members(squad_id);
 
+CREATE TABLE IF NOT EXISTS squad_membership_history (
+	id                INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_id          TEXT NOT NULL,
+	user_id           TEXT NOT NULL,
+	squad_id          INTEGER NOT NULL,
+	joined_at         INTEGER NOT NULL,
+	first_message_at  INTEGER NOT NULL DEFAULT 0,
+	last_reminder_at  INTEGER NOT NULL DEFAULT 0,
+	left_at           INTEGER NOT NULL DEFAULT 0,
+	leave_reason      TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_squad_history_active
+	ON squad_membership_history(squad_id, user_id) WHERE left_at = 0;
+CREATE INDEX IF NOT EXISTS idx_squad_history_reminders
+	ON squad_membership_history(first_message_at, last_reminder_at, joined_at) WHERE left_at = 0;
+CREATE INDEX IF NOT EXISTS idx_squad_history_user
+	ON squad_membership_history(guild_id, user_id, joined_at);
+
 CREATE TABLE IF NOT EXISTS squad_role_ops (
 	guild_id  TEXT NOT NULL,
 	user_id   TEXT NOT NULL,
@@ -97,6 +116,23 @@ type SquadQueueEntry struct {
 	UserID        string
 	QueuedAt      time.Time
 	IntroThreadID string
+}
+
+const (
+	SquadLeaveVoluntary = "voluntary"
+	SquadLeaveAdmin     = "admin_removed"
+	SquadLeaveServer    = "left_server"
+	SquadLeaveDeleted   = "squad_deleted"
+)
+
+// SquadReminder is an inactive current member who is due a reminder.
+type SquadReminder struct {
+	HistoryID int64
+	GuildID   string
+	UserID    string
+	SquadID   int64
+	SquadName string
+	ChannelID string
 }
 
 // SquadTryNewGames reports whether a member opted into genre-based matching.
@@ -334,6 +370,10 @@ func addMemberTx(tx *sql.Tx, guildID, userID string, squadID int64, now time.Tim
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("%w: %s", ErrSquadMember, userID)
 	}
+	if _, err := tx.Exec(`INSERT INTO squad_membership_history (guild_id, user_id, squad_id, joined_at)
+		VALUES (?, ?, ?, ?)`, guildID, userID, squadID, now.Unix()); err != nil {
+		return err
+	}
 	_, err = tx.Exec(`DELETE FROM squad_queue WHERE guild_id = ? AND user_id = ?`, guildID, userID)
 	return err
 }
@@ -352,15 +392,71 @@ func (db *DB) AddSquadMember(guildID string, squadID int64, userID string, now t
 	return tx.Commit()
 }
 
-// RemoveSquadMember takes someone out of their squad, returning the squad ID
-// they were in.
-func (db *DB) RemoveSquadMember(guildID, userID string) (int64, bool, error) {
+// RemoveSquadMember takes someone out of their squad, closes their history
+// entry, and returns the squad ID they were in.
+func (db *DB) RemoveSquadMember(guildID, userID, reason string, now time.Time) (int64, bool, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
 	var id int64
-	err := db.conn.QueryRow(`DELETE FROM squad_members WHERE guild_id = ? AND user_id = ? RETURNING squad_id`, guildID, userID).Scan(&id)
+	err = tx.QueryRow(`DELETE FROM squad_members WHERE guild_id = ? AND user_id = ? RETURNING squad_id`, guildID, userID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return 0, false, err
+	}
+	if _, err := tx.Exec(`UPDATE squad_membership_history SET left_at = ?, leave_reason = ?
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, now.Unix(), reason, id, userID); err != nil {
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+// MarkSquadMemberMessaged records the first message a current member sends.
+func (db *DB) MarkSquadMemberMessaged(squadID int64, userID string, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET first_message_at = ?
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0 AND first_message_at = 0`, now.Unix(), squadID, userID)
+	return err
+}
+
+// DueSquadReminders returns current members who have never spoken and have not
+// been reminded within interval.
+func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Duration) ([]SquadReminder, error) {
+	cutoff := now.Add(-interval).Unix()
+	rows, err := db.conn.Query(`SELECT h.id, h.guild_id, h.user_id, h.squad_id, s.name, s.channel_id
+		FROM squad_membership_history h
+		JOIN squads s ON s.id = h.squad_id
+		WHERE h.guild_id = ? AND h.left_at = 0 AND h.first_message_at = 0
+			AND s.delete_reason = ''
+			AND CASE WHEN h.last_reminder_at = 0 THEN h.joined_at ELSE h.last_reminder_at END <= ?
+		ORDER BY h.joined_at, h.id`, guildID, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadReminder
+	for rows.Next() {
+		var r SquadReminder
+		if err := rows.Scan(&r.HistoryID, &r.GuildID, &r.UserID, &r.SquadID, &r.SquadName, &r.ChannelID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MarkSquadReminder records an attempted reminder so closed DMs are retried
+// daily instead of every scheduler tick.
+func (db *DB) MarkSquadReminder(historyID int64, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
+		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, now.Unix(), historyID)
+	return err
 }
 
 // SquadMemberIDs returns a squad's members, earliest joiners first.
@@ -446,13 +542,18 @@ func (db *DB) ListSquads(guildID string) ([]Squad, error) {
 	return out, rows.Err()
 }
 
-// DeleteSquad removes a squad and its memberships.
-func (db *DB) DeleteSquad(id int64) error {
+// DeleteSquad removes a squad and its memberships while retaining closed
+// membership history.
+func (db *DB) DeleteSquad(id int64, now time.Time) error {
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`UPDATE squad_membership_history SET left_at = ?, leave_reason = ?
+		WHERE squad_id = ? AND left_at = 0`, now.Unix(), SquadLeaveDeleted, id); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM squad_members WHERE squad_id = ?`, id); err != nil {
 		return err
 	}
@@ -513,13 +614,17 @@ func (db *DB) migrateSquads() error {
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to read squads schema: %w", err)
 	}
-	if have {
-		return nil
+	if !have {
+		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("failed to add squads.delete_reason: %w", err)
+		}
 	}
-	if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
-		return fmt.Errorf("failed to add squads.delete_reason: %w", err)
-	}
-	return nil
+	// Existing members predate engagement tracking. Treat them as already
+	// active so deploying reminders never nags established squads.
+	_, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
+		(guild_id, user_id, squad_id, joined_at, first_message_at)
+		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`)
+	return err
 }
 
 // MarkSquadWarned records that a squad was warned it will be deleted.

@@ -457,7 +457,7 @@ func (m *Module) handleLeaveConfirm(s *discordgo.Session, i *discordgo.Interacti
 	uid := userID(i)
 	lock := m.guildLock(i.GuildID)
 	lock.Lock()
-	sq, err := m.removeMember(i.GuildID, uid, id, "left")
+	sq, err := m.removeMember(i.GuildID, uid, id, database.SquadLeaveVoluntary, "left")
 	lock.Unlock()
 	switch {
 	case errors.Is(err, errNotMember):

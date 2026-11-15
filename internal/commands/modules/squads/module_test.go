@@ -566,6 +566,34 @@ func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	assert.Contains(t, embedText(log), "It was quiet for too long")
 }
 
+func TestInactiveMembersGetDailyDMUntilTheySpeak(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil // Ignore the squad-formed notifications from the prior layer.
+
+	*now = now.Add(24*time.Hour - time.Second)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms)
+
+	*now = now.Add(time.Second)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 2)
+	assert.Contains(t, api.dms[0].Msg.Content, "Your squad is waiting for you")
+	assert.Contains(t, api.dms[0].Msg.Content, "<#"+sq.ChannelID+">")
+
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.tick())
+	assert.Len(t, api.dms, 2, "the five-minute scheduler does not repeat a daily reminder")
+
+	m.OnMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+		GuildID: guild, ChannelID: sq.ChannelID, Author: &discordgo.User{ID: "a"},
+	}})
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 3)
+	assert.Equal(t, "b", api.dms[2].ChannelID, "only the member who has not spoken is reminded again")
+}
+
 func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")

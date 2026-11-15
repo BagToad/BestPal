@@ -112,7 +112,7 @@ func TestCreateSquadMembership(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 3, got.Members)
 
-	id, ok, err := db.RemoveSquadMember("g", "b")
+	id, ok, err := db.RemoveSquadMember("g", "b", SquadLeaveVoluntary, now)
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, sq.ID, id)
@@ -122,9 +122,38 @@ func TestCreateSquadMembership(t *testing.T) {
 	got, _, _ = db.GetSquad(sq.ID)
 	assert.True(t, got.WarnedAt.IsZero(), "activity clears the warning")
 
-	require.NoError(t, db.DeleteSquad(sq.ID))
+	require.NoError(t, db.DeleteSquad(sq.ID, now))
 	_, ok, _ = db.SquadForUser("g", "a")
 	assert.False(t, ok)
+}
+
+func TestSquadInactivityRemindersStopAfterFirstMessage(t *testing.T) {
+	db := newSquadDB(t)
+	joined := time.Unix(1000, 0)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl", ChannelID: "ch"}, []string{"a"}, joined)
+	require.NoError(t, err)
+
+	due, err := db.DueSquadReminders("g", joined.Add(24*time.Hour-time.Second), 24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, due)
+	due, err = db.DueSquadReminders("g", joined.Add(24*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, due, 1)
+	assert.Equal(t, "a", due[0].UserID)
+	assert.Equal(t, "ch", due[0].ChannelID)
+
+	require.NoError(t, db.MarkSquadReminder(due[0].HistoryID, joined.Add(24*time.Hour)))
+	due, err = db.DueSquadReminders("g", joined.Add(25*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, due)
+	due, err = db.DueSquadReminders("g", joined.Add(48*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, due, 1)
+
+	require.NoError(t, db.MarkSquadMemberMessaged(sq.ID, "a", joined.Add(49*time.Hour)))
+	due, err = db.DueSquadReminders("g", joined.Add(96*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, due)
 }
 
 func TestSquadLastMatch(t *testing.T) {
@@ -167,4 +196,23 @@ func TestMigrateSquadsAddsDeleteReason(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, squads, 1)
 	assert.False(t, squads[0].Deleting())
+}
+
+func TestMigrateSquadsTreatsExistingMembersAsActive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	joined := time.Unix(1000, 0)
+	_, err = db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl", ChannelID: "ch"}, []string{"a"}, joined)
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`DELETE FROM squad_membership_history`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	reminders, err := db.DueSquadReminders("g", joined.Add(30*24*time.Hour), 24*time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, reminders, "deploying engagement tracking must not nag established squads")
 }

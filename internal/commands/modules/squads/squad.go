@@ -490,7 +490,7 @@ func (m *Module) addMember(guildID string, sq database.Squad, c *candidate) erro
 // removeMember takes someone out of their squad (only if it's squadID, when
 // non-zero), deleting the squad if fewer than two remain. Callers hold the
 // guild lock.
-func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (database.Squad, error) {
+func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why string) (database.Squad, error) {
 	sq, ok, err := m.db.SquadForUser(guildID, uid)
 	if err != nil {
 		return sq, err
@@ -498,7 +498,7 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (d
 	if !ok || (squadID != 0 && sq.ID != squadID) {
 		return sq, errNotMember
 	}
-	if _, _, err := m.db.RemoveSquadMember(guildID, uid); err != nil {
+	if _, _, err := m.db.RemoveSquadMember(guildID, uid, reason, m.now()); err != nil {
 		return sq, err
 	}
 	sq.Members--
@@ -544,7 +544,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			return fmt.Errorf("delete role: %w", err)
 		}
 	}
-	if err := m.db.DeleteSquad(sq.ID); err != nil {
+	if err := m.db.DeleteSquad(sq.ID, m.now()); err != nil {
 		m.config.Logger.Errorf("squads: delete %s: %v", sq.Name, err)
 		return err
 	}
@@ -630,7 +630,7 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			if err != nil {
 				complete = false
 				if gone && !dry {
-					if _, err := m.removeMember(guildID, uid, sq.ID, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
+					if _, err := m.removeMember(guildID, uid, sq.ID, database.SquadLeaveServer, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
 						m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
 					}
 				} else if !gone {

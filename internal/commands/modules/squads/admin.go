@@ -243,7 +243,7 @@ func (m *Module) adminCreate(i *discordgo.InteractionCreate, uids []string) stri
 }
 
 func (m *Module) adminRemove(i *discordgo.InteractionCreate, uid string) string {
-	sq, err := m.removeMember(i.GuildID, uid, 0, "was removed from")
+	sq, err := m.removeMember(i.GuildID, uid, 0, database.SquadLeaveAdmin, "was removed from")
 	if errors.Is(err, errNotMember) {
 		return mention(uid) + " isn't in a squad."
 	}

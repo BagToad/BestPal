@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -614,7 +615,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 					return fmt.Errorf("record unavailable deletion log: %w", err)
 				}
 				transcript.LogSent = true
-			} else if code == 50013 || code == 40005 {
+			} else if code == 50013 || code == 40005 || discordHTTPStatus(err) == http.StatusRequestEntityTooLarge {
 				files = nil
 				fields = append(fields, logField("Transcript", "Attachment failed permanently: "+err.Error(), false))
 				if fallbackErr := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {

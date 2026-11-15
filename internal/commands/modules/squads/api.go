@@ -294,6 +294,14 @@ func discordCode(err error) int {
 	return 0
 }
 
+func discordHTTPStatus(err error) int {
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Response != nil {
+		return rest.Response.StatusCode
+	}
+	return 0
+}
+
 // gameInfo is one IGDB game as the picker shows and stores it.
 type gameInfo struct {
 	ID   int64

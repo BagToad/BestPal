@@ -736,6 +736,20 @@ func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
 	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
 }
 
+func TestHTTP413WithoutDiscordCodeFallsBackToEmbed(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErrOnce["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "413 Request Entity Too Large", StatusCode: http.StatusRequestEntityTooLarge},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
+}
+
 func TestUnavailableLogChannelDoesNotTrapSquad(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

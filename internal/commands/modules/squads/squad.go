@@ -608,7 +608,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 		if err := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
 			code := discordCode(err)
-			if code == 10003 || code == 50001 {
+			if code == 10003 || code == 50001 || code == 50008 {
 				m.config.Logger.Warnf("squads: deletion log destination unavailable for %s: %v", sq.Name, err)
 				if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
 					return fmt.Errorf("record unavailable deletion log: %w", err)

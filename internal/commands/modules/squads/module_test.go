@@ -750,6 +750,20 @@ func TestUnavailableLogChannelDoesNotTrapSquad(t *testing.T) {
 	assert.False(t, ok, "an unreachable log destination cannot trap members in a deleting squad")
 }
 
+func TestNonTextLogDestinationDoesNotTrapSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "400 Bad Request"},
+		Message:  &discordgo.APIErrorMessage{Code: 50008},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "a non-text log destination cannot trap members in a deleting squad")
+}
+
 func TestMissingSendPermissionOnLogFallbackDoesNotTrapSquad(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

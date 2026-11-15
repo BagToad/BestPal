@@ -242,3 +242,24 @@ func TestMigrateSquadsClosesHistoryForMembersRemovedDuringRollback(t *testing.T)
 	assert.NotZero(t, leftAt)
 	assert.Equal(t, SquadLeaveDeleted, reason)
 }
+
+func TestMigrateSquadsSeparatesRollbackRejoinToSameSquad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollback-rejoin.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	joined := time.Unix(1000, 0)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Owl"}, []string{"a"}, joined)
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`UPDATE squad_members SET joined_at = ? WHERE squad_id = ? AND user_id = 'a'`, joined.Add(time.Hour).Unix(), sq.ID)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	var active, total int
+	require.NoError(t, db.conn.QueryRow(`SELECT SUM(left_at = 0), COUNT(*) FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = 'a'`, sq.ID).Scan(&active, &total))
+	assert.Equal(t, 1, active)
+	assert.Equal(t, 2, total)
+}

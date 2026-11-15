@@ -639,22 +639,24 @@ func (db *DB) migrateSquads() error {
 			return fmt.Errorf("failed to add squads.delete_reason: %w", err)
 		}
 	}
-	// Existing members predate engagement tracking. Treat them as already
-	// active so deploying reminders never nags established squads.
-	if _, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
-		(guild_id, user_id, squad_id, joined_at, first_message_at)
-		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`); err != nil {
-		return err
-	}
 	// Repair open history left by rolling back to a version that predates
-	// membership tracking. These rows must never produce reminders or ghosting.
-	_, err = db.conn.Exec(`UPDATE squad_membership_history
+	// membership tracking. A changed join time means the old version removed
+	// and re-added the member to the same squad.
+	if _, err = db.conn.Exec(`UPDATE squad_membership_history
 		SET left_at = CAST(strftime('%s', 'now') AS INTEGER), leave_reason = ?
 		WHERE left_at = 0 AND NOT EXISTS (
 			SELECT 1 FROM squad_members m
 			WHERE m.squad_id = squad_membership_history.squad_id
 				AND m.user_id = squad_membership_history.user_id
-		)`, SquadLeaveDeleted)
+				AND m.joined_at = squad_membership_history.joined_at
+		)`, SquadLeaveDeleted); err != nil {
+		return err
+	}
+	// Existing members predate engagement tracking. Treat them as already
+	// active so deploying reminders never nags established squads.
+	_, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
+		(guild_id, user_id, squad_id, joined_at, first_message_at)
+		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`)
 	return err
 }
 

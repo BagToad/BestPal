@@ -83,6 +83,8 @@ CREATE INDEX IF NOT EXISTS idx_squad_history_reminders
 	ON squad_membership_history(first_message_at, last_reminder_at, joined_at) WHERE left_at = 0;
 CREATE INDEX IF NOT EXISTS idx_squad_history_user
 	ON squad_membership_history(guild_id, user_id, joined_at);
+CREATE INDEX IF NOT EXISTS idx_squad_history_squad_period
+	ON squad_membership_history(squad_id, joined_at, left_at, user_id);
 
 CREATE TABLE IF NOT EXISTS squad_role_ops (
 	guild_id  TEXT NOT NULL,
@@ -534,9 +536,11 @@ func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, er
 		JOIN squad_membership_history partner ON partner.squad_id = latest.squad_id
 		WHERE latest.id = (
 			SELECT id FROM squad_membership_history
-			WHERE guild_id = ? AND user_id = ? AND left_at != 0
+			WHERE guild_id = ? AND user_id = ?
 			ORDER BY joined_at DESC, id DESC LIMIT 1
-		) AND partner.user_id != latest.user_id`, guildID, userID)
+		) AND partner.user_id != latest.user_id
+			AND partner.joined_at < CASE WHEN latest.left_at = 0 THEN 9223372036854775807 ELSE latest.left_at END
+			AND latest.joined_at < CASE WHEN partner.left_at = 0 THEN 9223372036854775807 ELSE partner.left_at END`, guildID, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -194,6 +194,24 @@ func TestPreviousSquadPartnersUsesOnlyLatestCompletedSquad(t *testing.T) {
 	assert.Equal(t, map[string]bool{"c": true}, partners)
 }
 
+func TestPreviousSquadPartnersUsesLatestActiveSquadAndOverlap(t *testing.T) {
+	db := newSquadDB(t)
+	now := time.Unix(1000, 0)
+	first, err := db.CreateSquad(Squad{GuildID: "g", Name: "First"}, []string{"a", "b"}, now)
+	require.NoError(t, err)
+	_, removed, err := db.RemoveSquadMember("g", "a", SquadLeaveVoluntary, now.Add(time.Hour))
+	require.NoError(t, err)
+	require.True(t, removed)
+	require.NoError(t, db.AddSquadMember("g", first.ID, "d", now.Add(2*time.Hour)))
+
+	partners, err := db.PreviousSquadPartners("g", "b")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"a": true, "d": true}, partners, "an active squad is the remaining member's latest squad")
+	partners, err = db.PreviousSquadPartners("g", "d")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"b": true}, partners, "members whose time did not overlap are not previous partners")
+}
+
 func TestSquadLastMatch(t *testing.T) {
 	db := newSquadDB(t)
 	at, err := db.SquadLastMatch("g")

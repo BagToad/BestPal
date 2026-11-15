@@ -658,7 +658,7 @@ func (c *popularityCounter) top(limit int) string {
 	}
 	parts := make([]string, len(results))
 	for n, result := range results {
-		parts[n] = fmt.Sprintf("%s (**%d**)", result.label, result.count)
+		parts[n] = fmt.Sprintf("%s (**%d**)", truncate(result.label, maxListedName), result.count)
 	}
 	return strings.Join(parts, " · ")
 }

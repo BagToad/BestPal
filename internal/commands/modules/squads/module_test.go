@@ -818,6 +818,16 @@ func TestAdminSquadTrendsEmpty(t *testing.T) {
 	assert.Equal(t, "## 📊 Squad trends\n**Games:** none\n**Age groups:** none\n**Regions:** none\n**Platforms:** none\n**Genres/themes:** none", out)
 }
 
+func TestAdminSquadTrendsBoundsLongGameNames(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	member(api, "a")
+	for game := int64(1); game <= 3; game++ {
+		_, _, err := db.AddSquadPick(guild, "a", database.SquadPick{GameID: game, Name: strings.Repeat("long", 200)}, maxPicks, *now)
+		require.NoError(t, err)
+	}
+	assert.LessOrEqual(t, utf8.RuneCountInString(m.trendsText(guild)), 2000)
+}
+
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

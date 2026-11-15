@@ -807,6 +807,9 @@ func TestAdminSquadTrends(t *testing.T) {
 	out = m.trendsText(guild)
 	assert.Contains(t, out, "**Regions:** Europe (**2**)")
 	assert.NotContains(t, out, "North America")
+
+	api.memberErr["c"] = errors.New("temporary Discord failure")
+	assert.Equal(t, "❌ Could not load complete squad trends.", m.trendsText(guild))
 }
 
 func TestAdminSquadTrendsEmpty(t *testing.T) {

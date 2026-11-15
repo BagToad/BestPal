@@ -675,7 +675,11 @@ func (m *Module) trendsText(guildID string) string {
 	for uid, picks := range all {
 		mem, err := m.dc(nil).Member(guildID, uid)
 		if err != nil {
-			continue
+			if discordCode(err) == discordgo.ErrCodeUnknownMember {
+				continue
+			}
+			m.config.Logger.Warnf("squads: trends member lookup for %s: %v", uid, err)
+			return "❌ Could not load complete squad trends."
 		}
 		c := &candidate{}
 		rl.apply(c, mem.Roles)

@@ -680,6 +680,7 @@ func TestAdminGhostingHistoryAndLeaderboard(t *testing.T) {
 	out := m.ghostersText(guild)
 	assert.Contains(t, out, "Top squad ghosters")
 	assert.Contains(t, out, "<@a> — **1** ghosting departures")
+	assert.NotContains(t, out, "<@b>", "automatic squad deletion is not ghosting")
 
 	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "ghosters"))
 	assert.Contains(t, editContent(api.lastEdit()), "<@a>")

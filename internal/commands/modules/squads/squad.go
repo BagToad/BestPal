@@ -538,6 +538,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		notifyMembers, err = m.db.SquadMemberIDs(sq.ID)
 		if err != nil {
 			m.config.Logger.Warnf("squads: load remaining members of %s: %v", sq.Name, err)
+			return fmt.Errorf("load remaining members: %w", err)
 		}
 	}
 	if sq.ChannelID != "" {

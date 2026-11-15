@@ -915,6 +915,7 @@ func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
 	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
 	_, ok, _ := db.GetSquad(sq.ID)
 	assert.True(t, ok, "kept while the channel still exists")
+	assert.Len(t, api.dms, 2, "no deletion notification is sent before deletion succeeds")
 
 	api.deleteErr = nil
 	require.NoError(t, m.tick())

@@ -607,7 +607,14 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			fields = append(fields, logField("Transcript", "Unavailable: "+string(transcript.Data), false))
 		}
 		if err := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
-			if code := discordCode(err); code == 50001 || code == 50013 || code == 10003 || code == 40005 {
+			code := discordCode(err)
+			if code == 10003 || code == 50001 {
+				m.config.Logger.Warnf("squads: deletion log destination unavailable for %s: %v", sq.Name, err)
+				if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+					return fmt.Errorf("record unavailable deletion log: %w", err)
+				}
+				transcript.LogSent = true
+			} else if code == 50013 || code == 40005 {
 				files = nil
 				fields = append(fields, logField("Transcript", "Attachment failed permanently: "+err.Error(), false))
 				if fallbackErr := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {
@@ -659,8 +666,11 @@ func (m *Module) captureSquadTranscript(api discordAPI, sq database.Squad) (data
 	}
 	if err := api.FreezeChannel(sq.ChannelID); err != nil {
 		code := discordCode(err)
-		if code == discordgo.ErrCodeUnknownChannel || code == 50001 || code == 50013 {
+		if code == discordgo.ErrCodeUnknownChannel {
 			return unavailableTranscript("the channel had already been deleted"), nil
+		}
+		if code == 50001 || code == 50013 {
+			return unavailableTranscript("the bot could not access or freeze the channel"), nil
 		}
 		return database.SquadDeletionTranscript{}, fmt.Errorf("freeze channel for transcript: %w", err)
 	}
@@ -674,7 +684,7 @@ func (m *Module) captureSquadTranscript(api discordAPI, sq database.Squad) (data
 	}
 	transcript, err := squadTranscript(sq, messages, m.now())
 	if err != nil {
-		return unavailableTranscript(err.Error()), nil
+		return unavailableTranscript("the complete transcript could not fit in Discord's upload limit: " + err.Error()), nil
 	}
 	return transcript, nil
 }

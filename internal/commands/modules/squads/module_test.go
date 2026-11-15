@@ -736,6 +736,20 @@ func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
 	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
 }
 
+func TestUnavailableLogChannelDoesNotTrapSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "404 Not Found"},
+		Message:  &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "an unreachable log destination cannot trap members in a deleting squad")
+}
+
 func TestTranscriptPaginationIsChronologicalAndBounded(t *testing.T) {
 	page := func(high, low int) []*discordgo.Message {
 		messages := make([]*discordgo.Message, 0, high-low+1)

@@ -53,6 +53,8 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 		m.adminDeferred(s, i, func() string { return m.statusText(i.GuildID) })
 	case "ghosters":
 		m.adminDeferred(s, i, func() string { return m.ghostersText(i.GuildID) })
+	case "trends":
+		m.adminDeferred(s, i, func() string { return m.trendsText(i.GuildID) })
 	case "user":
 		m.adminDeferred(s, i, func() string { return m.userText(i.GuildID, userArg()) })
 	case "dryrun", "run-now":
@@ -603,6 +605,99 @@ func (m *Module) ghostersText(guildID string) string {
 			n+1, mention(g.UserID), g.Ghosting, g.Squads)
 	}
 	return truncate(strings.TrimSpace(b.String()), 2000)
+}
+
+type popularityCounter struct {
+	counts map[string]int
+	labels map[string]string
+}
+
+func newPopularityCounter() *popularityCounter {
+	return &popularityCounter{counts: map[string]int{}, labels: map[string]string{}}
+}
+
+func (c *popularityCounter) add(label string) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return
+	}
+	key := strings.ToLower(label)
+	c.counts[key]++
+	if c.labels[key] == "" {
+		c.labels[key] = label
+	}
+}
+
+func (c *popularityCounter) top(limit int) string {
+	type result struct {
+		label string
+		count int
+	}
+	results := make([]result, 0, len(c.counts))
+	for key, count := range c.counts {
+		results = append(results, result{label: c.labels[key], count: count})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].count != results[j].count {
+			return results[i].count > results[j].count
+		}
+		return strings.ToLower(results[i].label) < strings.ToLower(results[j].label)
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	if len(results) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(results))
+	for n, result := range results {
+		parts[n] = fmt.Sprintf("%s (**%d**)", result.label, result.count)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m *Module) trendsText(guildID string) string {
+	all, err := m.db.AllSquadPicks(guildID)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load trends: %v", err)
+		return "❌ Could not load squad trends."
+	}
+	games, ages, regionsCount := newPopularityCounter(), newPopularityCounter(), newPopularityCounter()
+	platformCounts, tags := newPopularityCounter(), newPopularityCounter()
+	rl := m.roleLookup(guildID)
+	for uid, picks := range all {
+		mem, err := m.dc(nil).Member(guildID, uid)
+		if err != nil {
+			continue
+		}
+		c := &candidate{}
+		rl.apply(c, mem.Roles)
+		if c.Age > 0 {
+			ages.add(fmt.Sprintf("Age group %d", c.Age))
+		}
+		if c.Region != "" {
+			regionsCount.add(regionName(c.Region))
+		}
+		for _, platform := range platforms {
+			if c.Platforms[platform.Code] {
+				platformCounts.add(platform.Name)
+			}
+		}
+		seenTags := map[string]bool{}
+		for _, pick := range picks {
+			games.add(pick.Name)
+			for _, tag := range pick.Tags {
+				key := strings.ToLower(strings.TrimSpace(tag))
+				if !allowedSquadTag(tag) || seenTags[key] {
+					continue
+				}
+				seenTags[key] = true
+				tags.add(tag)
+			}
+		}
+	}
+	return fmt.Sprintf("## 📊 Squad trends\n**Games:** %s\n**Age groups:** %s\n**Regions:** %s\n**Platforms:** %s\n**Genres/themes:** %s",
+		games.top(3), ages.top(3), regionsCount.top(3), platformCounts.top(3), tags.top(3))
 }
 
 // HandleAutocomplete suggests squads for /squad-admin.

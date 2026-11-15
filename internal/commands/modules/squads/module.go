@@ -166,6 +166,7 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Options: []*discordgo.ApplicationCommandOption{
 				sub("status", "Queue size, next pairing and live squads"),
 				sub("ghosters", "Show the top 10 voluntary zero-message squad departures"),
+				sub("trends", "Show the top games, age groups, regions, platforms and genres"),
 				sub("dryrun", "Show what pairing would do right now, without changing anything"),
 				sub("run-now", "Run pairing right now"),
 				sub("user", "Show someone's games, queue and squad", userOpt("Member")),

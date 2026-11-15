@@ -769,6 +769,41 @@ func TestAdminUserCompatibilityRegister(t *testing.T) {
 	assert.Contains(t, m.userText(guild, "a"), "**Compatibility:** unavailable")
 }
 
+func TestAdminSquadTrends(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{
+		config.KeySquadsPlatformPCRoleID:   "role-pc",
+		config.KeySquadsPlatformXboxRoleID: "role-xbox",
+	})
+	member(api, "a", "role-eu", "role-25", "role-pc")
+	member(api, "b", "role-eu", "role-25", "role-pc")
+	member(api, "c", "role-na", "role-25", "role-xbox")
+	picks := map[string][]database.SquadPick{
+		"a": {{GameID: 1, Name: "Game 1", Tags: []string{"Shooter", "Survival"}}},
+		"b": {
+			{GameID: 1, Name: "Game 1", Tags: []string{"shooter", "Kids"}},
+			{GameID: 2, Name: "Game 2", Tags: []string{"Adventure"}},
+		},
+		"c": {{GameID: 2, Name: "Game 2", Tags: []string{"Shooter"}}},
+	}
+	for uid, userPicks := range picks {
+		for _, pick := range userPicks {
+			_, _, err := db.AddSquadPick(guild, uid, pick, maxPicks, *now)
+			require.NoError(t, err)
+		}
+	}
+
+	out := m.trendsText(guild)
+	assert.Contains(t, out, "**Games:** Game 1 (**2**) · Game 2 (**2**)")
+	assert.Contains(t, out, "**Age groups:** Age group 2 (**3**)")
+	assert.Contains(t, out, "**Regions:** Europe (**2**) · North America (**1**)")
+	assert.Contains(t, out, "**Platforms:** PC (**2**) · Xbox (**1**)")
+	assert.Contains(t, out, "**Genres/themes:** Shooter (**3**) · Adventure (**1**) · Survival (**1**)")
+	assert.NotContains(t, out, "Kids")
+
+	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "trends"))
+	assert.Contains(t, editContent(api.lastEdit()), "Squad trends")
+}
+
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

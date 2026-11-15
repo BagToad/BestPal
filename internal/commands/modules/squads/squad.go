@@ -568,7 +568,11 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		return fmt.Errorf("load deletion transcript: %w", err)
 	}
 	if transcript.Name != "" && !transcript.LogSent && logChannel == "" {
-		return errors.New("deliver deletion transcript: mod action log channel is not configured")
+		m.config.Logger.Warnf("squads: deletion log channel was removed while deleting %s; completing without delivery", sq.Name)
+		if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+			return fmt.Errorf("record unavailable deletion log: %w", err)
+		}
+		transcript.LogSent = true
 	}
 	if logChannel != "" {
 		if transcript.Name == "" {

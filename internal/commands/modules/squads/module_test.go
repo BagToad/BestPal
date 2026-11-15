@@ -704,7 +704,7 @@ func TestSquadDeletionRetriesPersistedTranscriptDelivery(t *testing.T) {
 	require.Len(t, modLogMessage(t, api).Files, 1)
 }
 
-func TestSquadDeletionKeepsPendingTranscriptWithoutLogDestination(t *testing.T) {
+func TestSquadDeletionDoesNotTrapMembersWhenLogConfigIsRemoved(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")
 	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
@@ -715,11 +715,10 @@ func TestSquadDeletionKeepsPendingTranscriptWithoutLogDestination(t *testing.T) 
 		"gamerpals_server_id":           guild,
 		config.KeyModActionLogChannelID: "",
 	})
-	err := m.deleteSquad(sq, "its channel was deleted")
-	require.ErrorContains(t, err, "mod action log channel is not configured")
+	require.NoError(t, m.deleteSquad(sq, "its channel was deleted"))
 	_, ok, getErr := db.GetSquad(sq.ID)
 	require.NoError(t, getErr)
-	assert.True(t, ok, "the only transcript copy remains durable until a destination returns")
+	assert.False(t, ok, "removed logging configuration cannot trap members in a deleting squad")
 }
 
 func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {

@@ -105,9 +105,16 @@ func (m *Module) sendInactivityReminders(guildID string) {
 		return
 	}
 	for _, reminder := range reminders {
-		spoke, err := m.dc(nil).UserMessagedAfter(reminder.ChannelID, reminder.UserID, reminder.JoinedAt)
+		since := reminder.JoinedAt
+		if reminder.LastReminderAt.After(since) {
+			since = reminder.LastReminderAt
+		}
+		spoke, err := m.dc(nil).UserMessagedAfter(reminder.ChannelID, reminder.UserID, since)
 		if err != nil {
 			m.config.Logger.Warnf("squads: reconcile activity for %s: %v", reminder.UserID, err)
+			if markErr := m.db.MarkSquadReminder(reminder.HistoryID, now); markErr != nil {
+				m.config.Logger.Warnf("squads: back off activity reconciliation for %s: %v", reminder.UserID, markErr)
+			}
 			continue
 		}
 		if spoke {

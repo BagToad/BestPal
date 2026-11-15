@@ -613,6 +613,24 @@ func TestInactivityRemindersReconcileMessagesSentWhileOffline(t *testing.T) {
 	assert.Equal(t, "b", api.dms[0].ChannelID)
 }
 
+func TestInactivityReminderHistoryFailuresBackOffDaily(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil
+	api.historyErr = errors.New("history unavailable")
+
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms)
+	api.historyErr = nil
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms, "a failed history scan is not retried every scheduler tick")
+	*now = now.Add(23 * time.Hour)
+	require.NoError(t, m.tick())
+	assert.Len(t, api.dms, 2)
+}
+
 func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")

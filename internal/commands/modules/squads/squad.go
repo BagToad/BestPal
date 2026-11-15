@@ -572,16 +572,18 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			}
 		}
 	}
-	if sq.ChannelID != "" {
-		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
-			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
-			return fmt.Errorf("delete channel: %w", err)
-		}
-	}
 	if sq.RoleID != "" {
 		if err := api.DeleteRole(sq.GuildID, sq.RoleID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownRole {
 			m.config.Logger.Warnf("squads: delete role of %s: %v", sq.Name, err)
 			return fmt.Errorf("delete role: %w", err)
+		}
+	}
+	// Delete the channel last so a failed role deletion cannot destroy the
+	// only source for the transcript needed on the retry.
+	if sq.ChannelID != "" {
+		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
+			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
+			return fmt.Errorf("delete channel: %w", err)
 		}
 	}
 	if err := m.db.DeleteSquad(sq.ID, m.now()); err != nil {

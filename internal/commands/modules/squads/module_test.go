@@ -1142,6 +1142,7 @@ func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
 	require.Error(t, m.deleteSquad(sq, "a mod deleted it"))
 	sq, ok, _ := db.GetSquad(sq.ID)
 	require.True(t, ok)
+	assert.NotContains(t, api.delCh, sq.ChannelID, "the channel remains available for transcript capture on retry")
 	assert.True(t, sq.Deleting())
 	assert.Contains(t, m.statusText(guild), "deleting (retrying")
 	assert.Contains(t, m.adminAdd(component("mod", "x"), "x", sq.ID), "being deleted")

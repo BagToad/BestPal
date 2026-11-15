@@ -402,7 +402,7 @@ func TestCreateSquadDMsEveryMember(t *testing.T) {
 	assert.ElementsMatch(t, []string{"a", "b", "c"}, []string{api.dms[0].ChannelID, api.dms[1].ChannelID, api.dms[2].ChannelID})
 	for _, dm := range api.dms {
 		assert.Contains(t, dm.Msg.Content, "Squad Axolotl is ready")
-		assert.Contains(t, dm.Msg.Content, "<#"+sq.ChannelID+">")
+		assert.Contains(t, dm.Msg.Content, "https://discord.com/channels/"+guild+"/"+sq.ChannelID)
 		assert.Empty(t, dm.Msg.AllowedMentions.Users)
 	}
 }

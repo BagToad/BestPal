@@ -278,7 +278,7 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 
 func (m *Module) notifySquadFormed(sq database.Squad, members []string) {
 	msg := &discordgo.MessageSend{
-		Content:         fmt.Sprintf("🎉 **%s is ready!**\nSay hello to your new pals in <#%s>.", sq.Name, sq.ChannelID),
+		Content:         fmt.Sprintf("🎉 **%s is ready!**\nSay hello to your new pals: https://discord.com/channels/%s/%s", sq.Name, sq.GuildID, sq.ChannelID),
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}
 	for _, uid := range members {

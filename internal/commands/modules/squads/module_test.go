@@ -401,10 +401,22 @@ func TestCreateSquadDMsEveryMember(t *testing.T) {
 	require.Len(t, api.dms, 3)
 	assert.ElementsMatch(t, []string{"a", "b", "c"}, []string{api.dms[0].ChannelID, api.dms[1].ChannelID, api.dms[2].ChannelID})
 	for _, dm := range api.dms {
-		assert.Contains(t, dm.Msg.Content, "Your new squad is ready")
+		assert.Contains(t, dm.Msg.Content, "Squad Axolotl is ready")
 		assert.Contains(t, dm.Msg.Content, "<#"+sq.ChannelID+">")
 		assert.Empty(t, dm.Msg.AllowedMentions.Users)
 	}
+}
+
+func TestCreateSquadContinuesWhenDMsFail(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	api.dmErr = errors.New("DMs closed")
+	sq := makeSquad(t, m, api, db, "a", "b")
+
+	_, ok, err := db.GetSquad(sq.ID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Contains(t, api.sent[0].Msg.Content, "Welcome to Squad Axolotl")
+	assert.Empty(t, api.dms)
 }
 
 func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {

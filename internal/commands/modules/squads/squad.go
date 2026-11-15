@@ -232,7 +232,9 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 	for _, uid := range ids {
 		m.grantRole(guildID, uid, role.ID)
 	}
-	m.notifySquadFormed(sq, ids)
+	// Notify after the welcome and intro posts are attempted so members do not
+	// follow the DM into an empty channel.
+	defer m.notifySquadFormed(sq, ids)
 	for _, c := range group {
 		if c.IntroID == "" {
 			c.IntroID = m.lookupIntro(guildID, c.UserID)
@@ -276,7 +278,7 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 
 func (m *Module) notifySquadFormed(sq database.Squad, members []string) {
 	msg := &discordgo.MessageSend{
-		Content:         fmt.Sprintf("🎉 **Your new squad is ready!**\nSay hello to your new pals in <#%s>.", sq.ChannelID),
+		Content:         fmt.Sprintf("🎉 **%s is ready!**\nSay hello to your new pals in <#%s>.", sq.Name, sq.ChannelID),
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}
 	for _, uid := range members {

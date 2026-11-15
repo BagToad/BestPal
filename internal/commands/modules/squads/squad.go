@@ -561,6 +561,9 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		m.unregisterChannel(sq.ChannelID)
 	}
 	for _, uid := range notifyMembers {
+		if _, err := api.Member(sq.GuildID, uid); discordCode(err) == discordgo.ErrCodeUnknownMember {
+			continue
+		}
 		msg := &discordgo.MessageSend{
 			Content:         fmt.Sprintf("🗑️ **%s was deleted** because it no longer had enough members. You can run `/squad join` whenever you want a new squad.", sq.Name),
 			AllowedMentions: &discordgo.MessageAllowedMentions{},

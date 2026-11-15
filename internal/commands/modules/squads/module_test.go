@@ -926,6 +926,15 @@ func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
 	assert.Equal(t, "b", api.dms[2].ChannelID)
 }
 
+func TestDeletionDMsSkipMembersWhoLeftServer(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.memberErr["b"] = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
+
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	assert.Len(t, api.dms, 2, "only the formation DMs were sent")
+}
+
 func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")

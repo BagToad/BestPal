@@ -622,6 +622,12 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 						return fmt.Errorf("record deletion log delivery: %w", err)
 					}
 					transcript.LogSent = true
+				} else if fallbackCode := discordCode(fallbackErr); fallbackCode == 50013 || fallbackCode == 50001 || fallbackCode == 10003 || fallbackCode == 50008 {
+					m.config.Logger.Warnf("squads: deletion log fallback unavailable for %s: %v", sq.Name, fallbackErr)
+					if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+						return fmt.Errorf("record unavailable deletion log fallback: %w", err)
+					}
+					transcript.LogSent = true
 				} else {
 					m.config.Logger.Warnf("squads: deliver deletion log fallback of %s: %v", sq.Name, fallbackErr)
 					return fmt.Errorf("deliver deletion log fallback: %w", fallbackErr)

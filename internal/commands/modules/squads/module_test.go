@@ -26,38 +26,39 @@ type sentMsg struct {
 }
 
 type fakeAPI struct {
-	mu         sync.Mutex
-	nextID     int
-	responses  []*discordgo.InteractionResponse
-	edits      []*discordgo.WebhookEdit
-	sent       []sentMsg
-	dms        []sentMsg
-	pins       []string
-	members    map[string]*discordgo.Member
-	roles      map[string]string // role ID -> name
-	channels   map[string]discordgo.GuildChannelCreateData
-	roleAdds   []string // "user:role"
-	roleRems   []string
-	delCh      []string
-	delRoles   []string
-	permEdits  map[string][]*discordgo.PermissionOverwrite
-	dmErr      error
-	sendErr    map[string]error
-	addErr     error
-	removeErr  error
-	deleteErr  error
-	roleDelErr error
-	memberErr  map[string]error
-	catPerms   []*discordgo.PermissionOverwrite
-	lastHuman  map[string]time.Time
-	historyErr error
-	prompted   map[string]bool // thread ID -> already has a join button
+	mu          sync.Mutex
+	nextID      int
+	responses   []*discordgo.InteractionResponse
+	edits       []*discordgo.WebhookEdit
+	sent        []sentMsg
+	dms         []sentMsg
+	pins        []string
+	members     map[string]*discordgo.Member
+	roles       map[string]string // role ID -> name
+	channels    map[string]discordgo.GuildChannelCreateData
+	roleAdds    []string // "user:role"
+	roleRems    []string
+	delCh       []string
+	delRoles    []string
+	permEdits   map[string][]*discordgo.PermissionOverwrite
+	dmErr       error
+	sendErr     map[string]error
+	addErr      error
+	removeErr   error
+	deleteErr   error
+	roleDelErr  error
+	memberErr   map[string]error
+	catPerms    []*discordgo.PermissionOverwrite
+	lastHuman   map[string]time.Time
+	humanByUser map[string]map[string]time.Time
+	historyErr  error
+	prompted    map[string]bool // thread ID -> already has a join button
 }
 
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{nextID: 100, members: map[string]*discordgo.Member{}, roles: map[string]string{},
 		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{},
-		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}}
+		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}, humanByUser: map[string]map[string]time.Time{}}
 }
 
 func (f *fakeAPI) id() string { f.nextID++; return fmt.Sprint(f.nextID) }
@@ -146,6 +147,12 @@ func (f *fakeAPI) LastHumanMessage(ch string, since time.Time) (time.Time, error
 		return last, nil
 	}
 	return time.Time{}, nil
+}
+func (f *fakeAPI) UserMessagedAfter(ch, uid string, since time.Time) (bool, error) {
+	if f.historyErr != nil {
+		return false, f.historyErr
+	}
+	return f.humanByUser[ch][uid].After(since), nil
 }
 func (f *fakeAPI) DM(uid string, msg *discordgo.MessageSend) error {
 	if f.dmErr != nil {
@@ -592,6 +599,18 @@ func TestInactiveMembersGetDailyDMUntilTheySpeak(t *testing.T) {
 	require.NoError(t, m.tick())
 	require.Len(t, api.dms, 3)
 	assert.Equal(t, "b", api.dms[2].ChannelID, "only the member who has not spoken is reminded again")
+}
+
+func TestInactivityRemindersReconcileMessagesSentWhileOffline(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil
+	api.humanByUser[sq.ChannelID] = map[string]time.Time{"a": now.Add(time.Hour)}
+
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 1)
+	assert.Equal(t, "b", api.dms[0].ChannelID)
 }
 
 func TestLeavingBelowTwoDeletesSquad(t *testing.T) {

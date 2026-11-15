@@ -105,6 +105,17 @@ func (m *Module) sendInactivityReminders(guildID string) {
 		return
 	}
 	for _, reminder := range reminders {
+		spoke, err := m.dc(nil).UserMessagedAfter(reminder.ChannelID, reminder.UserID, reminder.JoinedAt)
+		if err != nil {
+			m.config.Logger.Warnf("squads: reconcile activity for %s: %v", reminder.UserID, err)
+			continue
+		}
+		if spoke {
+			if err := m.db.MarkSquadMemberMessaged(reminder.SquadID, reminder.UserID, now); err != nil {
+				m.config.Logger.Warnf("squads: record reconciled activity for %s: %v", reminder.UserID, err)
+			}
+			continue
+		}
 		// Claim before the network call so a timeout or closed DM cannot cause
 		// another attempt on the next five-minute tick.
 		if err := m.db.MarkSquadReminder(reminder.HistoryID, now); err != nil {

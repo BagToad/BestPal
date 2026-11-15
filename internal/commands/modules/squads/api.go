@@ -37,6 +37,7 @@ type discordAPI interface {
 	// LastHumanMessage returns when a non-bot last posted in a channel after
 	// since (zero if nobody has).
 	LastHumanMessage(channelID string, since time.Time) (time.Time, error)
+	UserMessagedAfter(channelID, userID string, since time.Time) (bool, error)
 	// HasJoinPrompt reports whether the bot already posted a Join a squad
 	// button among a thread's first 100 messages.
 	HasJoinPrompt(threadID string) (bool, error)
@@ -145,6 +146,29 @@ func (a sessionAPI) LastHumanMessage(channelID string, since time.Time) (time.Ti
 		before = msgs[len(msgs)-1].ID
 	}
 	return time.Time{}, errHistoryTooLong
+}
+
+func (a sessionAPI) UserMessagedAfter(channelID, userID string, since time.Time) (bool, error) {
+	before := ""
+	for range maxHistoryPages {
+		msgs, err := a.s.ChannelMessages(channelID, 100, before, "", "")
+		if err != nil {
+			return false, err
+		}
+		for _, msg := range msgs {
+			if !msg.Timestamp.After(since) {
+				return false, nil
+			}
+			if msg.Author != nil && !msg.Author.Bot && msg.Author.ID == userID {
+				return true, nil
+			}
+		}
+		if len(msgs) < 100 {
+			return false, nil
+		}
+		before = msgs[len(msgs)-1].ID
+	}
+	return false, errHistoryTooLong
 }
 
 func (a sessionAPI) HasJoinPrompt(threadID string) (bool, error) {

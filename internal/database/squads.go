@@ -133,6 +133,7 @@ type SquadReminder struct {
 	SquadID   int64
 	SquadName string
 	ChannelID string
+	JoinedAt  time.Time
 }
 
 // SquadTryNewGames reports whether a member opted into genre-based matching.
@@ -429,7 +430,7 @@ func (db *DB) MarkSquadMemberMessaged(squadID int64, userID string, now time.Tim
 // been reminded within interval.
 func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Duration) ([]SquadReminder, error) {
 	cutoff := now.Add(-interval).Unix()
-	rows, err := db.conn.Query(`SELECT h.id, h.guild_id, h.user_id, h.squad_id, s.name, s.channel_id
+	rows, err := db.conn.Query(`SELECT h.id, h.guild_id, h.user_id, h.squad_id, s.name, s.channel_id, h.joined_at
 		FROM squad_membership_history h
 		JOIN squads s ON s.id = h.squad_id
 		JOIN squad_members sm ON sm.squad_id = h.squad_id AND sm.user_id = h.user_id
@@ -444,9 +445,11 @@ func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Dur
 	var out []SquadReminder
 	for rows.Next() {
 		var r SquadReminder
-		if err := rows.Scan(&r.HistoryID, &r.GuildID, &r.UserID, &r.SquadID, &r.SquadName, &r.ChannelID); err != nil {
+		var joinedAt int64
+		if err := rows.Scan(&r.HistoryID, &r.GuildID, &r.UserID, &r.SquadID, &r.SquadName, &r.ChannelID, &joinedAt); err != nil {
 			return nil, err
 		}
+		r.JoinedAt = time.Unix(joinedAt, 0)
 		out = append(out, r)
 	}
 	return out, rows.Err()

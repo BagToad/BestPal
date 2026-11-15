@@ -507,6 +507,7 @@ func (m *Module) userText(guildID, uid string) string {
 	if err != nil {
 		return "❌ Could not load their games."
 	}
+	b.WriteString(m.compatibilityText(guildID, uid, picks))
 	fmt.Fprintf(&b, "**Games (%d):**", len(picks))
 	if len(picks) == 0 {
 		b.WriteString(" none")
@@ -523,18 +524,17 @@ func (m *Module) userText(guildID, uid string) string {
 			fmt.Fprintf(&b, " *(%s)*", strings.Join(tags, ", "))
 		}
 	}
-	b.WriteString(m.compatibilityText(guildID, uid, picks))
 	return truncate(b.String(), 2000)
 }
 
 func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.SquadPick) string {
 	all, err := m.db.AllSquadPicks(guildID)
 	if err != nil {
-		return "\n**Compatibility:** unavailable"
+		return "**Compatibility:** unavailable\n"
 	}
 	mem, err := m.dc(nil).Member(guildID, uid)
 	if err != nil {
-		return "\n**Compatibility:** unavailable"
+		return "**Compatibility:** unavailable\n"
 	}
 	rl := m.roleLookup(guildID)
 	self := &candidate{}
@@ -551,7 +551,11 @@ func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.Squa
 		}
 		otherMem, err := m.dc(nil).Member(guildID, otherID)
 		if err != nil {
-			continue
+			if discordCode(err) == discordgo.ErrCodeUnknownMember {
+				continue
+			}
+			m.config.Logger.Warnf("squads: compatibility member lookup for %s: %v", otherID, err)
+			return "**Compatibility:** unavailable\n"
 		}
 		other := &candidate{}
 		rl.apply(other, otherMem.Roles)
@@ -572,9 +576,15 @@ func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.Squa
 			sharedGameUsers++
 		}
 	}
-	return fmt.Sprintf("\n**Compatibility register:** %s across %s · %s in the same timezone/region · %s in the same age group",
-		plural(len(sharedGames), "shared game", "shared games"), plural(sharedGameUsers, "user", "users"),
-		plural(sameRegion, "user", "users"), plural(sameAge, "user", "users"))
+	regionCount, ageCount := "unknown", "unknown"
+	if self.Region != "" {
+		regionCount = plural(sameRegion, "user", "users")
+	}
+	if self.Age > 0 {
+		ageCount = plural(sameAge, "user", "users")
+	}
+	return fmt.Sprintf("**Compatibility:** %s across %s · %s in the same timezone/region · %s in the same age group *(among current members with squad picks)*\n",
+		plural(len(sharedGames), "shared game", "shared games"), plural(sharedGameUsers, "user", "users"), regionCount, ageCount)
 }
 
 func (m *Module) ghostersText(guildID string) string {

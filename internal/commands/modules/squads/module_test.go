@@ -763,6 +763,10 @@ func TestAdminUserCompatibilityRegister(t *testing.T) {
 	assert.Contains(t, text, "2 shared games across 2 users")
 	assert.Contains(t, text, "1 user in the same timezone/region")
 	assert.Contains(t, text, "2 users in the same age group")
+	assert.Less(t, strings.Index(text, "**Compatibility:**"), strings.Index(text, "**Games"), "compatibility is preserved when the game list is truncated")
+
+	api.memberErr["b"] = errors.New("temporary Discord failure")
+	assert.Contains(t, m.userText(guild, "a"), "**Compatibility:** unavailable")
 }
 
 func TestChannelDeletedByHandCleansUp(t *testing.T) {

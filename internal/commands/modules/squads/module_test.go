@@ -744,6 +744,27 @@ func TestOfflineMessagePreventsGhostingCount(t *testing.T) {
 	assert.Zero(t, stats.Ghosting)
 }
 
+func TestAdminUserCompatibilityRegister(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	member(api, "b", "role-eu", "role-25")
+	member(api, "c", "role-na", "role-25")
+	for _, tc := range []struct {
+		uid   string
+		games []int64
+	}{{"a", []int64{1, 2}}, {"b", []int64{2, 3}}, {"c", []int64{1}}} {
+		for _, game := range tc.games {
+			_, _, err := db.AddSquadPick(guild, tc.uid, database.SquadPick{GameID: game, Name: fmt.Sprintf("Game %d", game)}, maxPicks, *now)
+			require.NoError(t, err)
+		}
+	}
+
+	text := m.userText(guild, "a")
+	assert.Contains(t, text, "2 shared games across 2 users")
+	assert.Contains(t, text, "1 users in the same timezone/region")
+	assert.Contains(t, text, "2 users in the same age group")
+}
+
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

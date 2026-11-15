@@ -523,7 +523,57 @@ func (m *Module) userText(guildID, uid string) string {
 			fmt.Fprintf(&b, " *(%s)*", strings.Join(tags, ", "))
 		}
 	}
+	b.WriteString(m.compatibilityText(guildID, uid, picks))
 	return truncate(b.String(), 2000)
+}
+
+func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.SquadPick) string {
+	all, err := m.db.AllSquadPicks(guildID)
+	if err != nil {
+		return "\n**Compatibility:** unavailable"
+	}
+	mem, err := m.dc(nil).Member(guildID, uid)
+	if err != nil {
+		return "\n**Compatibility:** unavailable"
+	}
+	rl := m.roleLookup(guildID)
+	self := &candidate{}
+	rl.apply(self, mem.Roles)
+	ownGames := map[int64]bool{}
+	for _, p := range ownPicks {
+		ownGames[p.GameID] = true
+	}
+	sharedGames := map[int64]bool{}
+	sharedGameUsers, sameRegion, sameAge := 0, 0, 0
+	for otherID, picks := range all {
+		if otherID == uid {
+			continue
+		}
+		otherMem, err := m.dc(nil).Member(guildID, otherID)
+		if err != nil {
+			continue
+		}
+		other := &candidate{}
+		rl.apply(other, otherMem.Roles)
+		if self.Region != "" && self.Region == other.Region {
+			sameRegion++
+		}
+		if self.Age > 0 && self.Age == other.Age {
+			sameAge++
+		}
+		shares := false
+		for _, p := range picks {
+			if ownGames[p.GameID] {
+				sharedGames[p.GameID] = true
+				shares = true
+			}
+		}
+		if shares {
+			sharedGameUsers++
+		}
+	}
+	return fmt.Sprintf("\n**Compatibility register:** %d shared games across %d users · %d users in the same timezone/region · %d users in the same age group",
+		len(sharedGames), sharedGameUsers, sameRegion, sameAge)
 }
 
 func (m *Module) ghostersText(guildID string) string {

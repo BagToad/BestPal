@@ -528,6 +528,30 @@ func (db *DB) TopSquadGhosters(guildID string, limit int) ([]SquadGhoster, error
 	return out, rows.Err()
 }
 
+func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, error) {
+	rows, err := db.conn.Query(`SELECT DISTINCT partner.user_id
+		FROM squad_membership_history latest
+		JOIN squad_membership_history partner ON partner.squad_id = latest.squad_id
+		WHERE latest.id = (
+			SELECT id FROM squad_membership_history
+			WHERE guild_id = ? AND user_id = ? AND left_at != 0
+			ORDER BY joined_at DESC, id DESC LIMIT 1
+		) AND partner.user_id != latest.user_id`, guildID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out[uid] = true
+	}
+	return out, rows.Err()
+}
+
 // SquadMemberIDs returns a squad's members, earliest joiners first.
 func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 	rows, err := db.conn.Query(`SELECT user_id FROM squad_members WHERE squad_id = ? ORDER BY joined_at, user_id`, squadID)

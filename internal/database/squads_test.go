@@ -179,6 +179,21 @@ func TestSquadGhostingStatsCountOnlyVoluntarySilentLeaves(t *testing.T) {
 	assert.Equal(t, SquadGhoster{UserID: "u", Squads: 3, Ghosting: 1}, top[0])
 }
 
+func TestPreviousSquadPartnersUsesOnlyLatestCompletedSquad(t *testing.T) {
+	db := newSquadDB(t)
+	now := time.Unix(1000, 0)
+	first, err := db.CreateSquad(Squad{GuildID: "g", Name: "First"}, []string{"a", "b"}, now)
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(first.ID, now.Add(time.Hour)))
+	second, err := db.CreateSquad(Squad{GuildID: "g", Name: "Second"}, []string{"a", "c"}, now.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(second.ID, now.Add(3*time.Hour)))
+
+	partners, err := db.PreviousSquadPartners("g", "a")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"c": true}, partners)
+}
+
 func TestSquadLastMatch(t *testing.T) {
 	db := newSquadDB(t)
 	at, err := db.SquadLastMatch("g")

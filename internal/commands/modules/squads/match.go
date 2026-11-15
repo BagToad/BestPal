@@ -21,6 +21,7 @@ type candidate struct {
 	Games     map[int64]string // IGDB game ID -> name
 	Tags      map[string]bool  // IGDB genre and theme names
 	TryNew    bool             // opted into genre/theme matching
+	Avoid     map[string]bool  // partners from the most recent completed squad
 }
 
 // openSquad is an existing squad that can still take late joiners.
@@ -106,6 +107,9 @@ func cosine[K comparable, V any](a, b map[K]V) float64 {
 // pairScore rates how well two people fit. Exact shared games always count;
 // shared genres/themes count only when both people opted in.
 func pairScore(a, b *candidate) (score float64, ok bool) {
+	if a.Avoid[b.UserID] || b.Avoid[a.UserID] {
+		return 0, false
+	}
 	g := cosine(a.Games, b.Games)
 	t := 0.0
 	if a.TryNew && b.TryNew {

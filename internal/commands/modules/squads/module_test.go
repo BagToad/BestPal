@@ -686,6 +686,17 @@ func TestAdminGhostingHistoryAndLeaderboard(t *testing.T) {
 	assert.Contains(t, editContent(api.lastEdit()), "<@a>")
 }
 
+func TestOfflineMessagePreventsGhostingCount(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.humanByUser[sq.ChannelID] = map[string]time.Time{"a": now.Add(time.Minute)}
+
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	stats, err := db.SquadUserHistoryStats(guild, "a")
+	require.NoError(t, err)
+	assert.Zero(t, stats.Ghosting)
+}
+
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

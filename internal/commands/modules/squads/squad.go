@@ -498,6 +498,19 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why st
 	if !ok || (squadID != 0 && sq.ID != squadID) {
 		return sq, errNotMember
 	}
+	if reason == database.SquadLeaveVoluntary {
+		if joinedAt, joinErr := m.db.SquadMembershipJoinedAt(sq.ID, uid); joinErr == nil {
+			spoke, historyErr := m.dc(nil).UserMessagedAfter(sq.ChannelID, uid, joinedAt)
+			if historyErr != nil {
+				m.config.Logger.Warnf("squads: verify activity before %s leaves: %v", uid, historyErr)
+			}
+			if spoke || historyErr != nil {
+				if err := m.db.MarkSquadMemberMessaged(sq.ID, uid, m.now()); err != nil {
+					return sq, err
+				}
+			}
+		}
+	}
 	if _, _, err := m.db.RemoveSquadMember(guildID, uid, reason, m.now()); err != nil {
 		return sq, err
 	}

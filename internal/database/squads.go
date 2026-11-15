@@ -438,6 +438,13 @@ func (db *DB) MarkSquadMemberMessaged(squadID int64, userID string, now time.Tim
 	return err
 }
 
+func (db *DB) SquadMembershipJoinedAt(squadID int64, userID string) (time.Time, error) {
+	var joinedAt int64
+	err := db.conn.QueryRow(`SELECT joined_at FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, squadID, userID).Scan(&joinedAt)
+	return time.Unix(joinedAt, 0), err
+}
+
 // DueSquadReminders returns current members who have never spoken and have not
 // been reminded within interval.
 func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Duration) ([]SquadReminder, error) {

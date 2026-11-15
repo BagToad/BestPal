@@ -232,6 +232,7 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 	for _, uid := range ids {
 		m.grantRole(guildID, uid, role.ID)
 	}
+	m.notifySquadFormed(sq, ids)
 	for _, c := range group {
 		if c.IntroID == "" {
 			c.IntroID = m.lookupIntro(guildID, c.UserID)
@@ -271,6 +272,18 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 		}
 	}
 	return sq, nil
+}
+
+func (m *Module) notifySquadFormed(sq database.Squad, members []string) {
+	msg := &discordgo.MessageSend{
+		Content:         fmt.Sprintf("🎉 **Your new squad is ready!**\nSay hello to your new pals in <#%s>.", sq.ChannelID),
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	}
+	for _, uid := range members {
+		if err := m.dc(nil).DM(uid, msg); err != nil {
+			m.config.Logger.Warnf("squads: notify %s that %s formed: %v", uid, sq.Name, err)
+		}
+	}
 }
 
 // maxMessageLen is Discord's limit on message content, in characters.

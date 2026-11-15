@@ -394,6 +394,19 @@ func TestRunMatchCreatesSquad(t *testing.T) {
 	assert.Empty(t, api.channels)
 }
 
+func TestCreateSquadDMsEveryMember(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+
+	require.Len(t, api.dms, 3)
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, []string{api.dms[0].ChannelID, api.dms[1].ChannelID, api.dms[2].ChannelID})
+	for _, dm := range api.dms {
+		assert.Contains(t, dm.Msg.Content, "Your new squad is ready")
+		assert.Contains(t, dm.Msg.Content, "<#"+sq.ChannelID+">")
+		assert.Empty(t, dm.Msg.AllowedMentions.Users)
+	}
+}
+
 func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	for n := range 6 {

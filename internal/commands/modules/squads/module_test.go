@@ -812,6 +812,15 @@ func TestAdminSquadTrends(t *testing.T) {
 	assert.Equal(t, "❌ Could not load complete squad trends.", m.trendsText(guild))
 }
 
+func TestPopularityCounterUsesKeyAsFinalTieBreaker(t *testing.T) {
+	counter := newPopularityCounter()
+	counter.addKey("2", "game")
+	counter.addKey("1", "Game")
+	for range 100 {
+		assert.Equal(t, "Game (**1**)", counter.top(1))
+	}
+}
+
 func TestAdminSquadTrendsEmpty(t *testing.T) {
 	m, _, _, _ := newTestModule(t, nil)
 	out := m.trendsText(guild)

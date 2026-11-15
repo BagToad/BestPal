@@ -637,18 +637,23 @@ func (c *popularityCounter) addKey(key, label string) {
 
 func (c *popularityCounter) top(limit int) string {
 	type result struct {
+		key   string
 		label string
 		count int
 	}
 	results := make([]result, 0, len(c.counts))
 	for key, count := range c.counts {
-		results = append(results, result{label: c.labels[key], count: count})
+		results = append(results, result{key: key, label: c.labels[key], count: count})
 	}
 	sort.Slice(results, func(i, j int) bool {
 		if results[i].count != results[j].count {
 			return results[i].count > results[j].count
 		}
-		return strings.ToLower(results[i].label) < strings.ToLower(results[j].label)
+		left, right := strings.ToLower(results[i].label), strings.ToLower(results[j].label)
+		if left != right {
+			return left < right
+		}
+		return results[i].key < results[j].key
 	})
 	if len(results) > limit {
 		results = results[:limit]

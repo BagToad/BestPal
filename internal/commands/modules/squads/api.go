@@ -174,6 +174,14 @@ func collectTranscriptMessages(fetch func(before string) ([]*discordgo.Message, 
 		}
 		before = msgs[len(msgs)-1].ID
 	}
+	msgs, err := fetch(before)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		slices.Reverse(all)
+		return all, nil
+	}
 	return nil, errTranscriptHistoryTooLong
 }
 

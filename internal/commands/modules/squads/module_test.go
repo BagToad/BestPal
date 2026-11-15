@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,6 +49,7 @@ type fakeAPI struct {
 	permErr     error
 	dmErr       error
 	sendErr     map[string]error
+	sendErrOnce map[string]error
 	addErr      error
 	removeErr   error
 	deleteErr   error
@@ -63,7 +65,7 @@ type fakeAPI struct {
 
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{nextID: 100, members: map[string]*discordgo.Member{}, roles: map[string]string{},
-		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{},
+		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{}, sendErrOnce: map[string]error{},
 		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}, humanByUser: map[string]map[string]time.Time{},
 		messages: map[string][]*discordgo.Message{}}
 }
@@ -85,6 +87,10 @@ func (f *fakeAPI) EditResponse(_ *discordgo.Interaction, e *discordgo.WebhookEdi
 func (f *fakeAPI) Send(ch string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.sendErrOnce[ch]; err != nil {
+		delete(f.sendErrOnce, ch)
+		return nil, err
+	}
 	if err := f.sendErr[ch]; err != nil {
 		return nil, err
 	}
@@ -698,6 +704,38 @@ func TestSquadDeletionRetriesPersistedTranscriptDelivery(t *testing.T) {
 	require.Len(t, modLogMessage(t, api).Files, 1)
 }
 
+func TestSquadDeletionKeepsPendingTranscriptWithoutLogDestination(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = errors.New("temporary failure")
+	require.Error(t, m.deleteSquad(sq, "a mod deleted it"))
+
+	m.config = config.NewMockConfig(map[string]any{
+		"gamerpals_server_id":           guild,
+		config.KeyModActionLogChannelID: "",
+	})
+	err := m.deleteSquad(sq, "its channel was deleted")
+	require.ErrorContains(t, err, "mod action log channel is not configured")
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.True(t, ok, "the only transcript copy remains durable until a destination returns")
+}
+
+func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErrOnce["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "413 Request Entity Too Large"},
+		Message:  &discordgo.APIErrorMessage{Code: 40005},
+	}
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
+}
+
 func TestTranscriptPaginationIsChronologicalAndBounded(t *testing.T) {
 	page := func(high, low int) []*discordgo.Message {
 		messages := make([]*discordgo.Message, 0, high-low+1)
@@ -713,8 +751,24 @@ func TestTranscriptPaginationIsChronologicalAndBounded(t *testing.T) {
 	assert.Equal(t, "1", messages[0].ID)
 	assert.Equal(t, "200", messages[len(messages)-1].ID)
 
-	_, err = collectTranscriptMessages(func(string) ([]*discordgo.Message, error) { return page(100, 1), nil })
+	exactCalls := 0
+	exact, err := collectTranscriptMessages(func(string) ([]*discordgo.Message, error) {
+		exactCalls++
+		if exactCalls <= maxTranscriptHistoryPages {
+			return page(100, 1), nil
+		}
+		return nil, nil
+	})
+	require.NoError(t, err)
+	assert.Len(t, exact, maxTranscriptHistoryPages*100)
+
+	calls := 0
+	_, err = collectTranscriptMessages(func(string) ([]*discordgo.Message, error) {
+		calls++
+		return page(100, 1), nil
+	})
 	require.ErrorIs(t, err, errTranscriptHistoryTooLong)
+	assert.Equal(t, maxTranscriptHistoryPages+1, calls)
 }
 
 func TestTranscriptCompressionAndFrozenPermissions(t *testing.T) {

@@ -549,6 +549,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 		sq.DeleteReason = why
 	}
+	why = sq.DeleteReason
 	var notifyMembers []string
 	if sq.DeleteReason == "it dropped below 2 members" {
 		var err error
@@ -560,12 +561,15 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 	}
 	logChannel := m.config.ForGuild(sq.GuildID).GetGamerPalsModActionLogChannelID()
 	var transcript database.SquadDeletionTranscript
+	var err error
+	transcript, err = m.db.SquadDeletionTranscript(sq.ID)
+	if err != nil {
+		return fmt.Errorf("load deletion transcript: %w", err)
+	}
+	if transcript.Name != "" && !transcript.LogSent && logChannel == "" {
+		return errors.New("deliver deletion transcript: mod action log channel is not configured")
+	}
 	if logChannel != "" {
-		var err error
-		transcript, err = m.db.SquadDeletionTranscript(sq.ID)
-		if err != nil {
-			return fmt.Errorf("load deletion transcript: %w", err)
-		}
 		if transcript.Name == "" {
 			transcript, err = m.captureSquadTranscript(api, sq)
 			if err != nil {
@@ -603,11 +607,27 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			fields = append(fields, logField("Transcript", "Unavailable: "+string(transcript.Data), false))
 		}
 		if err := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
-			m.config.Logger.Warnf("squads: deliver deletion transcript of %s: %v", sq.Name, err)
-			return fmt.Errorf("deliver deletion transcript: %w", err)
+			if code := discordCode(err); code == 50001 || code == 50013 || code == 10003 || code == 40005 {
+				files = nil
+				fields = append(fields, logField("Transcript", "Attachment failed permanently: "+err.Error(), false))
+				if fallbackErr := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {
+					if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+						return fmt.Errorf("record deletion log delivery: %w", err)
+					}
+					transcript.LogSent = true
+				} else {
+					m.config.Logger.Warnf("squads: deliver deletion log fallback of %s: %v", sq.Name, fallbackErr)
+					return fmt.Errorf("deliver deletion log fallback: %w", fallbackErr)
+				}
+			} else {
+				m.config.Logger.Warnf("squads: deliver deletion transcript of %s: %v", sq.Name, err)
+				return fmt.Errorf("deliver deletion transcript: %w", err)
+			}
 		}
-		if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
-			return fmt.Errorf("record deletion log delivery: %w", err)
+		if !transcript.LogSent {
+			if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+				return fmt.Errorf("record deletion log delivery: %w", err)
+			}
 		}
 	}
 	if err := m.db.DeleteSquad(sq.ID, m.now()); err != nil {
@@ -638,7 +658,8 @@ func (m *Module) captureSquadTranscript(api discordAPI, sq database.Squad) (data
 		return unavailableTranscript("the squad had no channel"), nil
 	}
 	if err := api.FreezeChannel(sq.ChannelID); err != nil {
-		if discordCode(err) == discordgo.ErrCodeUnknownChannel {
+		code := discordCode(err)
+		if code == discordgo.ErrCodeUnknownChannel || code == 50001 || code == 50013 {
 			return unavailableTranscript("the channel had already been deleted"), nil
 		}
 		return database.SquadDeletionTranscript{}, fmt.Errorf("freeze channel for transcript: %w", err)

@@ -410,6 +410,26 @@ func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
 	assert.Contains(t, api.sent[0].Msg.Content, "matched because you're all into **Shooter**")
 }
 
+func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for n := range 6 {
+		uid := fmt.Sprintf("u%d", n)
+		member(api, uid, "role-eu", "role-25")
+		_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{
+			GameID: int64(n + 1), Name: fmt.Sprintf("Game %d", n+1), Tags: []string{"Kids"},
+		}, maxPicks, *now)
+		require.NoError(t, err)
+		require.NoError(t, db.SetSquadTryNewGames(guild, uid, true))
+		require.NoError(t, db.EnqueueSquadUser(guild, uid, "", *now))
+	}
+
+	require.NoError(t, m.tick())
+	squads, err := db.ListSquads(guild)
+	require.NoError(t, err)
+	assert.Empty(t, squads)
+	assert.NotContains(t, m.userText(guild, "u0"), "Kids")
+}
+
 func TestPrivateVisibilityHidesChannel(t *testing.T) {
 	o := overwrites(guild, "squadrole", "mods", "bot", config.SquadVisibilityPrivate, nil)
 	assert.NotZero(t, o[0].Deny&discordgo.PermissionViewChannel)

@@ -237,8 +237,13 @@ func unixYear(sec int64) int { return time.Unix(sec, 0).UTC().Year() }
 
 var gameFields = igdb.SetFields("id", "name", "first_release_date", "genres", "themes")
 
-// skippedTags are too broad to say anything about someone's taste.
-var skippedTags = map[string]bool{"Indie": true}
+// skippedTags are too broad or inappropriate to use for adult squad matching
+// and summaries.
+var skippedTags = map[string]bool{"indie": true, "kids": true}
+
+func allowedSquadTag(tag string) bool {
+	return !skippedTags[strings.ToLower(strings.TrimSpace(tag))]
+}
 
 // searchLimit caps each IGDB query; the picker shows at most maxPicks-1.
 const searchLimit = 20
@@ -435,12 +440,12 @@ func (src *igdbSource) convert(games []*igdb.Game) []gameInfo {
 			info.Year = unixYear(int64(g.FirstReleaseDate))
 		}
 		for _, id := range g.Genres {
-			if name := tags[fmt.Sprintf("g:%d", id)]; name != "" && !skippedTags[name] {
+			if name := tags[fmt.Sprintf("g:%d", id)]; name != "" && allowedSquadTag(name) {
 				info.Tags = append(info.Tags, name)
 			}
 		}
 		for _, id := range g.Themes {
-			if name := tags[fmt.Sprintf("t:%d", id)]; name != "" && !skippedTags[name] {
+			if name := tags[fmt.Sprintf("t:%d", id)]; name != "" && allowedSquadTag(name) {
 				info.Tags = append(info.Tags, name)
 			}
 		}

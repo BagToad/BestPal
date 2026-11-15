@@ -342,3 +342,9 @@ func TestCommonGround(t *testing.T) {
 	}
 	assert.Equal(t, "You were matched because you're all into **RPG**.", commonGround(genreGroup))
 }
+
+func TestSensitiveTagsAreExcluded(t *testing.T) {
+	assert.False(t, allowedSquadTag("Kids"))
+	assert.False(t, allowedSquadTag(" kids "))
+	assert.True(t, allowedSquadTag("RPG"))
+}

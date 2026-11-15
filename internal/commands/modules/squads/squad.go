@@ -692,7 +692,9 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {
-			c.Tags[t] = true
+			if allowedSquadTag(t) {
+				c.Tags[t] = true
+			}
 		}
 	}
 	rl.apply(c, mem.Roles)

@@ -508,8 +508,14 @@ func (m *Module) userText(guildID, uid string) string {
 	}
 	for _, p := range picks {
 		fmt.Fprintf(&b, "\n• %s", gameInfo{Name: p.Name, Year: p.Year}.label())
-		if len(p.Tags) > 0 {
-			fmt.Fprintf(&b, " *(%s)*", strings.Join(p.Tags, ", "))
+		var tags []string
+		for _, tag := range p.Tags {
+			if allowedSquadTag(tag) {
+				tags = append(tags, tag)
+			}
+		}
+		if len(tags) > 0 {
+			fmt.Fprintf(&b, " *(%s)*", strings.Join(tags, ", "))
 		}
 	}
 	return truncate(b.String(), 2000)

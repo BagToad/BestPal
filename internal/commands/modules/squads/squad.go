@@ -532,6 +532,14 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 		sq.DeleteReason = why
 	}
+	var notifyMembers []string
+	if sq.DeleteReason == "it dropped below 2 members" {
+		var err error
+		notifyMembers, err = m.db.SquadMemberIDs(sq.ID)
+		if err != nil {
+			m.config.Logger.Warnf("squads: load remaining members of %s: %v", sq.Name, err)
+		}
+	}
 	if sq.ChannelID != "" {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
@@ -550,6 +558,15 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 	}
 	if sq.ChannelID != "" {
 		m.unregisterChannel(sq.ChannelID)
+	}
+	for _, uid := range notifyMembers {
+		msg := &discordgo.MessageSend{
+			Content:         fmt.Sprintf("🗑️ **%s was deleted** because it no longer had enough members. You can run `/squad join` whenever you want a new squad.", sq.Name),
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		}
+		if err := api.DM(uid, msg); err != nil {
+			m.config.Logger.Warnf("squads: notify %s that %s was deleted: %v", uid, sq.Name, err)
+		}
 	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
 	m.modLog(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(),

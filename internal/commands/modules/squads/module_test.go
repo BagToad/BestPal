@@ -653,6 +653,9 @@ func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
 	assert.Contains(t, api.delCh, sq.ChannelID)
 	_, inSquad, _ := db.SquadForUser(guild, "c")
 	assert.False(t, inSquad)
+	require.Len(t, api.dms, 4, "the three formation DMs plus one deletion DM")
+	assert.Equal(t, "c", api.dms[3].ChannelID)
+	assert.Contains(t, api.dms[3].Msg.Content, "Squad Axolotl was deleted")
 }
 
 func TestMemberLeavingServerLeavesSquadAndQueue(t *testing.T) {
@@ -918,6 +921,8 @@ func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
 	_, ok, _ = db.GetSquad(sq.ID)
 	assert.False(t, ok)
 	assert.Contains(t, api.delCh, sq.ChannelID)
+	require.Len(t, api.dms, 3, "the remaining member is notified only after deletion succeeds")
+	assert.Equal(t, "b", api.dms[2].ChannelID)
 }
 
 func TestPartlyDeletedSquadTakesNobody(t *testing.T) {

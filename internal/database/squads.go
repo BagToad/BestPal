@@ -137,6 +137,17 @@ type SquadReminder struct {
 	LastReminderAt time.Time
 }
 
+type SquadUserHistory struct {
+	Squads   int
+	Ghosting int
+}
+
+type SquadGhoster struct {
+	UserID   string
+	Squads   int
+	Ghosting int
+}
+
 // SquadTryNewGames reports whether a member opted into genre-based matching.
 // Missing preferences default to false so existing members remain game-only.
 func (db *DB) SquadTryNewGames(guildID, userID string) (bool, error) {
@@ -477,6 +488,37 @@ func (db *DB) MarkSquadReminderReconcileFailed(historyID int64, now time.Time) e
 	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
 		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, -now.Unix(), historyID)
 	return err
+}
+
+func (db *DB) SquadUserHistoryStats(guildID, userID string) (SquadUserHistory, error) {
+	var out SquadUserHistory
+	err := db.conn.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE
+		WHEN leave_reason = ? AND first_message_at = 0 THEN 1 ELSE 0 END), 0)
+		FROM squad_membership_history WHERE guild_id = ? AND user_id = ?`,
+		SquadLeaveVoluntary, guildID, userID).Scan(&out.Squads, &out.Ghosting)
+	return out, err
+}
+
+func (db *DB) TopSquadGhosters(guildID string, limit int) ([]SquadGhoster, error) {
+	rows, err := db.conn.Query(`SELECT user_id, COUNT(*), SUM(CASE
+		WHEN leave_reason = ? AND first_message_at = 0 THEN 1 ELSE 0 END) AS ghosting
+		FROM squad_membership_history WHERE guild_id = ?
+		GROUP BY user_id HAVING ghosting > 0
+		ORDER BY ghosting DESC, COUNT(*) DESC, user_id LIMIT ?`,
+		SquadLeaveVoluntary, guildID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadGhoster
+	for rows.Next() {
+		var g SquadGhoster
+		if err := rows.Scan(&g.UserID, &g.Squads, &g.Ghosting); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
 }
 
 // SquadMemberIDs returns a squad's members, earliest joiners first.

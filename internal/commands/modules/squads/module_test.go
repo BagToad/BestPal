@@ -671,6 +671,20 @@ func TestMemberLeavingServerLeavesSquadAndQueue(t *testing.T) {
 	assert.Empty(t, q)
 }
 
+func TestAdminGhostingHistoryAndLeaderboard(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+
+	assert.Contains(t, m.userText(guild, "a"), "1 memberships · 1 ghosting departures")
+	out := m.ghostersText(guild)
+	assert.Contains(t, out, "Top squad ghosters")
+	assert.Contains(t, out, "<@a> — **1** ghosting departures")
+
+	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "ghosters"))
+	assert.Contains(t, editContent(api.lastEdit()), "<@a>")
+}
+
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

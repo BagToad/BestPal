@@ -51,6 +51,8 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	switch sub.Name {
 	case "status":
 		m.adminDeferred(s, i, func() string { return m.statusText(i.GuildID) })
+	case "ghosters":
+		m.adminDeferred(s, i, func() string { return m.ghostersText(i.GuildID) })
 	case "user":
 		m.adminDeferred(s, i, func() string { return m.userText(i.GuildID, userArg()) })
 	case "dryrun", "run-now":
@@ -477,6 +479,9 @@ func (m *Module) userText(guildID, uid string) string {
 	} else {
 		b.WriteString("Not in a squad or the queue.\n")
 	}
+	if history, err := m.db.SquadUserHistoryStats(guildID, uid); err == nil {
+		fmt.Fprintf(&b, "**Squad history:** %d memberships · %d ghosting departures\n", history.Squads, history.Ghosting)
+	}
 	if mem, err := m.dc(nil).Member(guildID, uid); err == nil {
 		c := &candidate{}
 		m.roleLookup(guildID).apply(c, mem.Roles)
@@ -519,6 +524,24 @@ func (m *Module) userText(guildID, uid string) string {
 		}
 	}
 	return truncate(b.String(), 2000)
+}
+
+func (m *Module) ghostersText(guildID string) string {
+	ghosters, err := m.db.TopSquadGhosters(guildID, 10)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load top ghosters: %v", err)
+		return "❌ Could not load squad ghosting history."
+	}
+	if len(ghosters) == 0 {
+		return "## 👻 Top squad ghosters\nNobody has voluntarily left a squad without speaking."
+	}
+	var b strings.Builder
+	b.WriteString("## 👻 Top squad ghosters\n")
+	for n, g := range ghosters {
+		fmt.Fprintf(&b, "%d. %s — **%d** ghosting departures across %d memberships\n",
+			n+1, mention(g.UserID), g.Ghosting, g.Squads)
+	}
+	return truncate(strings.TrimSpace(b.String()), 2000)
 }
 
 // HandleAutocomplete suggests squads for /squad-admin.

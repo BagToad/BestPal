@@ -156,6 +156,29 @@ func TestSquadInactivityRemindersStopAfterFirstMessage(t *testing.T) {
 	assert.Empty(t, due)
 }
 
+func TestSquadGhostingStatsCountOnlyVoluntarySilentLeaves(t *testing.T) {
+	db := newSquadDB(t)
+	now := time.Unix(1000, 0)
+	for n, reason := range []string{SquadLeaveVoluntary, SquadLeaveAdmin, SquadLeaveVoluntary} {
+		sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad"}, []string{"u"}, now.Add(time.Duration(n)*time.Hour))
+		require.NoError(t, err)
+		if n == 2 {
+			require.NoError(t, db.MarkSquadMemberMessaged(sq.ID, "u", now.Add(3*time.Hour)))
+		}
+		_, ok, err := db.RemoveSquadMember("g", "u", reason, now.Add(time.Duration(n+1)*time.Hour))
+		require.NoError(t, err)
+		require.True(t, ok)
+	}
+
+	stats, err := db.SquadUserHistoryStats("g", "u")
+	require.NoError(t, err)
+	assert.Equal(t, SquadUserHistory{Squads: 3, Ghosting: 1}, stats)
+	top, err := db.TopSquadGhosters("g", 10)
+	require.NoError(t, err)
+	require.Len(t, top, 1)
+	assert.Equal(t, SquadGhoster{UserID: "u", Squads: 3, Ghosting: 1}, top[0])
+}
+
 func TestSquadLastMatch(t *testing.T) {
 	db := newSquadDB(t)
 	at, err := db.SquadLastMatch("g")

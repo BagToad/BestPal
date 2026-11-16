@@ -356,6 +356,9 @@ func TestSquadDeletionTranscriptPersistsUntilDeletion(t *testing.T) {
 	stored, err := os.ReadFile(storedPath)
 	require.NoError(t, err)
 	assert.Equal(t, want.Data, stored)
+	info, err := os.Stat(storedPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "os.CreateTemp creates the transcript with restrictive permissions without a separate chmod")
 	require.NoError(t, db.Close())
 
 	db, err = NewDB(path)

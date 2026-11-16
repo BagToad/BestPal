@@ -341,6 +341,22 @@ func names(group []*candidate) string {
 	return strings.Join(parts, " ")
 }
 
+// maxBlockedMentions bounds the blocked list so it can't crowd the report.
+const maxBlockedMentions = 20
+
+func blockedMentions(ids []string) string {
+	shown := ids[:min(len(ids), maxBlockedMentions)]
+	parts := make([]string, len(shown))
+	for n, uid := range shown {
+		parts[n] = mention(uid)
+	}
+	out := strings.Join(parts, ", ")
+	if extra := len(ids) - len(shown); extra > 0 {
+		out += fmt.Sprintf(" and %d more", extra)
+	}
+	return out
+}
+
 func reportText(r matchReport, dry bool) string {
 	var b strings.Builder
 	if dry {
@@ -349,6 +365,10 @@ func reportText(r matchReport, dry bool) string {
 		b.WriteString("✅ **Pairing ran.**\n")
 	}
 	fmt.Fprintf(&b, "Queue: %d · open young squads: %d\n", r.Queued, r.Open)
+	// Listed before the plan so the 2000-character cap can't hide it.
+	if len(r.Blocked) > 0 {
+		fmt.Fprintf(&b, "\n**Blocked** (%d held in the queue by the blocked role): %s\n", len(r.Blocked), blockedMentions(r.Blocked))
+	}
 	if len(r.Plan.NewSquads) > 0 {
 		b.WriteString("\n**New squads**\n")
 		for _, g := range r.Plan.NewSquads {
@@ -371,13 +391,6 @@ func reportText(r matchReport, dry bool) string {
 	if len(r.Left) > 0 {
 		fmt.Fprintf(&b, "\n%s left the server and %s the queue.\n", plural(len(r.Left), "person", "people"),
 			map[bool]string{true: "would be dropped from", false: "were dropped from"}[dry])
-	}
-	if len(r.Blocked) > 0 {
-		mentions := make([]string, len(r.Blocked))
-		for n, uid := range r.Blocked {
-			mentions[n] = mention(uid)
-		}
-		fmt.Fprintf(&b, "\n**Blocked** (held in the queue by the blocked role): %s\n", strings.Join(mentions, ", "))
 	}
 	if len(r.Plan.Waiting) > 0 {
 		fmt.Fprintf(&b, "\n**Still waiting:** %s\n", names(r.Plan.Waiting))

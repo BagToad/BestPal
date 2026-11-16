@@ -403,7 +403,8 @@ func TestBlockedRoleStopsJoining(t *testing.T) {
 	_, _, err := db.AddSquadPick(guild, "alice", database.SquadPick{GameID: 1, Name: "Game 1"}, maxPicks, *now)
 	require.NoError(t, err)
 	m.HandleComponent(nil, blockedClick(pickerCtx{GuildID: guild, ThreadID: "thread1"}.id("done")))
-	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, api.lastResponse().Type)
+	assert.Equal(t, blockedText, editContent(api.lastEdit()))
 	_, queued, err := db.SquadQueueEntryFor(guild, "alice")
 	require.NoError(t, err)
 	assert.False(t, queued)
@@ -413,7 +414,12 @@ func TestBlockedRoleStopsJoining(t *testing.T) {
 	dm := component("alice", prefix+"join:"+guild+"::")
 	dm.GuildID, dm.Member, dm.User = "", nil, &discordgo.User{ID: "alice"}
 	m.HandleComponent(nil, dm)
-	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+	assert.Equal(t, discordgo.InteractionResponseDeferredChannelMessageWithSource, api.lastResponse().Type,
+		"DM clicks defer before the member lookup")
+	assert.Equal(t, blockedText, editContent(api.lastEdit()))
+	member(api, "alice")
+	m.HandleComponent(nil, dm)
+	assert.Contains(t, editContent(api.lastEdit()), "Your squad games")
 
 	// Without the role, the picker opens as usual.
 	m.HandleComponent(nil, component("alice", prefix+"join:"+guild+":alice:thread1"))
@@ -429,6 +435,7 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 	report, err := m.runMatch(guild, true)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"u1"}, report.Blocked)
+	assert.Contains(t, reportText(report, true), "**Blocked** (1 held in the queue by the blocked role): <@u1>")
 
 	require.NoError(t, m.tick())
 	_, inSquad, err := db.SquadForUser(guild, "u1")
@@ -437,6 +444,20 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
 	require.NoError(t, err)
 	assert.True(t, queued, "blocked people keep their place in the queue")
+}
+
+func TestBlockedReportSurvivesTruncation(t *testing.T) {
+	r := matchReport{Queued: 300}
+	for n := range 25 {
+		r.Blocked = append(r.Blocked, fmt.Sprintf("blocked%d", n))
+	}
+	for n := range 200 {
+		r.Plan.Waiting = append(r.Plan.Waiting, &candidate{UserID: fmt.Sprintf("waiting-user-%d", n)})
+	}
+	text := reportText(r, true)
+	assert.LessOrEqual(t, len([]rune(text)), 2000)
+	assert.Contains(t, text, "**Blocked** (25 held in the queue by the blocked role)")
+	assert.Contains(t, text, "<@blocked19> and 5 more")
 }
 
 // queue puts people in the queue with the given picks and roles.

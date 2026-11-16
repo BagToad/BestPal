@@ -137,14 +137,20 @@ func (m *Module) squadsOpen(s *discordgo.Session, i *discordgo.InteractionCreate
 
 const blockedText = "This feature is currently disabled for you. Please ask a moderator for assistance."
 
+// blockedNeedsLookup reports whether checking the blocked role needs a
+// member lookup, because the interaction (e.g. from a DM) carries no roles.
+// Callers defer first so a slow lookup can't miss Discord's reply deadline.
+func (m *Module) blockedNeedsLookup(guildID string, i *discordgo.InteractionCreate) bool {
+	return m.config.ForGuild(guildID).GetSquadsBlockedRoleID() != "" && (i.Member == nil || i.GuildID != guildID)
+}
+
 // squadsBlocked reports whether the person has the squads blocked role.
-// Interactions from DMs carry no member, so their roles are looked up.
 func (m *Module) squadsBlocked(guildID string, i *discordgo.InteractionCreate) (bool, error) {
 	roleID := m.config.ForGuild(guildID).GetSquadsBlockedRoleID()
 	if roleID == "" {
 		return false, nil
 	}
-	if i.Member != nil && i.GuildID == guildID {
+	if !m.blockedNeedsLookup(guildID, i) {
 		return slices.Contains(i.Member.Roles, roleID), nil
 	}
 	mem, err := m.dc(nil).Member(guildID, userID(i))
@@ -185,11 +191,18 @@ func (m *Module) handleJoinButton(s *discordgo.Session, i *discordgo.Interaction
 	if !m.squadsOpen(s, i, guildID) {
 		return
 	}
+	reply := m.respond
+	if m.blockedNeedsLookup(guildID, i) {
+		if !m.deferReply(s, i) {
+			return
+		}
+		reply = m.edit
+	}
 	if msg := m.joinBlockedText(guildID, i); msg != "" {
-		m.respondText(s, i, msg)
+		reply(s, i, ephemeral(msg))
 		return
 	}
-	m.respond(s, i, m.pickerView(pickerCtx{GuildID: guildID, ThreadID: threadID}, uid, ""))
+	reply(s, i, m.pickerView(pickerCtx{GuildID: guildID, ThreadID: threadID}, uid, ""))
 }
 
 func (m *Module) handleAddButton(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
@@ -370,11 +383,11 @@ func (m *Module) handleDone(s *discordgo.Session, i *discordgo.InteractionCreate
 		m.update(s, i, &discordgo.InteractionResponseData{Content: "Squads aren't open right now. Your games are saved for when they are!"})
 		return
 	}
-	if msg := m.joinBlockedText(ctx.GuildID, i); msg != "" {
-		m.update(s, i, &discordgo.InteractionResponseData{Content: msg, Components: []discordgo.MessageComponent{}})
+	if !m.deferUpdate(s, i) {
 		return
 	}
-	if !m.deferUpdate(s, i) {
+	if msg := m.joinBlockedText(ctx.GuildID, i); msg != "" {
+		m.editText(s, i, msg)
 		return
 	}
 	picks, err := m.db.SquadPicks(ctx.GuildID, uid)

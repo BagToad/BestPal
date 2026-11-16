@@ -61,6 +61,11 @@ func (m *Module) runStackSmokeTest(guildID, invokerID string) (checks []smokeChe
 		} else if ok {
 			return nil, fmt.Errorf("%s is already in a squad; leave it before running this test", mention(uid))
 		}
+		if _, queued, err := m.db.SquadQueueEntryFor(guildID, uid); err != nil {
+			return nil, fmt.Errorf("check existing queue membership: %w", err)
+		} else if queued {
+			return nil, fmt.Errorf("%s is in the squad queue; leave it before running this test", mention(uid))
+		}
 		if _, err := api.Member(guildID, uid); err != nil {
 			return nil, fmt.Errorf("load test member %s: %w", mention(uid), err)
 		}
@@ -89,23 +94,9 @@ func (m *Module) runStackSmokeTest(guildID, invokerID string) (checks []smokeChe
 	}
 	checks = append(checks, smokeCheck{"Matcher", "verified genre opt-in, compatibility, and rematch avoidance"})
 
-	invokerPicks, err := m.db.SquadPicks(guildID, invokerID)
-	if err != nil {
-		return checks, err
-	}
-	invokerQueue, invokerQueued, err := m.db.SquadQueueEntryFor(guildID, invokerID)
-	if err != nil {
-		return checks, err
-	}
-	botQueue, botQueued, err := m.db.SquadQueueEntryFor(guildID, botID)
-	if err != nil {
-		return checks, err
-	}
-
 	game := database.SquadPick{GameID: 9_999_000_001, Name: "BestPal Stack Smoke Test", Year: 2026, Tags: []string{"RPG", "Kids"}}
-	invokerAdded := false
-	botAdded := false
 	var sq database.Squad
+	var err error
 	originalNow := m.now
 	defer func() {
 		m.now = originalNow
@@ -118,29 +109,7 @@ func (m *Module) runStackSmokeTest(guildID, invokerID string) (checks []smokeChe
 				m.unregisterChannel(current.ChannelID)
 			}
 		}
-		if invokerAdded {
-			_ = m.db.RemoveSquadPick(guildID, invokerID, game.GameID)
-		}
-		if botAdded {
-			_ = m.db.RemoveSquadPick(guildID, botID, game.GameID)
-		}
-		if invokerQueued {
-			_ = m.db.EnqueueSquadUser(guildID, invokerID, invokerQueue.IntroThreadID, invokerQueue.QueuedAt)
-		}
-		if botQueued {
-			_ = m.db.EnqueueSquadUser(guildID, botID, botQueue.IntroThreadID, botQueue.QueuedAt)
-		}
 	}()
-
-	if len(invokerPicks) > 0 {
-		game = invokerPicks[0]
-	} else if _, invokerAdded, err = m.db.AddSquadPick(guildID, invokerID, game, maxPicks, now); err != nil || !invokerAdded {
-		return checks, fmt.Errorf("add invoker fixture game: %w", err)
-	}
-	_, botAdded, err = m.db.AddSquadPick(guildID, botID, game, maxPicks, now)
-	if err != nil {
-		return checks, fmt.Errorf("add bot fixture game: %w", err)
-	}
 
 	group := []*candidate{
 		{UserID: invokerID, Name: "Smoke Test Invoker", Games: map[int64]string{game.GameID: game.Name}, Tags: map[string]bool{"RPG": true}, TryNew: true},

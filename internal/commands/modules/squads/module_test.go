@@ -745,10 +745,9 @@ func TestSquadDeletionUsesSelectedLogDestinationWhenConfigChanges(t *testing.T) 
 }
 
 func TestStackSmokeTestExercisesLiveLifecycleAndCleansUp(t *testing.T) {
-	m, api, db, now := newTestModule(t, nil)
+	m, api, db, _ := newTestModule(t, nil)
 	member(api, "mod", "role-eu", "role-25")
 	member(api, "bot", "role-eu", "role-25")
-	require.NoError(t, db.EnqueueSquadUser(guild, "mod", "intro", now.Add(-time.Hour)))
 
 	checks, err := m.runStackSmokeTest(guild, "mod")
 	require.NoError(t, err)
@@ -762,10 +761,9 @@ func TestStackSmokeTestExercisesLiveLifecycleAndCleansUp(t *testing.T) {
 	log := modLogMessage(t, api)
 	assert.Equal(t, "🗑️ Squad Deleted", log.Embeds[0].Title)
 	require.Len(t, log.Files, 1)
-	entry, queued, queueErr := db.SquadQueueEntryFor(guild, "mod")
+	_, queued, queueErr := db.SquadQueueEntryFor(guild, "mod")
 	require.NoError(t, queueErr)
-	assert.True(t, queued)
-	assert.Equal(t, "intro", entry.IntroThreadID)
+	assert.False(t, queued)
 	invokerPicks, _ := db.SquadPicks(guild, "mod")
 	botPicks, _ := db.SquadPicks(guild, "bot")
 	assert.Empty(t, invokerPicks)

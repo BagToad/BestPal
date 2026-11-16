@@ -97,15 +97,13 @@ func (m *Module) runStackSmokeTest(guildID, invokerID string) (checks []smokeChe
 	game := database.SquadPick{GameID: 9_999_000_001, Name: "BestPal Stack Smoke Test", Year: 2026, Tags: []string{"RPG", "Kids"}}
 	var sq database.Squad
 	var err error
-	originalNow := m.now
 	defer func() {
-		m.now = originalNow
 		if sq.ID != 0 {
 			if current, ok, _ := m.db.GetSquad(sq.ID); ok {
 				_ = m.db.MarkSquadDeletionLogSent(current.ID)
 				_ = api.DeleteChannel(current.ChannelID)
 				_ = api.DeleteRole(guildID, current.RoleID)
-				_ = m.db.DeleteSquad(current.ID, originalNow())
+				_ = m.db.DeleteSquad(current.ID, m.now())
 				m.unregisterChannel(current.ChannelID)
 			}
 		}
@@ -136,15 +134,24 @@ func (m *Module) runStackSmokeTest(guildID, invokerID string) (checks []smokeChe
 	checks = append(checks, smokeCheck{"Reports", "generated status, compatibility, and popularity/trends reports from live fixtures"})
 
 	future := now.Add(25 * time.Hour)
-	m.now = func() time.Time { return future }
-	m.sendInactivityReminders(guildID)
-	checks = append(checks, smokeCheck{"Inactivity reminders", "ran persisted reminder reconciliation and DM delivery"})
+	reminders := m.sendInactivityRemindersAt(guildID, future, sq.ID)
+	if reminders.due == 0 || reminders.dmsAttempted == 0 {
+		return checks, errors.New("temporary squad did not exercise inactivity reminder delivery")
+	}
+	checks = append(checks, smokeCheck{"Inactivity reminders", "ran persisted reminder reconciliation and attempted DM delivery for only the temporary squad"})
 
 	if _, removed, err := m.db.RemoveSquadMember(guildID, botID, database.SquadLeaveVoluntary, future); err != nil || !removed {
 		return checks, fmt.Errorf("record ghosting departure: %w", err)
 	}
-	if ghosters := m.ghostersText(guildID); !strings.Contains(ghosters, mention(botID)) {
-		return checks, errors.New("ghosting report omitted the fixture departure")
+	history, err := m.db.SquadUserHistoryStats(guildID, botID)
+	if err != nil {
+		return checks, fmt.Errorf("load ghosting history: %w", err)
+	}
+	if history.Ghosting == 0 {
+		return checks, errors.New("ghosting history omitted the fixture departure")
+	}
+	if ghosters := m.ghostersText(guildID); !strings.Contains(ghosters, "Top squad ghosters") {
+		return checks, errors.New("ghosting report was not generated")
 	}
 	checks = append(checks, smokeCheck{"Ghosting analytics", "recorded and reported a zero-message voluntary departure"})
 

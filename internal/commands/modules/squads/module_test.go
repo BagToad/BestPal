@@ -770,6 +770,27 @@ func TestStackSmokeTestExercisesLiveLifecycleAndCleansUp(t *testing.T) {
 	assert.Empty(t, botPicks)
 }
 
+func TestTargetedInactivityReminderDoesNotTouchOtherSquads(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a")
+	member(api, "b")
+	member(api, "c")
+	member(api, "d")
+	target := makeSquad(t, m, api, db, "a", "b")
+	other := makeSquad(t, m, api, db, "c", "d")
+	future := m.now().Add(25 * time.Hour)
+
+	run := m.sendInactivityRemindersAt(guild, future, target.ID)
+
+	assert.Equal(t, 2, run.due)
+	assert.Equal(t, 2, run.dmsAttempted)
+	due, err := db.DueSquadReminders(guild, future, squadReminderInterval)
+	require.NoError(t, err)
+	require.Len(t, due, 2)
+	assert.Equal(t, other.ID, due[0].SquadID)
+	assert.Equal(t, other.ID, due[1].SquadID)
+}
+
 func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

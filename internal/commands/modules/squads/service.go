@@ -98,13 +98,26 @@ const squadReminderInterval = 24 * time.Hour
 // sendInactivityReminders nudges current members daily until they speak in
 // their squad. Callers hold the guild lock.
 func (m *Module) sendInactivityReminders(guildID string) {
-	now := m.now()
+	m.sendInactivityRemindersAt(guildID, m.now(), 0)
+}
+
+type inactivityReminderRun struct {
+	due          int
+	dmsAttempted int
+}
+
+func (m *Module) sendInactivityRemindersAt(guildID string, now time.Time, onlySquadID int64) inactivityReminderRun {
+	var run inactivityReminderRun
 	reminders, err := m.db.DueSquadReminders(guildID, now, squadReminderInterval)
 	if err != nil {
 		m.config.Logger.Warnf("squads: load inactivity reminders: %v", err)
-		return
+		return run
 	}
 	for _, reminder := range reminders {
+		if onlySquadID != 0 && reminder.SquadID != onlySquadID {
+			continue
+		}
+		run.due++
 		since := reminder.JoinedAt
 		if reminder.LastReminderAt.After(since) {
 			since = reminder.LastReminderAt
@@ -129,6 +142,7 @@ func (m *Module) sendInactivityReminders(guildID string) {
 			m.config.Logger.Warnf("squads: mark inactivity reminder for %s: %v", reminder.UserID, err)
 			continue
 		}
+		run.dmsAttempted++
 		msg := &discordgo.MessageSend{
 			Content:         fmt.Sprintf("👋 **Your squad is waiting for you!**\nSay hello in **%s**: <#%s>. Once you send a message there, these reminders stop.", reminder.SquadName, reminder.ChannelID),
 			AllowedMentions: &discordgo.MessageAllowedMentions{},
@@ -137,6 +151,7 @@ func (m *Module) sendInactivityReminders(guildID string) {
 			m.config.Logger.Warnf("squads: inactivity reminder to %s: %v", reminder.UserID, err)
 		}
 	}
+	return run
 }
 
 // reconcileEvery is how often every squad's roster is checked for people who

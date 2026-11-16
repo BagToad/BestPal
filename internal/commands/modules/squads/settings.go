@@ -31,7 +31,7 @@ func (m *Module) ConfigSettings() []config.Setting {
 		{Key: config.KeySquadsModRoleID, Category: sq, Label: "Mod role",
 			Description: "Role that can always see and chat in every squad channel.", Kind: config.KindRole},
 		{Key: config.KeySquadsBlockedRoleID, Category: sq, Label: "Blocked role",
-			Description: "Mods give this role to keep someone out of squads. They can't join, and they're held back from matching if already queued.",
+			Description: "Mods give this role to keep someone out of squads. They can't join, and they're removed from the queue at the next pairing run.",
 			Kind:        config.KindRole},
 		{Key: config.KeySquadsTargetSize, Category: sq, Label: "Squad size",
 			Description: "How many people the matcher aims for in a new squad.", Kind: config.KindInt, Default: 6, Validate: validateSize},

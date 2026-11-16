@@ -426,7 +426,7 @@ func TestBlockedRoleStopsJoining(t *testing.T) {
 	assert.Contains(t, api.lastResponse().Data.Content, "Your squad games")
 }
 
-func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
+func TestBlockedRoleRemovesQueuedPeople(t *testing.T) {
 	m, api, db, now := newTestModule(t, map[string]any{config.KeySquadsBlockedRoleID: "squad-blocked"})
 	people := []string{"u1", "u2", "u3", "u4", "u5", "u6"}
 	queue(t, m, api, db, now.Add(-time.Hour), people, []int64{1}, "role-eu", "role-25")
@@ -435,6 +435,9 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 	report, err := m.runMatch(guild, true)
 	require.NoError(t, err)
 	assert.Equal(t, 5, report.Queued)
+	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
+	require.NoError(t, err)
+	assert.True(t, queued, "a dry run changes nothing")
 	text := reportText(report, true)
 	assert.NotContains(t, text, "<@u1>", "blocked people are not listed in reports")
 	assert.NotContains(t, text, "Blocked")
@@ -443,9 +446,9 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 	_, inSquad, err := db.SquadForUser(guild, "u1")
 	require.NoError(t, err)
 	assert.False(t, inSquad, "blocked people are never placed")
-	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
+	_, queued, err = db.SquadQueueEntryFor(guild, "u1")
 	require.NoError(t, err)
-	assert.True(t, queued, "blocked people keep their place in the queue")
+	assert.False(t, queued, "blocked people are removed from the queue")
 }
 
 // queue puts people in the queue with the given picks and roles.

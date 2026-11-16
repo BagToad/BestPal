@@ -706,6 +706,7 @@ type matchReport struct {
 	Queued    int
 	Open      int
 	Left      []string // queued people who left the server
+	blocked   []string // queued people with the blocked role; dropped silently
 	Created   []database.Squad
 	Failures  []string
 	OpenNames map[int64]string
@@ -744,8 +745,9 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			continue
 		}
 		if c.Blocked {
-			// Held silently: they keep their queue spot but stay out of reports.
+			// Dropped from the queue silently; never listed in reports.
 			report.Queued--
+			report.blocked = append(report.blocked, e.UserID)
 			continue
 		}
 		c.QueuedAt = e.QueuedAt
@@ -804,6 +806,11 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 	for _, uid := range report.Left {
 		if _, err := m.db.DequeueSquadUser(guildID, uid); err != nil {
 			m.config.Logger.Warnf("squads: dequeue departed %s: %v", uid, err)
+		}
+	}
+	for _, uid := range report.blocked {
+		if _, err := m.db.DequeueSquadUser(guildID, uid); err != nil {
+			m.config.Logger.Warnf("squads: dequeue blocked %s: %v", uid, err)
 		}
 	}
 	for _, group := range report.Plan.NewSquads {

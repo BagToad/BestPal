@@ -378,7 +378,7 @@ func TestSquadDeletionTranscriptPersistsUntilDeletion(t *testing.T) {
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
-func TestMigrateSquadTranscriptBlobToDurableFileKeepsRollbackCopy(t *testing.T) {
+func TestMigrateSquadTranscriptBlobToDurableFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	db, err := NewDB(path)
 	require.NoError(t, err)
@@ -398,7 +398,51 @@ func TestMigrateSquadTranscriptBlobToDurableFileKeepsRollbackCopy(t *testing.T) 
 	assert.Equal(t, []byte("legacy payload"), got.Data)
 	var legacyBytes []byte
 	require.NoError(t, db.conn.QueryRow(`SELECT deletion_transcript FROM squads WHERE id = ?`, sq.ID).Scan(&legacyBytes))
-	assert.Equal(t, []byte("legacy payload"), legacyBytes, "pre-existing payload remains readable by the previous binary until deletion finishes")
+	assert.Empty(t, legacyBytes)
+}
+
+func TestPreviousBinaryCannotReplaceOrDeletePendingFileTranscript(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	want := SquadDeletionTranscript{Name: "transcript.txt", ContentType: "text/plain", Data: []byte("real transcript")}
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, want))
+
+	_, err = db.conn.Exec(`UPDATE squads SET deletion_transcript_name = 'unavailable',
+		deletion_transcript_type = 'application/x-bestpal-transcript-unavailable',
+		deletion_transcript = 'channel deleted' WHERE id = ?`, sq.ID)
+	assert.ErrorContains(t, err, "pending file transcript requires a newer BestPal version")
+	_, err = db.conn.Exec(`UPDATE squads SET deletion_log_sent = 1 WHERE id = ?`, sq.ID)
+	require.NoError(t, err, "the previous binary may update its legacy flag")
+	_, err = db.conn.Exec(`DELETE FROM squads WHERE id = ?`, sq.ID)
+	assert.ErrorContains(t, err, "pending file transcript requires a newer BestPal version")
+
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	require.NoError(t, db.MarkSquadDeletionLogSent(sq.ID))
+	require.NoError(t, db.DeleteSquad(sq.ID, time.Unix(200, 0)))
+}
+
+func TestSquadTranscriptFileSurvivesDatabaseDeletionFailure(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, SquadDeletionTranscript{
+		Name: "transcript.txt", ContentType: "text/plain", Data: []byte("must survive"),
+	}))
+	require.NoError(t, db.MarkSquadDeletionLogSent(sq.ID))
+	var storedFile string
+	require.NoError(t, db.conn.QueryRow(`SELECT deletion_transcript_file FROM squads WHERE id = ?`, sq.ID).Scan(&storedFile))
+	_, err = db.conn.Exec(`CREATE TRIGGER fail_squad_delete BEFORE DELETE ON squads
+		BEGIN SELECT RAISE(ABORT, 'simulated delete failure'); END`)
+	require.NoError(t, err)
+
+	err = db.DeleteSquad(sq.ID, time.Unix(200, 0))
+	assert.ErrorContains(t, err, "simulated delete failure")
+	stored, readErr := os.ReadFile(filepath.Join(db.transcriptDir, storedFile))
+	require.NoError(t, readErr)
+	assert.Equal(t, []byte("must survive"), stored)
 }
 
 func TestUnavailableSquadTranscriptUsesMetadataOnly(t *testing.T) {

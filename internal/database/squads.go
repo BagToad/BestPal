@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS squads (
 	deletion_transcript_file_type TEXT NOT NULL DEFAULT '',
 	deletion_transcript_sha256    TEXT NOT NULL DEFAULT '',
 	deletion_transcript_note      TEXT NOT NULL DEFAULT '',
+	deletion_file_log_sent        INTEGER NOT NULL DEFAULT 0,
 	deletion_log_sent        INTEGER NOT NULL DEFAULT 0
 );
 
@@ -659,20 +660,18 @@ func (db *DB) DeleteSquad(id int64, now time.Time) error {
 	var transcriptName string
 	var transcriptSent bool
 	err := db.conn.QueryRow(`SELECT deletion_transcript_file, deletion_transcript_file_name,
-		deletion_log_sent FROM squads WHERE id = ?`, id).Scan(&transcriptFile, &transcriptName, &transcriptSent)
+		deletion_file_log_sent FROM squads WHERE id = ?`, id).Scan(&transcriptFile, &transcriptName, &transcriptSent)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	if transcriptName != "" && !transcriptSent {
 		return errors.New("cannot delete squad before its transcript delivery is resolved")
 	}
+	var transcriptPath string
 	if transcriptFile != "" {
-		path, err := db.squadTranscriptPath(transcriptFile)
+		transcriptPath, err = db.squadTranscriptPath(transcriptFile)
 		if err != nil {
 			return err
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove squad transcript: %w", err)
 		}
 	}
 	tx, err := db.conn.Begin()
@@ -693,7 +692,15 @@ func (db *DB) DeleteSquad(id int64, now time.Time) error {
 	if _, err := tx.Exec(`DELETE FROM squads WHERE id = ?`, id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if transcriptPath != "" {
+		if err := os.Remove(transcriptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove delivered squad transcript: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetSquadChannel records the channel and role created for a squad.
@@ -733,7 +740,7 @@ func (db *DB) SquadDeletionTranscript(id int64) (SquadDeletionTranscript, error)
 	var transcript SquadDeletionTranscript
 	var file, checksum, note string
 	err := db.conn.QueryRow(`SELECT deletion_transcript_file_name, deletion_transcript_file_type,
-		deletion_transcript_file, deletion_transcript_sha256, deletion_transcript_note, deletion_log_sent
+		deletion_transcript_file, deletion_transcript_sha256, deletion_transcript_note, deletion_file_log_sent
 		FROM squads WHERE id = ?`, id).
 		Scan(&transcript.Name, &transcript.ContentType, &file, &checksum, &note, &transcript.LogSent)
 	if err != nil || transcript.Name == "" || transcript.LogSent {
@@ -797,7 +804,7 @@ func (db *DB) saveSquadDeletionTranscript(id int64, transcript SquadDeletionTran
 }
 
 func (db *DB) MarkSquadDeletionLogSent(id int64) error {
-	_, err := db.conn.Exec(`UPDATE squads SET deletion_log_sent = 1 WHERE id = ?`, id)
+	_, err := db.conn.Exec(`UPDATE squads SET deletion_file_log_sent = 1 WHERE id = ?`, id)
 	return err
 }
 
@@ -840,6 +847,7 @@ func (db *DB) migrateSquads() error {
 		{"deletion_transcript_file_type", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_transcript_sha256", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_transcript_note", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_file_log_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
@@ -849,6 +857,22 @@ func (db *DB) migrateSquads() error {
 		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN ` + column.name + ` ` + column.def); err != nil {
 			return fmt.Errorf("failed to add squads.%s: %w", column.name, err)
 		}
+	}
+	if _, err := db.conn.Exec(`
+		CREATE TRIGGER IF NOT EXISTS protect_pending_file_transcript_update
+		BEFORE UPDATE OF deletion_transcript, deletion_transcript_name, deletion_transcript_type ON squads
+		WHEN OLD.deletion_transcript_file_name != '' AND OLD.deletion_file_log_sent = 0
+		BEGIN
+			SELECT RAISE(ABORT, 'pending file transcript requires a newer BestPal version');
+		END;
+		CREATE TRIGGER IF NOT EXISTS protect_pending_file_transcript_delete
+		BEFORE DELETE ON squads
+		WHEN OLD.deletion_transcript_file_name != '' AND OLD.deletion_file_log_sent = 0
+		BEGIN
+			SELECT RAISE(ABORT, 'pending file transcript requires a newer BestPal version');
+		END;
+	`); err != nil {
+		return fmt.Errorf("failed to protect pending file transcripts: %w", err)
 	}
 	// Repair open history left by rolling back to a version that predates
 	// membership tracking. A changed join time means the old version removed
@@ -945,7 +969,7 @@ func (db *DB) migrateSquadTranscriptFiles() error {
 		return err
 	}
 	for _, item := range legacy {
-		if err := db.saveSquadDeletionTranscript(item.id, item.transcript, false); err != nil {
+		if err := db.saveSquadDeletionTranscript(item.id, item.transcript, true); err != nil {
 			return fmt.Errorf("externalize legacy squad transcript %d: %w", item.id, err)
 		}
 	}

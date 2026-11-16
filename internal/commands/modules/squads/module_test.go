@@ -744,6 +744,34 @@ func TestSquadDeletionUsesSelectedLogDestinationWhenConfigChanges(t *testing.T) 
 	require.Len(t, msg.Files, 1, "the transcript is sent to the destination selected before deletion")
 }
 
+func TestStackSmokeTestExercisesLiveLifecycleAndCleansUp(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	member(api, "mod", "role-eu", "role-25")
+	member(api, "bot", "role-eu", "role-25")
+	require.NoError(t, db.EnqueueSquadUser(guild, "mod", "intro", now.Add(-time.Hour)))
+
+	checks, err := m.runStackSmokeTest(guild, "mod")
+	require.NoError(t, err)
+	assert.Len(t, checks, 7)
+	squads, listErr := db.ListSquads(guild)
+	require.NoError(t, listErr)
+	assert.Empty(t, squads)
+	assert.NotEmpty(t, api.delCh)
+	assert.NotEmpty(t, api.delRoles)
+	assert.GreaterOrEqual(t, len(api.dms), 3, "formation, reminder, and deletion notifications ran")
+	log := modLogMessage(t, api)
+	assert.Equal(t, "🗑️ Squad Deleted", log.Embeds[0].Title)
+	require.Len(t, log.Files, 1)
+	entry, queued, queueErr := db.SquadQueueEntryFor(guild, "mod")
+	require.NoError(t, queueErr)
+	assert.True(t, queued)
+	assert.Equal(t, "intro", entry.IntroThreadID)
+	invokerPicks, _ := db.SquadPicks(guild, "mod")
+	botPicks, _ := db.SquadPicks(guild, "bot")
+	assert.Empty(t, invokerPicks)
+	assert.Empty(t, botPicks)
+}
+
 func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b")

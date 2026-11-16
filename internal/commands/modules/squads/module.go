@@ -195,6 +195,15 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 		},
 		HandlerFunc: m.handlePost,
 	}
+	cmds["squad-stack-smoke-test"] = &types.Command{
+		ApplicationCommand: &discordgo.ApplicationCommand{
+			Name:                     "squad-stack-smoke-test",
+			Description:              "Run the development Squads stack smoke test",
+			DefaultMemberPermissions: &banPerms,
+			Contexts:                 guildOnly,
+		},
+		HandlerFunc: m.handleStackSmokeTest,
+	}
 }
 
 // canManage mirrors /config access: super admins, Ban Members or Administrator.

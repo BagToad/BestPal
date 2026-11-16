@@ -22,6 +22,7 @@ type candidate struct {
 	Tags      map[string]bool  // IGDB genre and theme names
 	TryNew    bool             // opted into genre/theme matching
 	Avoid     map[string]bool  // partners from the most recent completed squad
+	Blocked   bool             // has the squads blocked role
 }
 
 // openSquad is an existing squad that can still take late joiners.

@@ -30,6 +30,9 @@ func (m *Module) ConfigSettings() []config.Setting {
 			}},
 		{Key: config.KeySquadsModRoleID, Category: sq, Label: "Mod role",
 			Description: "Role that can always see and chat in every squad channel.", Kind: config.KindRole},
+		{Key: config.KeySquadsBlockedRoleID, Category: sq, Label: "Blocked role",
+			Description: "Mods give this role to keep someone out of squads. They can't join, and they're held back from matching if already queued.",
+			Kind:        config.KindRole},
 		{Key: config.KeySquadsTargetSize, Category: sq, Label: "Squad size",
 			Description: "How many people the matcher aims for in a new squad.", Kind: config.KindInt, Default: 6, Validate: validateSize},
 		{Key: config.KeySquadsMinSize, Category: sq, Label: "Smallest squad",
@@ -128,11 +131,12 @@ type roleLookup struct {
 	region   map[string]string // role ID -> region code
 	age      map[string]int    // role ID -> 1-based slot
 	platform map[string]string // role ID -> platform code
+	blocked  string            // squads blocked role ID, "" when unset
 }
 
 func (m *Module) roleLookup(guildID string) roleLookup {
 	gc := m.config.ForGuild(guildID)
-	rl := roleLookup{region: map[string]string{}, age: map[string]int{}, platform: map[string]string{}}
+	rl := roleLookup{region: map[string]string{}, age: map[string]int{}, platform: map[string]string{}, blocked: gc.GetSquadsBlockedRoleID()}
 	regionRoles := gc.GetSquadRoles(config.SquadRegionKeys)
 	for _, r := range regions {
 		if id := regionRoles[r.Key]; id != "" {
@@ -172,6 +176,9 @@ func (rl roleLookup) apply(c *candidate, roles []string) {
 		}
 		if p, ok := rl.platform[id]; ok {
 			c.Platforms[p] = true
+		}
+		if rl.blocked != "" && id == rl.blocked {
+			c.Blocked = true
 		}
 	}
 }

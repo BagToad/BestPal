@@ -382,6 +382,63 @@ func TestPickerClosedWhenDisabled(t *testing.T) {
 	assert.Contains(t, api.lastResponse().Data.Content, "aren't open")
 }
 
+func TestBlockedRoleStopsJoining(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{config.KeySquadsBlockedRoleID: "squad-blocked"})
+	blockedClick := func(customID string) *discordgo.InteractionCreate {
+		i := component("alice", customID)
+		i.Member.Roles = []string{"squad-blocked"}
+		return i
+	}
+
+	m.HandleComponent(nil, blockedClick(prefix+"join:"+guild+":alice:thread1"))
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+	assert.Equal(t, "This feature is currently disabled for you. Please ask a moderator for assistance.", blockedText)
+
+	slash := command("alice", 0, "squad", "join")
+	slash.Member.Roles = []string{"squad-blocked"}
+	m.handleSquad(nil, slash)
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+
+	// An already-open picker can't finish into the queue either.
+	_, _, err := db.AddSquadPick(guild, "alice", database.SquadPick{GameID: 1, Name: "Game 1"}, maxPicks, *now)
+	require.NoError(t, err)
+	m.HandleComponent(nil, blockedClick(pickerCtx{GuildID: guild, ThreadID: "thread1"}.id("done")))
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+	_, queued, err := db.SquadQueueEntryFor(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, queued)
+
+	// Re-join buttons in DMs carry no member, so the role is looked up.
+	member(api, "alice", "squad-blocked")
+	dm := component("alice", prefix+"join:"+guild+"::")
+	dm.GuildID, dm.Member, dm.User = "", nil, &discordgo.User{ID: "alice"}
+	m.HandleComponent(nil, dm)
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+
+	// Without the role, the picker opens as usual.
+	m.HandleComponent(nil, component("alice", prefix+"join:"+guild+":alice:thread1"))
+	assert.Contains(t, api.lastResponse().Data.Content, "Your squad games")
+}
+
+func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{config.KeySquadsBlockedRoleID: "squad-blocked"})
+	people := []string{"u1", "u2", "u3", "u4", "u5", "u6"}
+	queue(t, m, api, db, now.Add(-time.Hour), people, []int64{1}, "role-eu", "role-25")
+	member(api, "u1", "role-eu", "role-25", "squad-blocked")
+
+	report, err := m.runMatch(guild, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"u1"}, report.Blocked)
+
+	require.NoError(t, m.tick())
+	_, inSquad, err := db.SquadForUser(guild, "u1")
+	require.NoError(t, err)
+	assert.False(t, inSquad, "blocked people are never placed")
+	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
+	require.NoError(t, err)
+	assert.True(t, queued, "blocked people keep their place in the queue")
+}
+
 // queue puts people in the queue with the given picks and roles.
 func queue(t *testing.T, m *Module, api *fakeAPI, db *database.DB, at time.Time, uids []string, games []int64, roles ...string) {
 	t.Helper()

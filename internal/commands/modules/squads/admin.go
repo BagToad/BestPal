@@ -372,6 +372,13 @@ func reportText(r matchReport, dry bool) string {
 		fmt.Fprintf(&b, "\n%s left the server and %s the queue.\n", plural(len(r.Left), "person", "people"),
 			map[bool]string{true: "would be dropped from", false: "were dropped from"}[dry])
 	}
+	if len(r.Blocked) > 0 {
+		mentions := make([]string, len(r.Blocked))
+		for n, uid := range r.Blocked {
+			mentions[n] = mention(uid)
+		}
+		fmt.Fprintf(&b, "\n**Blocked** (held in the queue by the blocked role): %s\n", strings.Join(mentions, ", "))
+	}
 	if len(r.Plan.Waiting) > 0 {
 		fmt.Fprintf(&b, "\n**Still waiting:** %s\n", names(r.Plan.Waiting))
 	}

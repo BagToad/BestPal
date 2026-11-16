@@ -30,6 +30,25 @@ func TestBuildDSN(t *testing.T) {
 	require.Equal(t, "", buildDSN(""))
 }
 
+func TestSQLiteFilePath(t *testing.T) {
+	tests := map[string]string{
+		"/data/gamerpal.db?cache=shared":                 "/data/gamerpal.db",
+		"file:/data/gamerpal%20one.db?cache=shared":      "/data/gamerpal one.db",
+		"file:///data/gamerpal%20one.db?cache=shared":    "/data/gamerpal one.db",
+		"file://localhost/data/gamerpal.db?cache=shared": "/data/gamerpal.db",
+		"file:gamerpal%20one.db?cache=shared":            "gamerpal one.db",
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			got, err := sqliteFilePath(input)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
+	}
+	_, err := sqliteFilePath("file://remote/data/gamerpal.db")
+	require.ErrorContains(t, err, "unsupported SQLite file URI authority")
+}
+
 func TestScamImageHashes_AddListDedupeRemove(t *testing.T) {
 	db := newTestDB(t)
 

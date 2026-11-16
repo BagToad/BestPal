@@ -401,6 +401,29 @@ func TestMigrateSquadTranscriptBlobToDurableFile(t *testing.T) {
 	assert.Empty(t, legacyBytes)
 }
 
+func TestMigrateDeliveredSquadTranscriptPreservesDeliveryState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-delivered.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`UPDATE squads SET deletion_transcript_name = 'legacy.txt',
+		deletion_transcript_type = 'text/plain', deletion_transcript = ?, deletion_log_sent = 1
+		WHERE id = ?`, []byte("legacy payload"), sq.ID)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.True(t, got.LogSent)
+	var fileLogSent bool
+	require.NoError(t, db.conn.QueryRow(`SELECT deletion_file_log_sent FROM squads WHERE id = ?`, sq.ID).Scan(&fileLogSent))
+	assert.True(t, fileLogSent)
+}
+
 func TestPreviousBinaryCannotReplaceOrDeletePendingFileTranscript(t *testing.T) {
 	db := newSquadDB(t)
 	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))

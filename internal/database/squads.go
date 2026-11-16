@@ -783,11 +783,13 @@ func (db *DB) saveSquadDeletionTranscript(id int64, transcript SquadDeletionTran
 	}
 	query := `UPDATE squads SET
 		deletion_transcript_file_name = ?, deletion_transcript_file_type = ?,
-		deletion_transcript_file = ?, deletion_transcript_sha256 = ?, deletion_transcript_note = ?`
+		deletion_transcript_file = ?, deletion_transcript_sha256 = ?, deletion_transcript_note = ?,
+		deletion_file_log_sent = ?`
 	if clearLegacy {
 		query += `, deletion_transcript = X'', deletion_transcript_name = '', deletion_transcript_type = ''`
 	}
-	result, err := db.conn.Exec(query+` WHERE id = ?`, transcript.Name, transcript.ContentType, file, checksum, note, id)
+	result, err := db.conn.Exec(query+` WHERE id = ?`, transcript.Name, transcript.ContentType, file, checksum, note,
+		transcript.LogSent, id)
 	if err == nil {
 		var changed int64
 		changed, err = result.RowsAffected()
@@ -905,6 +907,9 @@ func (db *DB) writeSquadTranscript(id int64, data []byte) (string, string, bool,
 	}
 	if existing, err := os.ReadFile(path); err == nil {
 		if existingSum := sha256.Sum256(existing); existingSum == sum {
+			if err := syncDirectory(db.transcriptDir); err != nil {
+				return "", "", false, fmt.Errorf("sync squad transcript directory: %w", err)
+			}
 			return name, checksum, false, nil
 		}
 		return "", "", false, errors.New("existing squad transcript checksum mismatch")
@@ -935,6 +940,9 @@ func (db *DB) writeSquadTranscript(id int64, data []byte) (string, string, bool,
 	if err := os.Rename(tmpPath, path); err != nil {
 		return "", "", false, fmt.Errorf("publish squad transcript: %w", err)
 	}
+	if err := syncDirectory(db.transcriptDir); err != nil {
+		return "", "", false, fmt.Errorf("sync squad transcript directory: %w", err)
+	}
 	return name, checksum, true, nil
 }
 
@@ -947,7 +955,7 @@ func (db *DB) squadTranscriptPath(name string) (string, error) {
 
 func (db *DB) migrateSquadTranscriptFiles() error {
 	rows, err := db.conn.Query(`SELECT id, deletion_transcript_name, deletion_transcript_type,
-		deletion_transcript FROM squads
+		deletion_transcript, deletion_log_sent FROM squads
 		WHERE deletion_transcript_name != '' AND deletion_transcript_file_name = ''`)
 	if err != nil {
 		return fmt.Errorf("load legacy squad transcripts: %w", err)
@@ -959,7 +967,8 @@ func (db *DB) migrateSquadTranscriptFiles() error {
 	var legacy []legacyTranscript
 	for rows.Next() {
 		var item legacyTranscript
-		if err := rows.Scan(&item.id, &item.transcript.Name, &item.transcript.ContentType, &item.transcript.Data); err != nil {
+		if err := rows.Scan(&item.id, &item.transcript.Name, &item.transcript.ContentType,
+			&item.transcript.Data, &item.transcript.LogSent); err != nil {
 			rows.Close()
 			return err
 		}

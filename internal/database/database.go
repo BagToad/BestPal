@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,12 +88,62 @@ func squadTranscriptDir(dbPath string) (string, bool, error) {
 		dir, err := os.MkdirTemp("", "bestpal-squad-transcripts-")
 		return dir, true, err
 	}
-	path, _, _ := strings.Cut(dbPath, "?")
+	path, err := sqliteFilePath(dbPath)
+	if err != nil {
+		return "", false, err
+	}
 	dir := filepath.Clean(path) + ".squad-transcripts"
+	_, statErr := os.Stat(dir)
+	created := errors.Is(statErr, os.ErrNotExist)
+	if statErr != nil && !created {
+		return "", false, statErr
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", false, err
 	}
+	if created {
+		if err := syncDirectory(filepath.Dir(dir)); err != nil {
+			return "", false, fmt.Errorf("sync transcript directory parent: %w", err)
+		}
+		if err := syncDirectory(dir); err != nil {
+			return "", false, fmt.Errorf("sync transcript directory: %w", err)
+		}
+	}
 	return dir, false, nil
+}
+
+func sqliteFilePath(dbPath string) (string, error) {
+	path, _, _ := strings.Cut(dbPath, "?")
+	if !strings.HasPrefix(path, "file:") {
+		return path, nil
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return "", fmt.Errorf("parse SQLite file URI: %w", err)
+	}
+	if u.Host != "" && u.Host != "localhost" {
+		return "", fmt.Errorf("unsupported SQLite file URI authority %q", u.Host)
+	}
+	if u.Opaque != "" {
+		path, err := url.PathUnescape(u.Opaque)
+		if err != nil {
+			return "", fmt.Errorf("decode SQLite file URI path: %w", err)
+		}
+		return path, nil
+	}
+	if u.Path == "" {
+		return "", errors.New("SQLite file URI has no path")
+	}
+	return u.Path, nil
+}
+
+func syncDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // initTables creates the necessary database tables

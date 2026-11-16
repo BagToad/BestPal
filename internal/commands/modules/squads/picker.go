@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -134,6 +135,48 @@ func (m *Module) squadsOpen(s *discordgo.Session, i *discordgo.InteractionCreate
 	return true
 }
 
+const blockedText = "This feature is currently disabled for you. Please ask a moderator for assistance."
+
+// blockedNeedsLookup reports whether checking the blocked role needs a
+// member lookup, because the interaction (e.g. from a DM) carries no roles.
+// Callers defer first so a slow lookup can't miss Discord's reply deadline.
+func (m *Module) blockedNeedsLookup(guildID string, i *discordgo.InteractionCreate) bool {
+	return m.config.ForGuild(guildID).GetSquadsBlockedRoleID() != "" && (i.Member == nil || i.GuildID != guildID)
+}
+
+// squadsBlocked reports whether the person has the squads blocked role.
+func (m *Module) squadsBlocked(guildID string, i *discordgo.InteractionCreate) (bool, error) {
+	roleID := m.config.ForGuild(guildID).GetSquadsBlockedRoleID()
+	if roleID == "" {
+		return false, nil
+	}
+	if !m.blockedNeedsLookup(guildID, i) {
+		return slices.Contains(i.Member.Roles, roleID), nil
+	}
+	mem, err := m.dc(nil).Member(guildID, userID(i))
+	if err != nil {
+		if discordCode(err) == discordgo.ErrCodeUnknownMember {
+			return false, nil
+		}
+		return false, err
+	}
+	return slices.Contains(mem.Roles, roleID), nil
+}
+
+// joinBlockedText returns the message to show someone who can't join squads, or
+// "" when they can.
+func (m *Module) joinBlockedText(guildID string, i *discordgo.InteractionCreate) string {
+	blocked, err := m.squadsBlocked(guildID, i)
+	if err != nil {
+		m.config.Logger.Warnf("squads: check blocked role for %s: %v", userID(i), err)
+		return "❌ Could not check your squad access. Try again in a moment."
+	}
+	if blocked {
+		return blockedText
+	}
+	return ""
+}
+
 // handleJoinButton opens the picker from an intro post or a re-join DM.
 func (m *Module) handleJoinButton(s *discordgo.Session, i *discordgo.InteractionCreate, guildID, ownerID, threadID string) {
 	uid := userID(i)
@@ -148,7 +191,18 @@ func (m *Module) handleJoinButton(s *discordgo.Session, i *discordgo.Interaction
 	if !m.squadsOpen(s, i, guildID) {
 		return
 	}
-	m.respond(s, i, m.pickerView(pickerCtx{GuildID: guildID, ThreadID: threadID}, uid, ""))
+	reply := m.respond
+	if m.blockedNeedsLookup(guildID, i) {
+		if !m.deferReply(s, i) {
+			return
+		}
+		reply = m.edit
+	}
+	if msg := m.joinBlockedText(guildID, i); msg != "" {
+		reply(s, i, ephemeral(msg))
+		return
+	}
+	reply(s, i, m.pickerView(pickerCtx{GuildID: guildID, ThreadID: threadID}, uid, ""))
 }
 
 func (m *Module) handleAddButton(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx) {
@@ -332,6 +386,10 @@ func (m *Module) handleDone(s *discordgo.Session, i *discordgo.InteractionCreate
 	if !m.deferUpdate(s, i) {
 		return
 	}
+	if msg := m.joinBlockedText(ctx.GuildID, i); msg != "" {
+		m.editText(s, i, msg)
+		return
+	}
 	picks, err := m.db.SquadPicks(ctx.GuildID, uid)
 	if err != nil {
 		m.edit(s, i, m.pickerView(ctx, uid, "❌ Could not load your games. Try again in a moment."))
@@ -390,6 +448,10 @@ func (m *Module) handleSquad(s *discordgo.Session, i *discordgo.InteractionCreat
 	switch opts[0].Name {
 	case "join":
 		if !m.squadsOpen(s, i, i.GuildID) {
+			return
+		}
+		if msg := m.joinBlockedText(i.GuildID, i); msg != "" {
+			m.respondText(s, i, msg)
 			return
 		}
 		m.respond(s, i, m.pickerView(pickerCtx{GuildID: i.GuildID, ThreadID: m.lookupIntro(i.GuildID, uid)}, uid, ""))
@@ -457,7 +519,7 @@ func (m *Module) handleLeaveConfirm(s *discordgo.Session, i *discordgo.Interacti
 	uid := userID(i)
 	lock := m.guildLock(i.GuildID)
 	lock.Lock()
-	sq, err := m.removeMember(i.GuildID, uid, id, "left")
+	sq, err := m.removeMember(i.GuildID, uid, id, database.SquadLeaveVoluntary, "left")
 	lock.Unlock()
 	switch {
 	case errors.Is(err, errNotMember):

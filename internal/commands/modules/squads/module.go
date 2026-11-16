@@ -165,6 +165,8 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Contexts:                 guildOnly,
 			Options: []*discordgo.ApplicationCommandOption{
 				sub("status", "Queue size, next pairing and live squads"),
+				sub("ghosters", "Show the top 10 voluntary zero-message squad departures"),
+				sub("trends", "Show the top games, age groups, regions, platforms and genres"),
 				sub("dryrun", "Show what pairing would do right now, without changing anything"),
 				sub("run-now", "Run pairing right now"),
 				sub("user", "Show someone's games, queue and squad", userOpt("Member")),
@@ -376,14 +378,24 @@ func parseID(s string) (int64, bool) {
 // modLog posts a squad action to the mod action log as an embed, if a log
 // channel is configured.
 func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.MessageEmbedField) {
+	if err := m.modLogFiles(guildID, title, color, nil, fields...); err != nil {
+		m.config.Logger.Warnf("squads: mod log: %v", err)
+	}
+}
+
+func (m *Module) modLogFiles(guildID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) error {
 	ch := m.config.ForGuild(guildID).GetGamerPalsModActionLogChannelID()
 	if ch == "" {
-		return
+		return nil
 	}
+	return m.modLogFilesTo(ch, title, color, files, fields...)
+}
+
+func (m *Module) modLogFilesTo(channelID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) error {
 	for _, f := range fields {
 		f.Value = truncate(f.Value, 1024)
 	}
-	if _, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
+	_, err := m.dc(nil).Send(channelID, &discordgo.MessageSend{
 		Embeds: []*discordgo.MessageEmbed{{
 			Title:     title,
 			Color:     color,
@@ -391,10 +403,10 @@ func (m *Module) modLog(guildID, title string, color int, fields ...*discordgo.M
 			Timestamp: m.now().Format(time.RFC3339),
 			Footer:    &discordgo.MessageEmbedFooter{Text: "Squads"},
 		}},
+		Files:           files,
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
-	}); err != nil {
-		m.config.Logger.Warnf("squads: mod log: %v", err)
-	}
+	})
+	return err
 }
 
 func logField(name, value string, inline bool) *discordgo.MessageEmbedField {

@@ -94,6 +94,7 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeySquadsCategoryID,
 		config.KeySquadsVisibility,
 		config.KeySquadsModRoleID,
+		config.KeySquadsBlockedRoleID,
 		config.KeySquadsTargetSize,
 		config.KeySquadsMinSize,
 		config.KeySquadsMaxSize,

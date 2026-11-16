@@ -228,6 +228,8 @@ scamguard_seed_hashes_path: ""
 # SQLite database path. Default: "./gamerpal.db".
 # In the container image this is overridden to "/data/gamerpal.db" so it
 # lives on the mounted persistent volume.
+# Pending squad transcripts are stored beside it in a durable
+# "<database_path>.squad-transcripts" directory until delivery completes.
 database_path: "./gamerpal.db"
 
 # Directory for rotating log files. Default: "./logs". Ignored when

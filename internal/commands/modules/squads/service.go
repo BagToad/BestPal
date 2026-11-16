@@ -2,7 +2,10 @@ package squads
 
 import (
 	"errors"
+	"fmt"
 	"time"
+
+	"gamerpal/internal/database"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -70,6 +73,7 @@ func (m *Module) tickGuild(guildID string) {
 	if !gc.GetSquadsEnabled() {
 		return
 	}
+	m.sendInactivityReminders(guildID)
 	last, err := m.db.SquadLastMatch(guildID)
 	if err != nil {
 		m.config.Logger.Warnf("squads: read last match: %v", err)
@@ -86,6 +90,52 @@ func (m *Module) tickGuild(guildID string) {
 	if len(report.Created)+len(report.Plan.Joins)+len(report.Plan.Unmatched) > 0 {
 		m.config.Logger.Infof("squads: matched in %s: %d new squads, %d late joins, %d unmatched",
 			guildID, len(report.Created), len(report.Plan.Joins), len(report.Plan.Unmatched))
+	}
+}
+
+const squadReminderInterval = 24 * time.Hour
+
+// sendInactivityReminders nudges current members daily until they speak in
+// their squad. Callers hold the guild lock.
+func (m *Module) sendInactivityReminders(guildID string) {
+	now := m.now()
+	reminders, err := m.db.DueSquadReminders(guildID, now, squadReminderInterval)
+	if err != nil {
+		m.config.Logger.Warnf("squads: load inactivity reminders: %v", err)
+		return
+	}
+	for _, reminder := range reminders {
+		since := reminder.JoinedAt
+		if reminder.LastReminderAt.After(since) {
+			since = reminder.LastReminderAt
+		}
+		spoke, err := m.dc(nil).UserMessagedAfter(reminder.ChannelID, reminder.UserID, since)
+		if err != nil {
+			m.config.Logger.Warnf("squads: reconcile activity for %s: %v", reminder.UserID, err)
+			if markErr := m.db.MarkSquadReminderReconcileFailed(reminder.HistoryID, now); markErr != nil {
+				m.config.Logger.Warnf("squads: back off activity reconciliation for %s: %v", reminder.UserID, markErr)
+			}
+			continue
+		}
+		if spoke {
+			if err := m.db.MarkSquadMemberMessaged(reminder.SquadID, reminder.UserID, now); err != nil {
+				m.config.Logger.Warnf("squads: record reconciled activity for %s: %v", reminder.UserID, err)
+			}
+			continue
+		}
+		// Claim before the network call so a timeout or closed DM cannot cause
+		// another attempt on the next five-minute tick.
+		if err := m.db.MarkSquadReminder(reminder.HistoryID, now); err != nil {
+			m.config.Logger.Warnf("squads: mark inactivity reminder for %s: %v", reminder.UserID, err)
+			continue
+		}
+		msg := &discordgo.MessageSend{
+			Content:         fmt.Sprintf("👋 **Your squad is waiting for you!**\nSay hello in **%s**: <#%s>. Once you send a message there, these reminders stop.", reminder.SquadName, reminder.ChannelID),
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		}
+		if err := m.dc(nil).DM(reminder.UserID, msg); err != nil {
+			m.config.Logger.Warnf("squads: inactivity reminder to %s: %v", reminder.UserID, err)
+		}
 	}
 }
 
@@ -134,7 +184,7 @@ func (m *Module) reconcileDepartures(guildID string) {
 				m.config.Logger.Warnf("squads: look up %s in %s: %v", uid, sq.Name, err)
 				continue
 			}
-			if _, err := m.removeMember(guildID, uid, sq.ID, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
+			if _, err := m.removeMember(guildID, uid, sq.ID, database.SquadLeaveServer, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
 				m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
 			}
 		}
@@ -217,16 +267,14 @@ const activityThrottle = time.Minute
 
 // OnMessageCreate records chat in squad channels, which keeps them alive.
 func (m *Module) OnMessageCreate(_ *discordgo.Session, mc *discordgo.MessageCreate) {
-	if mc.Author == nil || mc.Author.Bot || m.db == nil {
+	if mc == nil || mc.Message == nil || mc.Author == nil || mc.Author.Bot || m.db == nil {
 		return
 	}
 	now := m.now()
 	m.chMu.Lock()
 	id, ok := m.channels[mc.ChannelID]
-	if ok && now.Sub(m.touched[id]) < activityThrottle {
-		ok = false
-	}
-	if ok {
+	touch := ok && now.Sub(m.touched[id]) >= activityThrottle
+	if touch {
 		m.touched[id] = now
 	}
 	m.chMu.Unlock()
@@ -238,8 +286,13 @@ func (m *Module) OnMessageCreate(_ *discordgo.Session, mc *discordgo.MessageCrea
 	lock := m.guildLock(mc.GuildID)
 	lock.Lock()
 	defer lock.Unlock()
-	if err := m.db.TouchSquad(id, now); err != nil {
-		m.config.Logger.Warnf("squads: record activity: %v", err)
+	if err := m.db.MarkSquadMemberMessaged(id, mc.Author.ID, now); err != nil {
+		m.config.Logger.Warnf("squads: record member activity: %v", err)
+	}
+	if touch {
+		if err := m.db.TouchSquad(id, now); err != nil {
+			m.config.Logger.Warnf("squads: record activity: %v", err)
+		}
 	}
 }
 
@@ -274,7 +327,7 @@ func (m *Module) OnGuildMemberRemove(_ *discordgo.Session, r *discordgo.GuildMem
 	if _, err := m.db.DequeueSquadUser(r.GuildID, r.User.ID); err != nil {
 		m.config.Logger.Warnf("squads: dequeue departed member: %v", err)
 	}
-	if _, err := m.removeMember(r.GuildID, r.User.ID, 0, "left the server and"); err != nil && err != errNotMember {
+	if _, err := m.removeMember(r.GuildID, r.User.ID, 0, database.SquadLeaveServer, "left the server and"); err != nil && err != errNotMember {
 		m.config.Logger.Warnf("squads: remove departed member: %v", err)
 	}
 }

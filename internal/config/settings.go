@@ -69,6 +69,7 @@ const (
 	KeySquadsCategoryID       = "squads_category_id"
 	KeySquadsVisibility       = "squads_visibility"
 	KeySquadsModRoleID        = "squads_mod_role_id"
+	KeySquadsBlockedRoleID    = "squads_blocked_role_id"
 	KeySquadsTargetSize       = "squads_target_size"
 	KeySquadsMinSize          = "squads_min_size"
 	KeySquadsMaxSize          = "squads_max_size"

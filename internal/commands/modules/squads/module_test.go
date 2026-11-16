@@ -1,9 +1,14 @@
 package squads
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -26,38 +31,44 @@ type sentMsg struct {
 }
 
 type fakeAPI struct {
-	mu         sync.Mutex
-	nextID     int
-	responses  []*discordgo.InteractionResponse
-	edits      []*discordgo.WebhookEdit
-	sent       []sentMsg
-	dms        []sentMsg
-	pins       []string
-	members    map[string]*discordgo.Member
-	roles      map[string]string // role ID -> name
-	channels   map[string]discordgo.GuildChannelCreateData
-	roleAdds   []string // "user:role"
-	roleRems   []string
-	delCh      []string
-	delRoles   []string
-	permEdits  map[string][]*discordgo.PermissionOverwrite
-	dmErr      error
-	sendErr    map[string]error
-	addErr     error
-	removeErr  error
-	deleteErr  error
-	roleDelErr error
-	memberErr  map[string]error
-	catPerms   []*discordgo.PermissionOverwrite
-	lastHuman  map[string]time.Time
-	historyErr error
-	prompted   map[string]bool // thread ID -> already has a join button
+	mu          sync.Mutex
+	nextID      int
+	responses   []*discordgo.InteractionResponse
+	edits       []*discordgo.WebhookEdit
+	sent        []sentMsg
+	dms         []sentMsg
+	pins        []string
+	members     map[string]*discordgo.Member
+	roles       map[string]string // role ID -> name
+	channels    map[string]discordgo.GuildChannelCreateData
+	roleAdds    []string // "user:role"
+	roleRems    []string
+	delCh       []string
+	delRoles    []string
+	permEdits   map[string][]*discordgo.PermissionOverwrite
+	permErr     error
+	dmErr       error
+	sendErr     map[string]error
+	sendErrOnce map[string]error
+	addErr      error
+	removeErr   error
+	deleteErr   error
+	deleteHook  func()
+	roleDelErr  error
+	memberErr   map[string]error
+	catPerms    []*discordgo.PermissionOverwrite
+	lastHuman   map[string]time.Time
+	humanByUser map[string]map[string]time.Time
+	messages    map[string][]*discordgo.Message
+	historyErr  error
+	prompted    map[string]bool // thread ID -> already has a join button
 }
 
 func newFakeAPI() *fakeAPI {
 	return &fakeAPI{nextID: 100, members: map[string]*discordgo.Member{}, roles: map[string]string{},
-		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{},
-		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}}
+		channels: map[string]discordgo.GuildChannelCreateData{}, permEdits: map[string][]*discordgo.PermissionOverwrite{}, sendErr: map[string]error{}, sendErrOnce: map[string]error{},
+		memberErr: map[string]error{}, lastHuman: map[string]time.Time{}, humanByUser: map[string]map[string]time.Time{},
+		messages: map[string][]*discordgo.Message{}}
 }
 
 func (f *fakeAPI) id() string { f.nextID++; return fmt.Sprint(f.nextID) }
@@ -77,6 +88,10 @@ func (f *fakeAPI) EditResponse(_ *discordgo.Interaction, e *discordgo.WebhookEdi
 func (f *fakeAPI) Send(ch string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := f.sendErrOnce[ch]; err != nil {
+		delete(f.sendErrOnce, ch)
+		return nil, err
+	}
 	if err := f.sendErr[ch]; err != nil {
 		return nil, err
 	}
@@ -125,18 +140,43 @@ func (f *fakeAPI) CreateChannel(_ string, d discordgo.GuildChannelCreateData) (*
 	return &discordgo.Channel{ID: id, Name: d.Name}, nil
 }
 func (f *fakeAPI) EditChannelPerms(id string, o []*discordgo.PermissionOverwrite) error {
+	if f.permErr != nil {
+		return f.permErr
+	}
 	f.permEdits[id] = o
 	return nil
+}
+func (f *fakeAPI) FreezeChannel(id string) error {
+	if f.permErr != nil {
+		return f.permErr
+	}
+	channel, err := f.Channel(id)
+	if err != nil {
+		return err
+	}
+	return f.EditChannelPerms(id, frozenOverwrites(channel.PermissionOverwrites, f.BotID()))
 }
 func (f *fakeAPI) DeleteChannel(id string) error {
 	if f.deleteErr != nil {
 		return f.deleteErr
 	}
 	f.delCh = append(f.delCh, id)
+	if f.deleteHook != nil {
+		f.deleteHook()
+	}
 	return nil
 }
 func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
+	if created, ok := f.channels[id]; ok {
+		return &discordgo.Channel{ID: id, Type: created.Type, PermissionOverwrites: created.PermissionOverwrites}, nil
+	}
 	return &discordgo.Channel{ID: id, Type: discordgo.ChannelTypeGuildCategory, PermissionOverwrites: f.catPerms}, nil
+}
+func (f *fakeAPI) ChannelMessages(id string) ([]*discordgo.Message, error) {
+	if f.historyErr != nil {
+		return nil, f.historyErr
+	}
+	return f.messages[id], nil
 }
 func (f *fakeAPI) LastHumanMessage(ch string, since time.Time) (time.Time, error) {
 	if f.historyErr != nil {
@@ -146,6 +186,12 @@ func (f *fakeAPI) LastHumanMessage(ch string, since time.Time) (time.Time, error
 		return last, nil
 	}
 	return time.Time{}, nil
+}
+func (f *fakeAPI) UserMessagedAfter(ch, uid string, since time.Time) (bool, error) {
+	if f.historyErr != nil {
+		return false, f.historyErr
+	}
+	return f.humanByUser[ch][uid].After(since), nil
 }
 func (f *fakeAPI) DM(uid string, msg *discordgo.MessageSend) error {
 	if f.dmErr != nil {
@@ -336,6 +382,75 @@ func TestPickerClosedWhenDisabled(t *testing.T) {
 	assert.Contains(t, api.lastResponse().Data.Content, "aren't open")
 }
 
+func TestBlockedRoleStopsJoining(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{config.KeySquadsBlockedRoleID: "squad-blocked"})
+	blockedClick := func(customID string) *discordgo.InteractionCreate {
+		i := component("alice", customID)
+		i.Member.Roles = []string{"squad-blocked"}
+		return i
+	}
+
+	m.HandleComponent(nil, blockedClick(prefix+"join:"+guild+":alice:thread1"))
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+	assert.Equal(t, "This feature is currently disabled for you. Please ask a moderator for assistance.", blockedText)
+
+	slash := command("alice", 0, "squad", "join")
+	slash.Member.Roles = []string{"squad-blocked"}
+	m.handleSquad(nil, slash)
+	assert.Equal(t, blockedText, api.lastResponse().Data.Content)
+
+	// An already-open picker can't finish into the queue either.
+	_, _, err := db.AddSquadPick(guild, "alice", database.SquadPick{GameID: 1, Name: "Game 1"}, maxPicks, *now)
+	require.NoError(t, err)
+	m.HandleComponent(nil, blockedClick(pickerCtx{GuildID: guild, ThreadID: "thread1"}.id("done")))
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, api.lastResponse().Type)
+	assert.Equal(t, blockedText, editContent(api.lastEdit()))
+	_, queued, err := db.SquadQueueEntryFor(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, queued)
+
+	// Re-join buttons in DMs carry no member, so the role is looked up.
+	member(api, "alice", "squad-blocked")
+	dm := component("alice", prefix+"join:"+guild+"::")
+	dm.GuildID, dm.Member, dm.User = "", nil, &discordgo.User{ID: "alice"}
+	m.HandleComponent(nil, dm)
+	assert.Equal(t, discordgo.InteractionResponseDeferredChannelMessageWithSource, api.lastResponse().Type,
+		"DM clicks defer before the member lookup")
+	assert.Equal(t, blockedText, editContent(api.lastEdit()))
+	member(api, "alice")
+	m.HandleComponent(nil, dm)
+	assert.Contains(t, editContent(api.lastEdit()), "Your squad games")
+
+	// Without the role, the picker opens as usual.
+	m.HandleComponent(nil, component("alice", prefix+"join:"+guild+":alice:thread1"))
+	assert.Contains(t, api.lastResponse().Data.Content, "Your squad games")
+}
+
+func TestBlockedRoleRemovesQueuedPeople(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{config.KeySquadsBlockedRoleID: "squad-blocked"})
+	people := []string{"u1", "u2", "u3", "u4", "u5", "u6"}
+	queue(t, m, api, db, now.Add(-time.Hour), people, []int64{1}, "role-eu", "role-25")
+	member(api, "u1", "role-eu", "role-25", "squad-blocked")
+
+	report, err := m.runMatch(guild, true)
+	require.NoError(t, err)
+	assert.Equal(t, 5, report.Queued)
+	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
+	require.NoError(t, err)
+	assert.True(t, queued, "a dry run changes nothing")
+	text := reportText(report, true)
+	assert.NotContains(t, text, "<@u1>", "blocked people are not listed in reports")
+	assert.NotContains(t, text, "Blocked")
+
+	require.NoError(t, m.tick())
+	_, inSquad, err := db.SquadForUser(guild, "u1")
+	require.NoError(t, err)
+	assert.False(t, inSquad, "blocked people are never placed")
+	_, queued, err = db.SquadQueueEntryFor(guild, "u1")
+	require.NoError(t, err)
+	assert.False(t, queued, "blocked people are removed from the queue")
+}
+
 // queue puts people in the queue with the given picks and roles.
 func queue(t *testing.T, m *Module, api *fakeAPI, db *database.DB, at time.Time, uids []string, games []int64, roles ...string) {
 	t.Helper()
@@ -394,6 +509,31 @@ func TestRunMatchCreatesSquad(t *testing.T) {
 	assert.Empty(t, api.channels)
 }
 
+func TestCreateSquadDMsEveryMember(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+
+	require.Len(t, api.dms, 3)
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, []string{api.dms[0].ChannelID, api.dms[1].ChannelID, api.dms[2].ChannelID})
+	for _, dm := range api.dms {
+		assert.Contains(t, dm.Msg.Content, "Squad Axolotl is ready")
+		assert.Contains(t, dm.Msg.Content, "https://discord.com/channels/"+guild+"/"+sq.ChannelID)
+		assert.Empty(t, dm.Msg.AllowedMentions.Users)
+	}
+}
+
+func TestCreateSquadContinuesWhenDMsFail(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	api.dmErr = errors.New("DMs closed")
+	sq := makeSquad(t, m, api, db, "a", "b")
+
+	_, ok, err := db.GetSquad(sq.ID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Contains(t, api.sent[0].Msg.Content, "Welcome to Squad Axolotl")
+	assert.Empty(t, api.dms)
+}
+
 func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	for n := range 6 {
@@ -408,6 +548,72 @@ func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
 	require.Len(t, squads, 1)
 	assert.Equal(t, 6, squads[0].Members)
 	assert.Contains(t, api.sent[0].Msg.Content, "matched because you're all into **Shooter**")
+}
+
+func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for n := range 6 {
+		uid := fmt.Sprintf("u%d", n)
+		member(api, uid, "role-eu", "role-25")
+		_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{
+			GameID: int64(n + 1), Name: fmt.Sprintf("Game %d", n+1), Tags: []string{"Kids"},
+		}, maxPicks, *now)
+		require.NoError(t, err)
+		require.NoError(t, db.SetSquadTryNewGames(guild, uid, true))
+		require.NoError(t, db.EnqueueSquadUser(guild, uid, "", *now))
+	}
+
+	require.NoError(t, m.tick())
+	squads, err := db.ListSquads(guild)
+	require.NoError(t, err)
+	assert.Empty(t, squads)
+	assert.NotContains(t, m.userText(guild, "u0"), "Kids")
+}
+
+func TestRunMatchUsesPersistedPreviousPartners(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	previous, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Previous"}, []string{"u1", "u2"}, now.Add(-3*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(previous.ID, now.Add(-2*time.Hour)))
+
+	people := []string{"u1", "u2", "u3", "u4", "u5", "u6", "u7"}
+	queue(t, m, api, db, now.Add(-time.Hour), people, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, m.tick())
+
+	squads, err := db.ListSquads(guild)
+	require.NoError(t, err)
+	require.Len(t, squads, 1)
+	members, err := db.SquadMemberIDs(squads[0].ID)
+	require.NoError(t, err)
+	assert.False(t, slices.Contains(members, "u1") && slices.Contains(members, "u2"), "previous partners must not be rematched")
+}
+
+func TestRunMatchRejectsLateJoinAvoidedByExistingMember(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for _, uid := range []string{"existing", "teammate", "late", "new-partner"} {
+		member(api, uid, "role-eu", "role-25")
+		_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{GameID: 1, Name: "Game 1"}, maxPicks, now.Add(-5*time.Hour))
+		require.NoError(t, err)
+	}
+
+	current, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Current", ChannelID: "current-channel", RoleID: "current-role"},
+		[]string{"existing", "teammate", "late"}, now.Add(-4*time.Hour))
+	require.NoError(t, err)
+	_, removed, err := db.RemoveSquadMember(guild, "late", database.SquadLeaveVoluntary, now.Add(-3*time.Hour))
+	require.NoError(t, err)
+	require.True(t, removed)
+	newer, err := db.CreateSquad(database.Squad{GuildID: guild, Name: "Newer"}, []string{"late", "new-partner"}, now.Add(-2*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, db.DeleteSquad(newer.ID, now.Add(-time.Hour)))
+	require.NoError(t, db.EnqueueSquadUser(guild, "late", "intro-late", now.Add(-49*time.Hour)))
+
+	require.NoError(t, m.tick())
+	members, err := db.SquadMemberIDs(current.ID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"existing", "teammate"}, members)
+	_, queued, err := db.SquadQueueEntryFor(guild, "late")
+	require.NoError(t, err)
+	assert.True(t, queued, "one-sided persisted avoidance must reject the late join")
 }
 
 func TestPrivateVisibilityHidesChannel(t *testing.T) {
@@ -486,6 +692,10 @@ func makeSquad(t *testing.T, m *Module, api *fakeAPI, db *database.DB, uids ...s
 func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.messages[sq.ChannelID] = []*discordgo.Message{
+		{ID: "m1", Timestamp: now.Add(time.Minute), Author: &discordgo.User{ID: "a", Username: "alice"}, Content: "hello squad"},
+		{ID: "m2", Timestamp: now.Add(2 * time.Minute), Author: &discordgo.User{ID: "b", Username: "bob"}, Content: "hi!", Attachments: []*discordgo.MessageAttachment{{Filename: "cat.png", URL: "https://cdn.example/cat.png"}}},
+	}
 
 	*now = now.Add(7*24*time.Hour - time.Minute)
 	require.NoError(t, m.tick())
@@ -519,6 +729,272 @@ func TestQuietSquadIsWarnedThenDeleted(t *testing.T) {
 	log := modLogEntry(t, api)
 	assert.Equal(t, "🗑️ Squad Deleted", log.Title)
 	assert.Contains(t, embedText(log), "It was quiet for too long")
+	logMessage := modLogMessage(t, api)
+	require.Len(t, logMessage.Files, 1)
+	assert.Equal(t, fmt.Sprintf("squad-%d-transcript.txt", sq.ID), logMessage.Files[0].Name)
+	transcript, err := io.ReadAll(logMessage.Files[0].Reader)
+	require.NoError(t, err)
+	assert.Contains(t, string(transcript), "alice (a) · message m1 · type 0\n  hello squad")
+	assert.Contains(t, string(transcript), "bob (b) · message m2 · type 0\n  hi!\n  Attachment: cat.png (https://cdn.example/cat.png)")
+}
+
+func TestSquadDeletionWaitsForCompleteTranscript(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.historyErr = errors.New("history unavailable")
+
+	err := m.deleteSquad(sq, "a mod deleted it")
+	require.ErrorContains(t, err, "capture channel transcript")
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.True(t, ok)
+	assert.Empty(t, api.delCh)
+	assert.Empty(t, api.delRoles)
+}
+
+func TestSquadDeletionRetriesPersistedTranscriptDelivery(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{
+		ID: "m1", Timestamp: time.Unix(100, 0), Author: &discordgo.User{ID: "a", Username: "alice"}, Content: "saved",
+	}}
+	api.sendErr["modlog"] = errors.New("missing attach files")
+
+	err := m.deleteSquad(sq, "a mod deleted it")
+	require.ErrorContains(t, err, "deliver deletion transcript")
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.True(t, ok, "the database row retains the transcript for retry")
+	assert.Contains(t, api.delCh, sq.ChannelID)
+	persisted, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Contains(t, string(persisted.Data), "saved")
+
+	delete(api.sendErr, "modlog")
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	require.Len(t, modLogMessage(t, api).Files, 1)
+}
+
+func TestSquadDeletionDoesNotTrapMembersWhenLogConfigIsRemoved(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = errors.New("temporary failure")
+	require.Error(t, m.deleteSquad(sq, "a mod deleted it"))
+
+	m.config = config.NewMockConfig(map[string]any{
+		"gamerpals_server_id":           guild,
+		config.KeyModActionLogChannelID: "",
+	})
+	require.NoError(t, m.deleteSquad(sq, "its channel was deleted"))
+	_, ok, getErr := db.GetSquad(sq.ID)
+	require.NoError(t, getErr)
+	assert.False(t, ok, "removed logging configuration cannot trap members in a deleting squad")
+}
+
+func TestSquadDeletionUsesSelectedLogDestinationWhenConfigChanges(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.deleteHook = func() {
+		m.config = config.NewMockConfig(map[string]any{
+			"gamerpals_server_id":           guild,
+			config.KeyModActionLogChannelID: "",
+		})
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, err := db.GetSquad(sq.ID)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	msg := modLogMessage(t, api)
+	require.Len(t, msg.Files, 1, "the transcript is sent to the destination selected before deletion")
+}
+
+func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErrOnce["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "413 Request Entity Too Large"},
+		Message:  &discordgo.APIErrorMessage{Code: 40005},
+	}
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
+}
+
+func TestHTTP413WithoutDiscordCodeFallsBackToEmbed(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErrOnce["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "413 Request Entity Too Large", StatusCode: http.StatusRequestEntityTooLarge},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, embedText(modLogEntry(t, api)), "Attachment failed permanently")
+}
+
+func TestUnavailableLogChannelDoesNotTrapSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "404 Not Found"},
+		Message:  &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "an unreachable log destination cannot trap members in a deleting squad")
+}
+
+func TestNonTextLogDestinationDoesNotTrapSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "400 Bad Request"},
+		Message:  &discordgo.APIErrorMessage{Code: 50008},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "a non-text log destination cannot trap members in a deleting squad")
+}
+
+func TestMissingSendPermissionOnLogFallbackDoesNotTrapSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.sendErr["modlog"] = &discordgo.RESTError{
+		Response: &http.Response{Status: "403 Forbidden"},
+		Message:  &discordgo.APIErrorMessage{Code: 50013},
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "missing send permission cannot trap members in a deleting squad")
+}
+
+func TestTranscriptPaginationIsChronologicalAndBounded(t *testing.T) {
+	page := func(high, low int) []*discordgo.Message {
+		messages := make([]*discordgo.Message, 0, high-low+1)
+		for id := high; id >= low; id-- {
+			messages = append(messages, &discordgo.Message{ID: fmt.Sprint(id)})
+		}
+		return messages
+	}
+	pages := map[string][]*discordgo.Message{"": page(200, 101), "101": page(100, 1), "1": {}}
+	messages, err := collectTranscriptMessages(func(before string) ([]*discordgo.Message, error) { return pages[before], nil })
+	require.NoError(t, err)
+	require.Len(t, messages, 200)
+	assert.Equal(t, "1", messages[0].ID)
+	assert.Equal(t, "200", messages[len(messages)-1].ID)
+
+	exactCalls := 0
+	exact, err := collectTranscriptMessages(func(string) ([]*discordgo.Message, error) {
+		exactCalls++
+		if exactCalls <= maxTranscriptHistoryPages {
+			return page(100, 1), nil
+		}
+		return nil, nil
+	})
+	require.NoError(t, err)
+	assert.Len(t, exact, maxTranscriptHistoryPages*100)
+
+	calls := 0
+	_, err = collectTranscriptMessages(func(string) ([]*discordgo.Message, error) {
+		calls++
+		return page(100, 1), nil
+	})
+	require.ErrorIs(t, err, errTranscriptHistoryTooLong)
+	assert.Equal(t, maxTranscriptHistoryPages+1, calls)
+}
+
+func TestTranscriptCompressionAndFrozenPermissions(t *testing.T) {
+	sq := database.Squad{ID: 42, Name: "Axolotl", ChannelID: "channel"}
+	large := strings.Repeat("same transcript line\n", maxTranscriptUploadBytes/10)
+	transcript, err := squadTranscript(sq, []*discordgo.Message{{Content: large}}, time.Unix(100, 0))
+	require.NoError(t, err)
+	assert.Equal(t, "application/zip", transcript.ContentType)
+	zr, err := zip.NewReader(bytes.NewReader(transcript.Data), int64(len(transcript.Data)))
+	require.NoError(t, err)
+	require.Len(t, zr.File, 1)
+
+	blocked := int64(discordgo.PermissionSendMessages | discordgo.PermissionAddReactions)
+	overwrites := frozenOverwrites([]*discordgo.PermissionOverwrite{
+		{ID: "member", Allow: blocked}, {ID: "bot", Allow: blocked},
+	}, "bot")
+	assert.Zero(t, overwrites[0].Allow&blocked)
+	assert.Equal(t, blocked, overwrites[0].Deny&blocked)
+	assert.Equal(t, blocked, overwrites[1].Allow&blocked, "the bot remains able to read and operate")
+}
+
+func TestInactiveMembersGetDailyDMUntilTheySpeak(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil // Ignore the squad-formed notifications from the prior layer.
+
+	*now = now.Add(24*time.Hour - time.Second)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms)
+
+	*now = now.Add(time.Second)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 2)
+	assert.Contains(t, api.dms[0].Msg.Content, "Your squad is waiting for you")
+	assert.Contains(t, api.dms[0].Msg.Content, "<#"+sq.ChannelID+">")
+
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.tick())
+	assert.Len(t, api.dms, 2, "the five-minute scheduler does not repeat a daily reminder")
+
+	m.OnMessageCreate(nil, &discordgo.MessageCreate{Message: &discordgo.Message{
+		GuildID: guild, ChannelID: sq.ChannelID, Author: &discordgo.User{ID: "a"},
+	}})
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 3)
+	assert.Equal(t, "b", api.dms[2].ChannelID, "only the member who has not spoken is reminded again")
+}
+
+func TestInactivityRemindersReconcileMessagesSentWhileOffline(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil
+	api.humanByUser[sq.ChannelID] = map[string]time.Time{"a": now.Add(time.Hour)}
+
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 1)
+	assert.Equal(t, "b", api.dms[0].ChannelID)
+}
+
+func TestInactivityReminderHistoryFailuresBackOffDaily(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.dms = nil
+	api.humanByUser[sq.ChannelID] = map[string]time.Time{"a": now.Add(time.Hour)}
+	api.historyErr = errors.New("history unavailable")
+
+	*now = now.Add(24 * time.Hour)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms)
+	api.historyErr = nil
+	*now = now.Add(time.Hour)
+	require.NoError(t, m.tick())
+	assert.Empty(t, api.dms, "a failed history scan is not retried every scheduler tick")
+	*now = now.Add(23 * time.Hour)
+	require.NoError(t, m.tick())
+	require.Len(t, api.dms, 1)
+	assert.Equal(t, "b", api.dms[0].ChannelID, "the retry still scans from join and finds activity before the failed attempt")
 }
 
 func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
@@ -541,6 +1017,9 @@ func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
 	assert.Contains(t, api.delCh, sq.ChannelID)
 	_, inSquad, _ := db.SquadForUser(guild, "c")
 	assert.False(t, inSquad)
+	require.Len(t, api.dms, 4, "the three formation DMs plus one deletion DM")
+	assert.Equal(t, "c", api.dms[3].ChannelID)
+	assert.Contains(t, api.dms[3].Msg.Content, "Squad Axolotl was deleted")
 }
 
 func TestMemberLeavingServerLeavesSquadAndQueue(t *testing.T) {
@@ -554,6 +1033,125 @@ func TestMemberLeavingServerLeavesSquadAndQueue(t *testing.T) {
 	assert.Equal(t, 2, sq.Members)
 	q, _ := db.SquadQueue(guild)
 	assert.Empty(t, q)
+}
+
+func TestAdminGhostingHistoryAndLeaderboard(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+
+	assert.Contains(t, m.userText(guild, "a"), "1 memberships · 1 ghosting departures")
+	out := m.ghostersText(guild)
+	assert.Contains(t, out, "Top squad ghosters")
+	assert.Contains(t, out, "<@a> — **1** ghosting departures")
+	assert.NotContains(t, out, "<@b>", "automatic squad deletion is not ghosting")
+
+	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "ghosters"))
+	assert.Contains(t, editContent(api.lastEdit()), "<@a>")
+}
+
+func TestOfflineMessagePreventsGhostingCount(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.humanByUser[sq.ChannelID] = map[string]time.Time{"a": now.Add(time.Minute)}
+
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	stats, err := db.SquadUserHistoryStats(guild, "a")
+	require.NoError(t, err)
+	assert.Zero(t, stats.Ghosting)
+}
+
+func TestAdminUserCompatibilityRegister(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	member(api, "b", "role-eu", "role-25")
+	member(api, "c", "role-na", "role-25")
+	for _, tc := range []struct {
+		uid   string
+		games []int64
+	}{{"a", []int64{1, 2}}, {"b", []int64{2, 3}}, {"c", []int64{1}}} {
+		for _, game := range tc.games {
+			_, _, err := db.AddSquadPick(guild, tc.uid, database.SquadPick{GameID: game, Name: fmt.Sprintf("Game %d", game)}, maxPicks, *now)
+			require.NoError(t, err)
+		}
+	}
+
+	text := m.userText(guild, "a")
+	assert.Contains(t, text, "2 shared games across 2 users")
+	assert.Contains(t, text, "1 user in the same timezone/region")
+	assert.Contains(t, text, "2 users in the same age group")
+	assert.Less(t, strings.Index(text, "**Compatibility:**"), strings.Index(text, "**Games"), "compatibility is preserved when the game list is truncated")
+
+	api.memberErr["b"] = errors.New("temporary Discord failure")
+	assert.Contains(t, m.userText(guild, "a"), "**Compatibility:** unavailable")
+}
+
+func TestAdminSquadTrends(t *testing.T) {
+	m, api, db, now := newTestModule(t, map[string]any{
+		config.KeySquadsPlatformPCRoleID:   "role-pc",
+		config.KeySquadsPlatformXboxRoleID: "role-xbox",
+	})
+	member(api, "a", "role-eu", "role-25", "role-pc")
+	member(api, "b", "role-eu", "role-25", "role-pc")
+	member(api, "c", "role-na", "role-25", "role-xbox")
+	picks := map[string][]database.SquadPick{
+		"a": {{GameID: 1, Name: "Game 1", Tags: []string{"Shooter", "Survival"}}},
+		"b": {
+			{GameID: 1, Name: "Game 1", Tags: []string{"shooter", "Kids"}},
+			{GameID: 2, Name: "Game 2", Tags: []string{"Adventure", "Shooter"}},
+		},
+		"c": {{GameID: 2, Name: "Game 2", Tags: []string{"Shooter"}}},
+	}
+	for uid, userPicks := range picks {
+		for _, pick := range userPicks {
+			_, _, err := db.AddSquadPick(guild, uid, pick, maxPicks, *now)
+			require.NoError(t, err)
+		}
+	}
+
+	out := m.trendsText(guild)
+	assert.Contains(t, out, "**Games:** Game 1 (**2**) · Game 2 (**2**)")
+	assert.Contains(t, out, "**Age groups:** Age group 2 (**3**)")
+	assert.Contains(t, out, "**Regions:** Europe (**2**) · North America (**1**)")
+	assert.Contains(t, out, "**Platforms:** PC (**2**) · Xbox (**1**)")
+	assert.Contains(t, out, "**Genres/themes:** Shooter (**3**) · Adventure (**1**) · Survival (**1**)")
+	assert.NotContains(t, out, "Kids")
+
+	m.handleAdmin(nil, command("mod", discordgo.PermissionBanMembers, "squad-admin", "trends"))
+	assert.Contains(t, editContent(api.lastEdit()), "Squad trends")
+
+	api.memberErr["c"] = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
+	out = m.trendsText(guild)
+	assert.Contains(t, out, "**Regions:** Europe (**2**)")
+	assert.NotContains(t, out, "North America")
+
+	api.memberErr["c"] = errors.New("temporary Discord failure")
+	assert.Equal(t, "❌ Could not load complete squad trends.", m.trendsText(guild))
+}
+
+func TestPopularityCounterUsesKeyAsFinalTieBreaker(t *testing.T) {
+	counter := newPopularityCounter()
+	counter.addKey("2", "game")
+	counter.addKey("1", "Game")
+	for range 100 {
+		assert.Equal(t, "Game (**1**)", counter.top(1))
+	}
+}
+
+func TestAdminSquadTrendsEmpty(t *testing.T) {
+	m, _, _, _ := newTestModule(t, nil)
+	out := m.trendsText(guild)
+	assert.Equal(t, "## 📊 Squad trends\n**Games:** none\n**Age groups:** none\n**Regions:** none\n**Platforms:** none\n**Genres/themes:** none", out)
+}
+
+func TestAdminSquadTrendsBoundsLongGameNames(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	member(api, "a")
+	for game := int64(1); game <= 3; game++ {
+		_, _, err := db.AddSquadPick(guild, "a", database.SquadPick{GameID: game, Name: strings.Repeat("long", 200)}, maxPicks, *now)
+		require.NoError(t, err)
+	}
+	assert.LessOrEqual(t, utf8.RuneCountInString(m.trendsText(guild)), 2000)
 }
 
 func TestChannelDeletedByHandCleansUp(t *testing.T) {
@@ -800,12 +1398,24 @@ func TestFailedDeleteKeepsSquadForRetry(t *testing.T) {
 	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
 	_, ok, _ := db.GetSquad(sq.ID)
 	assert.True(t, ok, "kept while the channel still exists")
+	assert.Len(t, api.dms, 2, "no deletion notification is sent before deletion succeeds")
 
 	api.deleteErr = nil
 	require.NoError(t, m.tick())
 	_, ok, _ = db.GetSquad(sq.ID)
 	assert.False(t, ok)
 	assert.Contains(t, api.delCh, sq.ChannelID)
+	require.Len(t, api.dms, 3, "the remaining member is notified only after deletion succeeds")
+	assert.Equal(t, "b", api.dms[2].ChannelID)
+}
+
+func TestDeletionDMsSkipMembersWhoLeftServer(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.memberErr["b"] = &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
+
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	assert.Len(t, api.dms, 2, "only the formation DMs were sent")
 }
 
 func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
@@ -815,6 +1425,7 @@ func TestPartlyDeletedSquadTakesNobody(t *testing.T) {
 	require.Error(t, m.deleteSquad(sq, "a mod deleted it"))
 	sq, ok, _ := db.GetSquad(sq.ID)
 	require.True(t, ok)
+	assert.NotContains(t, api.delCh, sq.ChannelID, "the channel remains available for transcript capture on retry")
 	assert.True(t, sq.Deleting())
 	assert.Contains(t, m.statusText(guild), "deleting (retrying")
 	assert.Contains(t, m.adminAdd(component("mod", "x"), "x", sq.ID), "being deleted")
@@ -1038,11 +1649,17 @@ func TestAdminCreate(t *testing.T) {
 // modLogEntry returns the last mod log embed.
 func modLogEntry(t *testing.T, api *fakeAPI) *discordgo.MessageEmbed {
 	t.Helper()
+	msg := modLogMessage(t, api)
+	require.Empty(t, msg.Content, "mod log entries are embeds")
+	require.Len(t, msg.Embeds, 1)
+	return msg.Embeds[0]
+}
+
+func modLogMessage(t *testing.T, api *fakeAPI) *discordgo.MessageSend {
+	t.Helper()
 	for n := len(api.sent) - 1; n >= 0; n-- {
 		if sm := api.sent[n]; sm.ChannelID == "modlog" {
-			require.Empty(t, sm.Msg.Content, "mod log entries are embeds")
-			require.Len(t, sm.Msg.Embeds, 1)
-			return sm.Msg.Embeds[0]
+			return sm.Msg
 		}
 	}
 	t.Fatal("no mod log entry")

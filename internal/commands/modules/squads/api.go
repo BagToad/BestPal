@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,13 +31,16 @@ type discordAPI interface {
 	RemoveRole(guildID, userID, roleID string) error
 	CreateChannel(guildID string, data discordgo.GuildChannelCreateData) (*discordgo.Channel, error)
 	EditChannelPerms(channelID string, overwrites []*discordgo.PermissionOverwrite) error
+	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
 	BotID() string
 	Channel(channelID string) (*discordgo.Channel, error)
+	ChannelMessages(channelID string) ([]*discordgo.Message, error)
 	// LastHumanMessage returns when a non-bot last posted in a channel after
 	// since (zero if nobody has).
 	LastHumanMessage(channelID string, since time.Time) (time.Time, error)
+	UserMessagedAfter(channelID, userID string, since time.Time) (bool, error)
 	// HasJoinPrompt reports whether the bot already posted a Join a squad
 	// button among a thread's first 100 messages.
 	HasJoinPrompt(threadID string) (bool, error)
@@ -95,6 +99,33 @@ func (a sessionAPI) EditChannelPerms(channelID string, overwrites []*discordgo.P
 	return err
 }
 
+func (a sessionAPI) FreezeChannel(channelID string) error {
+	channel, err := a.Channel(channelID)
+	if err != nil {
+		return err
+	}
+	return a.EditChannelPerms(channelID, frozenOverwrites(channel.PermissionOverwrites, a.BotID()))
+}
+
+func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []*discordgo.PermissionOverwrite {
+	blocked := int64(discordgo.PermissionSendMessages | discordgo.PermissionAddReactions |
+		discordgo.PermissionCreatePublicThreads | discordgo.PermissionCreatePrivateThreads |
+		discordgo.PermissionSendMessagesInThreads)
+	overwrites := make([]*discordgo.PermissionOverwrite, 0, len(current))
+	for _, overwrite := range current {
+		if overwrite == nil {
+			continue
+		}
+		copy := *overwrite
+		if copy.ID != botID {
+			copy.Allow &^= blocked
+			copy.Deny |= blocked
+		}
+		overwrites = append(overwrites, &copy)
+	}
+	return overwrites
+}
+
 func (a sessionAPI) DeleteChannel(channelID string) error {
 	_, err := a.s.ChannelDelete(channelID)
 	return err
@@ -116,6 +147,42 @@ func (a sessionAPI) Channel(channelID string) (*discordgo.Channel, error) {
 		}
 	}
 	return a.s.Channel(channelID)
+}
+
+const maxTranscriptHistoryPages = 50
+
+var errTranscriptHistoryTooLong = errors.New("squad transcript exceeds history limit")
+
+func (a sessionAPI) ChannelMessages(channelID string) ([]*discordgo.Message, error) {
+	return collectTranscriptMessages(func(before string) ([]*discordgo.Message, error) {
+		return a.s.ChannelMessages(channelID, 100, before, "", "")
+	})
+}
+
+func collectTranscriptMessages(fetch func(before string) ([]*discordgo.Message, error)) ([]*discordgo.Message, error) {
+	var all []*discordgo.Message
+	before := ""
+	for range maxTranscriptHistoryPages {
+		msgs, err := fetch(before)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, msgs...)
+		if len(msgs) < 100 {
+			slices.Reverse(all)
+			return all, nil
+		}
+		before = msgs[len(msgs)-1].ID
+	}
+	msgs, err := fetch(before)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 {
+		slices.Reverse(all)
+		return all, nil
+	}
+	return nil, errTranscriptHistoryTooLong
 }
 
 // maxHistoryPages bounds how far back LastHumanMessage reads (100 messages a
@@ -145,6 +212,29 @@ func (a sessionAPI) LastHumanMessage(channelID string, since time.Time) (time.Ti
 		before = msgs[len(msgs)-1].ID
 	}
 	return time.Time{}, errHistoryTooLong
+}
+
+func (a sessionAPI) UserMessagedAfter(channelID, userID string, since time.Time) (bool, error) {
+	before := ""
+	for range maxHistoryPages {
+		msgs, err := a.s.ChannelMessages(channelID, 100, before, "", "")
+		if err != nil {
+			return false, err
+		}
+		for _, msg := range msgs {
+			if !msg.Timestamp.After(since) {
+				return false, nil
+			}
+			if msg.Author != nil && !msg.Author.Bot && msg.Author.ID == userID {
+				return true, nil
+			}
+		}
+		if len(msgs) < 100 {
+			return false, nil
+		}
+		before = msgs[len(msgs)-1].ID
+	}
+	return false, errHistoryTooLong
 }
 
 func (a sessionAPI) HasJoinPrompt(threadID string) (bool, error) {
@@ -204,6 +294,14 @@ func discordCode(err error) int {
 	return 0
 }
 
+func discordHTTPStatus(err error) int {
+	var rest *discordgo.RESTError
+	if errors.As(err, &rest) && rest.Response != nil {
+		return rest.Response.StatusCode
+	}
+	return 0
+}
+
 // gameInfo is one IGDB game as the picker shows and stores it.
 type gameInfo struct {
 	ID   int64
@@ -237,8 +335,13 @@ func unixYear(sec int64) int { return time.Unix(sec, 0).UTC().Year() }
 
 var gameFields = igdb.SetFields("id", "name", "first_release_date", "genres", "themes")
 
-// skippedTags are too broad to say anything about someone's taste.
-var skippedTags = map[string]bool{"Indie": true}
+// skippedTags are too broad or inappropriate to use for adult squad matching
+// and summaries.
+var skippedTags = map[string]bool{"indie": true, "kids": true}
+
+func allowedSquadTag(tag string) bool {
+	return !skippedTags[strings.ToLower(strings.TrimSpace(tag))]
+}
 
 // searchLimit caps each IGDB query; the picker shows at most maxPicks-1.
 const searchLimit = 20
@@ -435,12 +538,12 @@ func (src *igdbSource) convert(games []*igdb.Game) []gameInfo {
 			info.Year = unixYear(int64(g.FirstReleaseDate))
 		}
 		for _, id := range g.Genres {
-			if name := tags[fmt.Sprintf("g:%d", id)]; name != "" && !skippedTags[name] {
+			if name := tags[fmt.Sprintf("g:%d", id)]; name != "" && allowedSquadTag(name) {
 				info.Tags = append(info.Tags, name)
 			}
 		}
 		for _, id := range g.Themes {
-			if name := tags[fmt.Sprintf("t:%d", id)]; name != "" && !skippedTags[name] {
+			if name := tags[fmt.Sprintf("t:%d", id)]; name != "" && allowedSquadTag(name) {
 				info.Tags = append(info.Tags, name)
 			}
 		}

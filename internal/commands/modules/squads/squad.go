@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -232,6 +233,9 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 	for _, uid := range ids {
 		m.grantRole(guildID, uid, role.ID)
 	}
+	// Notify after the welcome and intro posts are attempted so members do not
+	// follow the DM into an empty channel.
+	defer m.notifySquadFormed(sq, ids)
 	for _, c := range group {
 		if c.IntroID == "" {
 			c.IntroID = m.lookupIntro(guildID, c.UserID)
@@ -271,6 +275,18 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 		}
 	}
 	return sq, nil
+}
+
+func (m *Module) notifySquadFormed(sq database.Squad, members []string) {
+	msg := &discordgo.MessageSend{
+		Content:         fmt.Sprintf("🎉 **%s is ready!**\nSay hello to your new pals: https://discord.com/channels/%s/%s", sq.Name, sq.GuildID, sq.ChannelID),
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	}
+	for _, uid := range members {
+		if err := m.dc(nil).DM(uid, msg); err != nil {
+			m.config.Logger.Warnf("squads: notify %s that %s formed: %v", uid, sq.Name, err)
+		}
+	}
 }
 
 // maxMessageLen is Discord's limit on message content, in characters.
@@ -475,7 +491,7 @@ func (m *Module) addMember(guildID string, sq database.Squad, c *candidate) erro
 // removeMember takes someone out of their squad (only if it's squadID, when
 // non-zero), deleting the squad if fewer than two remain. Callers hold the
 // guild lock.
-func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (database.Squad, error) {
+func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why string) (database.Squad, error) {
 	sq, ok, err := m.db.SquadForUser(guildID, uid)
 	if err != nil {
 		return sq, err
@@ -483,7 +499,24 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, why string) (d
 	if !ok || (squadID != 0 && sq.ID != squadID) {
 		return sq, errNotMember
 	}
-	if _, _, err := m.db.RemoveSquadMember(guildID, uid); err != nil {
+	if reason == database.SquadLeaveVoluntary {
+		joinedAt, alreadySpoke, joinErr := m.db.SquadMembershipEngagement(sq.ID, uid)
+		if joinErr != nil {
+			return sq, joinErr
+		}
+		if !alreadySpoke {
+			spoke, historyErr := m.dc(nil).UserMessagedAfter(sq.ChannelID, uid, joinedAt)
+			if historyErr != nil {
+				m.config.Logger.Warnf("squads: verify activity before %s leaves: %v", uid, historyErr)
+			}
+			if spoke || historyErr != nil {
+				if err := m.db.MarkSquadMemberMessaged(sq.ID, uid, m.now()); err != nil {
+					return sq, err
+				}
+			}
+		}
+	}
+	if _, _, err := m.db.RemoveSquadMember(guildID, uid, reason, m.now()); err != nil {
 		return sq, err
 	}
 	sq.Members--
@@ -517,10 +550,40 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 		sq.DeleteReason = why
 	}
-	if sq.ChannelID != "" {
-		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
-			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
-			return fmt.Errorf("delete channel: %w", err)
+	why = sq.DeleteReason
+	var notifyMembers []string
+	if sq.DeleteReason == "it dropped below 2 members" {
+		var err error
+		notifyMembers, err = m.db.SquadMemberIDs(sq.ID)
+		if err != nil {
+			m.config.Logger.Warnf("squads: load remaining members of %s: %v", sq.Name, err)
+			return fmt.Errorf("load remaining members: %w", err)
+		}
+	}
+	logChannel := m.config.ForGuild(sq.GuildID).GetGamerPalsModActionLogChannelID()
+	var transcript database.SquadDeletionTranscript
+	var err error
+	transcript, err = m.db.SquadDeletionTranscript(sq.ID)
+	if err != nil {
+		return fmt.Errorf("load deletion transcript: %w", err)
+	}
+	if transcript.Name != "" && !transcript.LogSent && logChannel == "" {
+		m.config.Logger.Warnf("squads: deletion log channel was removed while deleting %s; completing without delivery", sq.Name)
+		if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+			return fmt.Errorf("record unavailable deletion log: %w", err)
+		}
+		transcript.LogSent = true
+	}
+	if logChannel != "" {
+		if transcript.Name == "" {
+			transcript, err = m.captureSquadTranscript(api, sq)
+			if err != nil {
+				m.config.Logger.Warnf("squads: capture transcript of %s: %v", sq.Name, err)
+				return err
+			}
+			if err := m.db.SaveSquadDeletionTranscript(sq.ID, transcript); err != nil {
+				return fmt.Errorf("save deletion transcript: %w", err)
+			}
 		}
 	}
 	if sq.RoleID != "" {
@@ -529,17 +592,112 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			return fmt.Errorf("delete role: %w", err)
 		}
 	}
-	if err := m.db.DeleteSquad(sq.ID); err != nil {
+	// Delete the channel last so a failed role deletion cannot destroy the
+	// only source for the transcript needed on the retry.
+	if sq.ChannelID != "" {
+		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
+			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
+			return fmt.Errorf("delete channel: %w", err)
+		}
+	}
+	if logChannel != "" && !transcript.LogSent {
+		fields := []*discordgo.MessageEmbedField{
+			logField("Squad", "**"+sq.Name+"**", true),
+			logField("Reason", capitalize(why), false),
+		}
+		var files []*discordgo.File
+		if file := transcriptFile(transcript); file != nil {
+			files = append(files, file)
+		} else {
+			fields = append(fields, logField("Transcript", "Unavailable: "+string(transcript.Data), false))
+		}
+		if err := m.modLogFilesTo(logChannel, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
+			code := discordCode(err)
+			if code == 10003 || code == 50001 || code == 50008 {
+				m.config.Logger.Warnf("squads: deletion log destination unavailable for %s: %v", sq.Name, err)
+				if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+					return fmt.Errorf("record unavailable deletion log: %w", err)
+				}
+				transcript.LogSent = true
+			} else if code == 50013 || code == 40005 || discordHTTPStatus(err) == http.StatusRequestEntityTooLarge {
+				files = nil
+				fields = append(fields, logField("Transcript", "Attachment failed permanently: "+err.Error(), false))
+				if fallbackErr := m.modLogFilesTo(logChannel, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {
+					if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+						return fmt.Errorf("record deletion log delivery: %w", err)
+					}
+					transcript.LogSent = true
+				} else if fallbackCode := discordCode(fallbackErr); fallbackCode == 50013 || fallbackCode == 50001 || fallbackCode == 10003 || fallbackCode == 50008 {
+					m.config.Logger.Warnf("squads: deletion log fallback unavailable for %s: %v", sq.Name, fallbackErr)
+					if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+						return fmt.Errorf("record unavailable deletion log fallback: %w", err)
+					}
+					transcript.LogSent = true
+				} else {
+					m.config.Logger.Warnf("squads: deliver deletion log fallback of %s: %v", sq.Name, fallbackErr)
+					return fmt.Errorf("deliver deletion log fallback: %w", fallbackErr)
+				}
+			} else {
+				m.config.Logger.Warnf("squads: deliver deletion transcript of %s: %v", sq.Name, err)
+				return fmt.Errorf("deliver deletion transcript: %w", err)
+			}
+		}
+		if !transcript.LogSent {
+			if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
+				return fmt.Errorf("record deletion log delivery: %w", err)
+			}
+		}
+	}
+	if err := m.db.DeleteSquad(sq.ID, m.now()); err != nil {
 		m.config.Logger.Errorf("squads: delete %s: %v", sq.Name, err)
 		return err
 	}
 	if sq.ChannelID != "" {
 		m.unregisterChannel(sq.ChannelID)
 	}
+	for _, uid := range notifyMembers {
+		if _, err := api.Member(sq.GuildID, uid); discordCode(err) == discordgo.ErrCodeUnknownMember {
+			continue
+		}
+		msg := &discordgo.MessageSend{
+			Content:         fmt.Sprintf("🗑️ **%s was deleted** because it no longer had enough members. You can run `/squad join` whenever you want a new squad.", sq.Name),
+			AllowedMentions: &discordgo.MessageAllowedMentions{},
+		}
+		if err := api.DM(uid, msg); err != nil {
+			m.config.Logger.Warnf("squads: notify %s that %s was deleted: %v", uid, sq.Name, err)
+		}
+	}
 	m.config.Logger.Infof("squads: deleted %s because %s", sq.Name, why)
-	m.modLog(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(),
-		logField("Squad", "**"+sq.Name+"**", true), logField("Reason", capitalize(why), false))
 	return nil
+}
+
+func (m *Module) captureSquadTranscript(api discordAPI, sq database.Squad) (database.SquadDeletionTranscript, error) {
+	if sq.ChannelID == "" {
+		return unavailableTranscript("the squad had no channel"), nil
+	}
+	if err := api.FreezeChannel(sq.ChannelID); err != nil {
+		code := discordCode(err)
+		if code == discordgo.ErrCodeUnknownChannel {
+			return unavailableTranscript("the channel had already been deleted"), nil
+		}
+		if code == 50001 || code == 50013 {
+			return unavailableTranscript("the bot could not access or freeze the channel"), nil
+		}
+		return database.SquadDeletionTranscript{}, fmt.Errorf("freeze channel for transcript: %w", err)
+	}
+	messages, err := api.ChannelMessages(sq.ChannelID)
+	if err != nil {
+		code := discordCode(err)
+		if errors.Is(err, errTranscriptHistoryTooLong) || code == discordgo.ErrCodeUnknownChannel || code == 50001 || code == 50013 {
+			return unavailableTranscript(err.Error()), nil
+		}
+		return database.SquadDeletionTranscript{}, fmt.Errorf("capture channel transcript: %w", err)
+	}
+	transcript, err := squadTranscript(sq, messages, m.now())
+	if err != nil {
+		return unavailableTranscript("the complete transcript could not fit in Discord's upload limit: " + err.Error()), nil
+	}
+	return transcript, nil
 }
 
 // matchReport is what a matcher run did (or would do, for a dry run).
@@ -548,6 +706,7 @@ type matchReport struct {
 	Queued    int
 	Open      int
 	Left      []string // queued people who left the server
+	blocked   []string // queued people with the blocked role; dropped silently
 	Created   []database.Squad
 	Failures  []string
 	OpenNames map[int64]string
@@ -585,6 +744,12 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			m.config.Logger.Warnf("squads: look up queued member %s: %v", e.UserID, err)
 			continue
 		}
+		if c.Blocked {
+			// Dropped from the queue silently; never listed in reports.
+			report.Queued--
+			report.blocked = append(report.blocked, e.UserID)
+			continue
+		}
 		c.QueuedAt = e.QueuedAt
 		c.IntroID = e.IntroThreadID
 		threads[e.UserID] = e.IntroThreadID
@@ -615,7 +780,7 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			if err != nil {
 				complete = false
 				if gone && !dry {
-					if _, err := m.removeMember(guildID, uid, sq.ID, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
+					if _, err := m.removeMember(guildID, uid, sq.ID, database.SquadLeaveServer, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
 						m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
 					}
 				} else if !gone {
@@ -641,6 +806,11 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 	for _, uid := range report.Left {
 		if _, err := m.db.DequeueSquadUser(guildID, uid); err != nil {
 			m.config.Logger.Warnf("squads: dequeue departed %s: %v", uid, err)
+		}
+	}
+	for _, uid := range report.blocked {
+		if _, err := m.db.DequeueSquadUser(guildID, uid); err != nil {
+			m.config.Logger.Warnf("squads: dequeue blocked %s: %v", uid, err)
 		}
 	}
 	for _, group := range report.Plan.NewSquads {
@@ -688,11 +858,17 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	if err != nil {
 		return nil, false, err
 	}
-	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}, TryNew: tryNew}
+	avoid, err := m.db.PreviousSquadPartners(guildID, uid)
+	if err != nil {
+		return nil, false, err
+	}
+	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}, TryNew: tryNew, Avoid: avoid}
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {
-			c.Tags[t] = true
+			if allowedSquadTag(t) {
+				c.Tags[t] = true
+			}
 		}
 	}
 	rl.apply(c, mem.Roles)

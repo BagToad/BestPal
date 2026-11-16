@@ -267,6 +267,18 @@ func TestPlatformIsOnlyABonus(t *testing.T) {
 	assert.False(t, ok, "a shared platform alone isn't a match")
 }
 
+func TestPreviousPartnersCannotMatchInConsecutiveSquads(t *testing.T) {
+	a := person("a", "eu", 1, time.Hour, 1)
+	b := person("b", "eu", 1, time.Hour, 1)
+	c := person("c", "eu", 1, time.Hour, 1)
+	a.Avoid = map[string]bool{"b": true}
+
+	_, ok := pairScore(a, b)
+	assert.False(t, ok)
+	_, ok = pairScore(a, c)
+	assert.True(t, ok, "other compatible members remain eligible")
+}
+
 func TestFallbackFillsOpenSquadStrictFirst(t *testing.T) {
 	euSquad := openSquad{ID: 1, Members: []*candidate{person("m1", "eu", 2, 0, 5), person("m2", "eu", 2, 0, 5)}}
 	afSquad := openSquad{ID: 2, Members: []*candidate{person("m3", "af", 2, 0, 5), person("m4", "af", 2, 0, 5)}}
@@ -341,4 +353,10 @@ func TestCommonGround(t *testing.T) {
 		withTags(person("c", "", 0, 0, 3), "RPG"),
 	}
 	assert.Equal(t, "You were matched because you're all into **RPG**.", commonGround(genreGroup))
+}
+
+func TestSensitiveTagsAreExcluded(t *testing.T) {
+	assert.False(t, allowedSquadTag("Kids"))
+	assert.False(t, allowedSquadTag(" kids "))
+	assert.True(t, allowedSquadTag("RPG"))
 }

@@ -1,9 +1,13 @@
 package database
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -50,7 +54,17 @@ CREATE TABLE IF NOT EXISTS squads (
 	created_at         INTEGER NOT NULL,
 	last_activity_at   INTEGER NOT NULL,
 	warned_at          INTEGER NOT NULL DEFAULT 0,
-	delete_reason      TEXT NOT NULL DEFAULT ''
+	delete_reason      TEXT NOT NULL DEFAULT '',
+	deletion_transcript      BLOB NOT NULL DEFAULT X'',
+	deletion_transcript_name TEXT NOT NULL DEFAULT '',
+	deletion_transcript_type TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file      TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file_name TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file_type TEXT NOT NULL DEFAULT '',
+	deletion_transcript_sha256    TEXT NOT NULL DEFAULT '',
+	deletion_transcript_note      TEXT NOT NULL DEFAULT '',
+	deletion_file_log_sent        INTEGER NOT NULL DEFAULT 0,
+	deletion_log_sent        INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_squads_guild ON squads(guild_id);
@@ -64,6 +78,27 @@ CREATE TABLE IF NOT EXISTS squad_members (
 );
 
 CREATE INDEX IF NOT EXISTS idx_squad_members_squad ON squad_members(squad_id);
+
+CREATE TABLE IF NOT EXISTS squad_membership_history (
+	id                INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_id          TEXT NOT NULL,
+	user_id           TEXT NOT NULL,
+	squad_id          INTEGER NOT NULL,
+	joined_at         INTEGER NOT NULL,
+	first_message_at  INTEGER NOT NULL DEFAULT 0,
+	last_reminder_at  INTEGER NOT NULL DEFAULT 0,
+	left_at           INTEGER NOT NULL DEFAULT 0,
+	leave_reason      TEXT NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_squad_history_active
+	ON squad_membership_history(squad_id, user_id) WHERE left_at = 0;
+CREATE INDEX IF NOT EXISTS idx_squad_history_reminders
+	ON squad_membership_history(first_message_at, last_reminder_at, joined_at) WHERE left_at = 0;
+CREATE INDEX IF NOT EXISTS idx_squad_history_user
+	ON squad_membership_history(guild_id, user_id, joined_at);
+CREATE INDEX IF NOT EXISTS idx_squad_history_squad_period
+	ON squad_membership_history(squad_id, joined_at, left_at, user_id);
 
 CREATE TABLE IF NOT EXISTS squad_role_ops (
 	guild_id  TEXT NOT NULL,
@@ -97,6 +132,36 @@ type SquadQueueEntry struct {
 	UserID        string
 	QueuedAt      time.Time
 	IntroThreadID string
+}
+
+const (
+	SquadLeaveVoluntary = "voluntary"
+	SquadLeaveAdmin     = "admin_removed"
+	SquadLeaveServer    = "left_server"
+	SquadLeaveDeleted   = "squad_deleted"
+)
+
+// SquadReminder is an inactive current member who is due a reminder.
+type SquadReminder struct {
+	HistoryID      int64
+	GuildID        string
+	UserID         string
+	SquadID        int64
+	SquadName      string
+	ChannelID      string
+	JoinedAt       time.Time
+	LastReminderAt time.Time
+}
+
+type SquadUserHistory struct {
+	Squads   int
+	Ghosting int
+}
+
+type SquadGhoster struct {
+	UserID   string
+	Squads   int
+	Ghosting int
 }
 
 // SquadTryNewGames reports whether a member opted into genre-based matching.
@@ -334,6 +399,10 @@ func addMemberTx(tx *sql.Tx, guildID, userID string, squadID int64, now time.Tim
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("%w: %s", ErrSquadMember, userID)
 	}
+	if _, err := tx.Exec(`INSERT INTO squad_membership_history (guild_id, user_id, squad_id, joined_at)
+		VALUES (?, ?, ?, ?)`, guildID, userID, squadID, now.Unix()); err != nil {
+		return err
+	}
 	_, err = tx.Exec(`DELETE FROM squad_queue WHERE guild_id = ? AND user_id = ?`, guildID, userID)
 	return err
 }
@@ -352,15 +421,153 @@ func (db *DB) AddSquadMember(guildID string, squadID int64, userID string, now t
 	return tx.Commit()
 }
 
-// RemoveSquadMember takes someone out of their squad, returning the squad ID
-// they were in.
-func (db *DB) RemoveSquadMember(guildID, userID string) (int64, bool, error) {
+// RemoveSquadMember takes someone out of their squad, closes their history
+// entry, and returns the squad ID they were in.
+func (db *DB) RemoveSquadMember(guildID, userID, reason string, now time.Time) (int64, bool, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, false, err
+	}
+	defer func() { _ = tx.Rollback() }()
 	var id int64
-	err := db.conn.QueryRow(`DELETE FROM squad_members WHERE guild_id = ? AND user_id = ? RETURNING squad_id`, guildID, userID).Scan(&id)
+	err = tx.QueryRow(`DELETE FROM squad_members WHERE guild_id = ? AND user_id = ? RETURNING squad_id`, guildID, userID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false, nil
 	}
-	return id, err == nil, err
+	if err != nil {
+		return 0, false, err
+	}
+	if _, err := tx.Exec(`UPDATE squad_membership_history SET left_at = ?, leave_reason = ?
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, now.Unix(), reason, id, userID); err != nil {
+		return 0, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+// MarkSquadMemberMessaged records the first message a current member sends.
+func (db *DB) MarkSquadMemberMessaged(squadID int64, userID string, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET first_message_at = ?
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0 AND first_message_at = 0`, now.Unix(), squadID, userID)
+	return err
+}
+
+func (db *DB) SquadMembershipEngagement(squadID int64, userID string) (time.Time, bool, error) {
+	var joinedAt, firstMessageAt int64
+	err := db.conn.QueryRow(`SELECT joined_at, first_message_at FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, squadID, userID).Scan(&joinedAt, &firstMessageAt)
+	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
+}
+
+// DueSquadReminders returns current members who have never spoken and have not
+// been reminded within interval.
+func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Duration) ([]SquadReminder, error) {
+	cutoff := now.Add(-interval).Unix()
+	rows, err := db.conn.Query(`SELECT h.id, h.guild_id, h.user_id, h.squad_id, s.name, s.channel_id, h.joined_at, h.last_reminder_at
+		FROM squad_membership_history h
+		JOIN squads s ON s.id = h.squad_id
+		JOIN squad_members sm ON sm.squad_id = h.squad_id AND sm.user_id = h.user_id
+		WHERE h.guild_id = ? AND h.left_at = 0 AND h.first_message_at = 0
+			AND s.delete_reason = ''
+			AND CASE
+				WHEN h.last_reminder_at = 0 THEN h.joined_at
+				WHEN h.last_reminder_at < 0 THEN -h.last_reminder_at
+				ELSE h.last_reminder_at
+			END <= ?
+		ORDER BY h.joined_at, h.id`, guildID, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadReminder
+	for rows.Next() {
+		var r SquadReminder
+		var joinedAt, lastReminderAt int64
+		if err := rows.Scan(&r.HistoryID, &r.GuildID, &r.UserID, &r.SquadID, &r.SquadName, &r.ChannelID, &joinedAt, &lastReminderAt); err != nil {
+			return nil, err
+		}
+		r.JoinedAt = time.Unix(joinedAt, 0)
+		if lastReminderAt > 0 {
+			r.LastReminderAt = time.Unix(lastReminderAt, 0)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MarkSquadReminder records an attempted reminder so closed DMs are retried
+// daily instead of every scheduler tick.
+func (db *DB) MarkSquadReminder(historyID int64, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
+		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, now.Unix(), historyID)
+	return err
+}
+
+// MarkSquadReminderReconcileFailed backs off a failed history scan without
+// claiming that history was successfully checked through this timestamp.
+func (db *DB) MarkSquadReminderReconcileFailed(historyID int64, now time.Time) error {
+	_, err := db.conn.Exec(`UPDATE squad_membership_history SET last_reminder_at = ?
+		WHERE id = ? AND left_at = 0 AND first_message_at = 0`, -now.Unix(), historyID)
+	return err
+}
+
+func (db *DB) SquadUserHistoryStats(guildID, userID string) (SquadUserHistory, error) {
+	var out SquadUserHistory
+	err := db.conn.QueryRow(`SELECT COUNT(*), COALESCE(SUM(CASE
+		WHEN leave_reason = ? AND first_message_at = 0 THEN 1 ELSE 0 END), 0)
+		FROM squad_membership_history WHERE guild_id = ? AND user_id = ?`,
+		SquadLeaveVoluntary, guildID, userID).Scan(&out.Squads, &out.Ghosting)
+	return out, err
+}
+
+func (db *DB) TopSquadGhosters(guildID string, limit int) ([]SquadGhoster, error) {
+	rows, err := db.conn.Query(`SELECT user_id, COUNT(*), SUM(CASE
+		WHEN leave_reason = ? AND first_message_at = 0 THEN 1 ELSE 0 END) AS ghosting
+		FROM squad_membership_history WHERE guild_id = ?
+		GROUP BY user_id HAVING ghosting > 0
+		ORDER BY ghosting DESC, COUNT(*) DESC, user_id LIMIT ?`,
+		SquadLeaveVoluntary, guildID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadGhoster
+	for rows.Next() {
+		var g SquadGhoster
+		if err := rows.Scan(&g.UserID, &g.Squads, &g.Ghosting); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, error) {
+	rows, err := db.conn.Query(`SELECT DISTINCT partner.user_id
+		FROM squad_membership_history latest
+		JOIN squad_membership_history partner ON partner.squad_id = latest.squad_id
+		WHERE latest.id = (
+			SELECT id FROM squad_membership_history
+			WHERE guild_id = ? AND user_id = ?
+			ORDER BY joined_at DESC, id DESC LIMIT 1
+		) AND partner.user_id != latest.user_id
+			AND partner.joined_at <= CASE WHEN latest.left_at = 0 THEN 9223372036854775807 ELSE latest.left_at END
+			AND latest.joined_at <= CASE WHEN partner.left_at = 0 THEN 9223372036854775807 ELSE partner.left_at END`, guildID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, err
+		}
+		out[uid] = true
+	}
+	return out, rows.Err()
 }
 
 // SquadMemberIDs returns a squad's members, earliest joiners first.
@@ -446,13 +653,36 @@ func (db *DB) ListSquads(guildID string) ([]Squad, error) {
 	return out, rows.Err()
 }
 
-// DeleteSquad removes a squad and its memberships.
-func (db *DB) DeleteSquad(id int64) error {
+// DeleteSquad removes a squad and its memberships while retaining closed
+// membership history.
+func (db *DB) DeleteSquad(id int64, now time.Time) error {
+	var transcriptFile string
+	var transcriptName string
+	var transcriptSent bool
+	err := db.conn.QueryRow(`SELECT deletion_transcript_file, deletion_transcript_file_name,
+		deletion_file_log_sent FROM squads WHERE id = ?`, id).Scan(&transcriptFile, &transcriptName, &transcriptSent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if transcriptName != "" && !transcriptSent {
+		return errors.New("cannot delete squad before its transcript delivery is resolved")
+	}
+	var transcriptPath string
+	if transcriptFile != "" {
+		transcriptPath, err = db.squadTranscriptPath(transcriptFile)
+		if err != nil {
+			return err
+		}
+	}
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`UPDATE squad_membership_history SET left_at = ?, leave_reason = ?
+		WHERE squad_id = ? AND left_at = 0`, now.Unix(), SquadLeaveDeleted, id); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM squad_members WHERE squad_id = ?`, id); err != nil {
 		return err
 	}
@@ -462,7 +692,15 @@ func (db *DB) DeleteSquad(id int64) error {
 	if _, err := tx.Exec(`DELETE FROM squads WHERE id = ?`, id); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if transcriptPath != "" {
+		if err := os.Remove(transcriptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove delivered squad transcript: %w", err)
+		}
+	}
+	return nil
 }
 
 // SetSquadChannel records the channel and role created for a squad.
@@ -491,6 +729,87 @@ func (db *DB) MarkSquadDeleting(id int64, reason string) error {
 	return err
 }
 
+type SquadDeletionTranscript struct {
+	Name        string
+	ContentType string
+	Data        []byte
+	LogSent     bool
+}
+
+func (db *DB) SquadDeletionTranscript(id int64) (SquadDeletionTranscript, error) {
+	var transcript SquadDeletionTranscript
+	var file, checksum, note string
+	err := db.conn.QueryRow(`SELECT deletion_transcript_file_name, deletion_transcript_file_type,
+		deletion_transcript_file, deletion_transcript_sha256, deletion_transcript_note, deletion_file_log_sent
+		FROM squads WHERE id = ?`, id).
+		Scan(&transcript.Name, &transcript.ContentType, &file, &checksum, &note, &transcript.LogSent)
+	if err != nil || transcript.Name == "" || transcript.LogSent {
+		return transcript, err
+	}
+	if file == "" {
+		transcript.Data = []byte(note)
+		return transcript, nil
+	}
+	path, err := db.squadTranscriptPath(file)
+	if err != nil {
+		return SquadDeletionTranscript{}, err
+	}
+	transcript.Data, err = os.ReadFile(path)
+	if err != nil {
+		return SquadDeletionTranscript{}, fmt.Errorf("read squad transcript: %w", err)
+	}
+	sum := sha256.Sum256(transcript.Data)
+	if hex.EncodeToString(sum[:]) != checksum {
+		return SquadDeletionTranscript{}, errors.New("squad transcript checksum mismatch")
+	}
+	return transcript, nil
+}
+
+func (db *DB) SaveSquadDeletionTranscript(id int64, transcript SquadDeletionTranscript) error {
+	return db.saveSquadDeletionTranscript(id, transcript, true)
+}
+
+func (db *DB) saveSquadDeletionTranscript(id int64, transcript SquadDeletionTranscript, clearLegacy bool) error {
+	var file, checksum, note string
+	var created bool
+	if transcript.ContentType == "application/x-bestpal-transcript-unavailable" {
+		note = string(transcript.Data)
+	} else {
+		var err error
+		file, checksum, created, err = db.writeSquadTranscript(id, transcript.Data)
+		if err != nil {
+			return err
+		}
+	}
+	query := `UPDATE squads SET
+		deletion_transcript_file_name = ?, deletion_transcript_file_type = ?,
+		deletion_transcript_file = ?, deletion_transcript_sha256 = ?, deletion_transcript_note = ?,
+		deletion_file_log_sent = ?`
+	if clearLegacy {
+		query += `, deletion_transcript = X'', deletion_transcript_name = '', deletion_transcript_type = ''`
+	}
+	result, err := db.conn.Exec(query+` WHERE id = ?`, transcript.Name, transcript.ContentType, file, checksum, note,
+		transcript.LogSent, id)
+	if err == nil {
+		var changed int64
+		changed, err = result.RowsAffected()
+		if err == nil && changed == 0 {
+			err = sql.ErrNoRows
+		}
+	}
+	if err != nil && created {
+		if path, pathErr := db.squadTranscriptPath(file); pathErr == nil {
+			_ = os.Remove(path)
+		}
+	}
+	return err
+}
+
+func (db *DB) MarkSquadDeletionLogSent(id int64) error {
+	_, err := db.conn.Exec(`UPDATE squads SET deletion_file_log_sent = 1 WHERE id = ?`, id)
+	return err
+}
+
 // migrateSquads adds columns introduced after the squads table was first
 // created.
 func (db *DB) migrateSquads() error {
@@ -498,7 +817,7 @@ func (db *DB) migrateSquads() error {
 	if err != nil {
 		return fmt.Errorf("failed to check squads schema: %w", err)
 	}
-	have := false
+	have := map[string]bool{}
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, ctype string
@@ -507,17 +826,197 @@ func (db *DB) migrateSquads() error {
 			rows.Close()
 			return fmt.Errorf("failed to scan squads schema: %w", err)
 		}
-		have = have || name == "delete_reason"
+		have[name] = true
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to read squads schema: %w", err)
 	}
-	if have {
-		return nil
+	if !have["delete_reason"] {
+		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("failed to add squads.delete_reason: %w", err)
+		}
 	}
-	if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN delete_reason TEXT NOT NULL DEFAULT ''`); err != nil {
-		return fmt.Errorf("failed to add squads.delete_reason: %w", err)
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"deletion_transcript", "BLOB NOT NULL DEFAULT X''"},
+		{"deletion_transcript_name", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_type", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file_name", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file_type", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_sha256", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_note", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_file_log_sent", "INTEGER NOT NULL DEFAULT 0"},
+		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
+	}
+	for _, column := range columns {
+		if have[column.name] {
+			continue
+		}
+		if _, err := db.conn.Exec(`ALTER TABLE squads ADD COLUMN ` + column.name + ` ` + column.def); err != nil {
+			return fmt.Errorf("failed to add squads.%s: %w", column.name, err)
+		}
+	}
+	if _, err := db.conn.Exec(`
+		CREATE TRIGGER IF NOT EXISTS protect_pending_file_transcript_update
+		BEFORE UPDATE OF deletion_transcript, deletion_transcript_name, deletion_transcript_type ON squads
+		WHEN OLD.deletion_transcript_file_name != '' AND OLD.deletion_file_log_sent = 0
+		BEGIN
+			SELECT RAISE(ABORT, 'pending file transcript requires a newer BestPal version');
+		END;
+		CREATE TRIGGER IF NOT EXISTS protect_pending_file_transcript_delete
+		BEFORE DELETE ON squads
+		WHEN OLD.deletion_transcript_file_name != '' AND OLD.deletion_file_log_sent = 0
+		BEGIN
+			SELECT RAISE(ABORT, 'pending file transcript requires a newer BestPal version');
+		END;
+	`); err != nil {
+		return fmt.Errorf("failed to protect pending file transcripts: %w", err)
+	}
+	// Repair open history left by rolling back to a version that predates
+	// membership tracking. A changed join time means the old version removed
+	// and re-added the member to the same squad.
+	if _, err = db.conn.Exec(`UPDATE squad_membership_history
+		SET left_at = CAST(strftime('%s', 'now') AS INTEGER), leave_reason = ?
+		WHERE left_at = 0 AND NOT EXISTS (
+			SELECT 1 FROM squad_members m
+			WHERE m.squad_id = squad_membership_history.squad_id
+				AND m.user_id = squad_membership_history.user_id
+				AND m.joined_at = squad_membership_history.joined_at
+		)`, SquadLeaveDeleted); err != nil {
+		return err
+	}
+	// Existing members predate engagement tracking. Treat them as already
+	// active so deploying reminders never nags established squads.
+	_, err = db.conn.Exec(`INSERT OR IGNORE INTO squad_membership_history
+		(guild_id, user_id, squad_id, joined_at, first_message_at)
+		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`)
+	return err
+}
+
+func (db *DB) writeSquadTranscript(id int64, data []byte) (string, string, bool, error) {
+	sum := sha256.Sum256(data)
+	checksum := hex.EncodeToString(sum[:])
+	name := fmt.Sprintf("squad-%d-%s.transcript", id, checksum)
+	path, err := db.squadTranscriptPath(name)
+	if err != nil {
+		return "", "", false, err
+	}
+	if existing, err := os.ReadFile(path); err == nil {
+		if existingSum := sha256.Sum256(existing); existingSum == sum {
+			if err := syncDirectory(db.transcriptDir); err != nil {
+				return "", "", false, fmt.Errorf("sync squad transcript directory: %w", err)
+			}
+			return name, checksum, false, nil
+		}
+		return "", "", false, errors.New("existing squad transcript checksum mismatch")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", "", false, fmt.Errorf("read existing squad transcript: %w", err)
+	}
+	tmp, err := os.CreateTemp(db.transcriptDir, ".pending-*")
+	if err != nil {
+		return "", "", false, fmt.Errorf("create squad transcript: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", "", false, fmt.Errorf("write squad transcript: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", "", false, fmt.Errorf("sync squad transcript: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", "", false, fmt.Errorf("close squad transcript: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return "", "", false, fmt.Errorf("publish squad transcript: %w", err)
+	}
+	if err := syncDirectory(db.transcriptDir); err != nil {
+		return "", "", false, fmt.Errorf("sync squad transcript directory: %w", err)
+	}
+	return name, checksum, true, nil
+}
+
+func (db *DB) squadTranscriptPath(name string) (string, error) {
+	if name == "" || filepath.Base(name) != name {
+		return "", errors.New("invalid squad transcript filename")
+	}
+	return filepath.Join(db.transcriptDir, name), nil
+}
+
+func (db *DB) migrateSquadTranscriptFiles() error {
+	rows, err := db.conn.Query(`SELECT id, deletion_transcript_name, deletion_transcript_type,
+		deletion_transcript, deletion_log_sent FROM squads
+		WHERE deletion_transcript_name != '' AND deletion_transcript_file_name = ''`)
+	if err != nil {
+		return fmt.Errorf("load legacy squad transcripts: %w", err)
+	}
+	type legacyTranscript struct {
+		id         int64
+		transcript SquadDeletionTranscript
+	}
+	var legacy []legacyTranscript
+	for rows.Next() {
+		var item legacyTranscript
+		if err := rows.Scan(&item.id, &item.transcript.Name, &item.transcript.ContentType,
+			&item.transcript.Data, &item.transcript.LogSent); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range legacy {
+		if err := db.saveSquadDeletionTranscript(item.id, item.transcript, true); err != nil {
+			return fmt.Errorf("externalize legacy squad transcript %d: %w", item.id, err)
+		}
+	}
+	return db.cleanupOrphanedSquadTranscripts(24 * time.Hour)
+}
+
+func (db *DB) cleanupOrphanedSquadTranscripts(minAge time.Duration) error {
+	rows, err := db.conn.Query(`SELECT deletion_transcript_file FROM squads WHERE deletion_transcript_file != ''`)
+	if err != nil {
+		return err
+	}
+	referenced := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		referenced[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(db.transcriptDir)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-minAge)
+	for _, entry := range entries {
+		if entry.IsDir() || referenced[entry.Name()] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(db.transcriptDir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }

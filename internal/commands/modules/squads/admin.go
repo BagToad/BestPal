@@ -51,6 +51,10 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	switch sub.Name {
 	case "status":
 		m.adminDeferred(s, i, func() string { return m.statusText(i.GuildID) })
+	case "ghosters":
+		m.adminDeferred(s, i, func() string { return m.ghostersText(i.GuildID) })
+	case "trends":
+		m.adminDeferred(s, i, func() string { return m.trendsText(i.GuildID) })
 	case "user":
 		m.adminDeferred(s, i, func() string { return m.userText(i.GuildID, userArg()) })
 	case "dryrun", "run-now":
@@ -243,7 +247,7 @@ func (m *Module) adminCreate(i *discordgo.InteractionCreate, uids []string) stri
 }
 
 func (m *Module) adminRemove(i *discordgo.InteractionCreate, uid string) string {
-	sq, err := m.removeMember(i.GuildID, uid, 0, "was removed from")
+	sq, err := m.removeMember(i.GuildID, uid, 0, database.SquadLeaveAdmin, "was removed from")
 	if errors.Is(err, errNotMember) {
 		return mention(uid) + " isn't in a squad."
 	}
@@ -477,6 +481,9 @@ func (m *Module) userText(guildID, uid string) string {
 	} else {
 		b.WriteString("Not in a squad or the queue.\n")
 	}
+	if history, err := m.db.SquadUserHistoryStats(guildID, uid); err == nil {
+		fmt.Fprintf(&b, "**Squad history:** %d memberships · %d ghosting departures\n", history.Squads, history.Ghosting)
+	}
 	if mem, err := m.dc(nil).Member(guildID, uid); err == nil {
 		c := &candidate{}
 		m.roleLookup(guildID).apply(c, mem.Roles)
@@ -502,17 +509,215 @@ func (m *Module) userText(guildID, uid string) string {
 	if err != nil {
 		return "❌ Could not load their games."
 	}
+	b.WriteString(m.compatibilityText(guildID, uid, picks))
 	fmt.Fprintf(&b, "**Games (%d):**", len(picks))
 	if len(picks) == 0 {
 		b.WriteString(" none")
 	}
 	for _, p := range picks {
 		fmt.Fprintf(&b, "\n• %s", gameInfo{Name: p.Name, Year: p.Year}.label())
-		if len(p.Tags) > 0 {
-			fmt.Fprintf(&b, " *(%s)*", strings.Join(p.Tags, ", "))
+		var tags []string
+		for _, tag := range p.Tags {
+			if allowedSquadTag(tag) {
+				tags = append(tags, tag)
+			}
+		}
+		if len(tags) > 0 {
+			fmt.Fprintf(&b, " *(%s)*", strings.Join(tags, ", "))
 		}
 	}
 	return truncate(b.String(), 2000)
+}
+
+func (m *Module) compatibilityText(guildID, uid string, ownPicks []database.SquadPick) string {
+	all, err := m.db.AllSquadPicks(guildID)
+	if err != nil {
+		return "**Compatibility:** unavailable\n"
+	}
+	mem, err := m.dc(nil).Member(guildID, uid)
+	if err != nil {
+		return "**Compatibility:** unavailable\n"
+	}
+	rl := m.roleLookup(guildID)
+	self := &candidate{}
+	rl.apply(self, mem.Roles)
+	ownGames := map[int64]bool{}
+	for _, p := range ownPicks {
+		ownGames[p.GameID] = true
+	}
+	sharedGames := map[int64]bool{}
+	sharedGameUsers, sameRegion, sameAge := 0, 0, 0
+	for otherID, picks := range all {
+		if otherID == uid {
+			continue
+		}
+		otherMem, err := m.dc(nil).Member(guildID, otherID)
+		if err != nil {
+			if discordCode(err) == discordgo.ErrCodeUnknownMember {
+				continue
+			}
+			m.config.Logger.Warnf("squads: compatibility member lookup for %s: %v", otherID, err)
+			return "**Compatibility:** unavailable\n"
+		}
+		other := &candidate{}
+		rl.apply(other, otherMem.Roles)
+		if self.Region != "" && self.Region == other.Region {
+			sameRegion++
+		}
+		if self.Age > 0 && self.Age == other.Age {
+			sameAge++
+		}
+		shares := false
+		for _, p := range picks {
+			if ownGames[p.GameID] {
+				sharedGames[p.GameID] = true
+				shares = true
+			}
+		}
+		if shares {
+			sharedGameUsers++
+		}
+	}
+	regionCount, ageCount := "unknown", "unknown"
+	if self.Region != "" {
+		regionCount = plural(sameRegion, "user", "users")
+	}
+	if self.Age > 0 {
+		ageCount = plural(sameAge, "user", "users")
+	}
+	return fmt.Sprintf("**Compatibility:** %s across %s · %s in the same timezone/region · %s in the same age group *(among current members with squad picks)*\n",
+		plural(len(sharedGames), "shared game", "shared games"), plural(sharedGameUsers, "user", "users"), regionCount, ageCount)
+}
+
+func (m *Module) ghostersText(guildID string) string {
+	ghosters, err := m.db.TopSquadGhosters(guildID, 10)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load top ghosters: %v", err)
+		return "❌ Could not load squad ghosting history."
+	}
+	if len(ghosters) == 0 {
+		return "## 👻 Top squad ghosters\nNobody has voluntarily left a squad without speaking."
+	}
+	var b strings.Builder
+	b.WriteString("## 👻 Top squad ghosters\n")
+	for n, g := range ghosters {
+		fmt.Fprintf(&b, "%d. %s — **%d** ghosting departures across %d memberships\n",
+			n+1, mention(g.UserID), g.Ghosting, g.Squads)
+	}
+	return truncate(strings.TrimSpace(b.String()), 2000)
+}
+
+type popularityCounter struct {
+	counts map[string]int
+	labels map[string]string
+}
+
+func newPopularityCounter() *popularityCounter {
+	return &popularityCounter{counts: map[string]int{}, labels: map[string]string{}}
+}
+
+func (c *popularityCounter) add(label string) {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return
+	}
+	c.addKey(strings.ToLower(label), label)
+}
+
+func (c *popularityCounter) addKey(key, label string) {
+	label = strings.TrimSpace(label)
+	if key == "" || label == "" {
+		return
+	}
+	c.counts[key]++
+	if c.labels[key] == "" || label < c.labels[key] {
+		c.labels[key] = label
+	}
+}
+
+func (c *popularityCounter) top(limit int) string {
+	type result struct {
+		key   string
+		label string
+		count int
+	}
+	results := make([]result, 0, len(c.counts))
+	for key, count := range c.counts {
+		results = append(results, result{key: key, label: c.labels[key], count: count})
+	}
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].count != results[j].count {
+			return results[i].count > results[j].count
+		}
+		left, right := strings.ToLower(results[i].label), strings.ToLower(results[j].label)
+		if left != right {
+			return left < right
+		}
+		return results[i].key < results[j].key
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	if len(results) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(results))
+	for n, result := range results {
+		parts[n] = fmt.Sprintf("%s (**%d**)", truncate(result.label, maxListedName), result.count)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (m *Module) trendsText(guildID string) string {
+	all, err := m.db.AllSquadPicks(guildID)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load trends: %v", err)
+		return "❌ Could not load squad trends."
+	}
+	games, ages, regionsCount := newPopularityCounter(), newPopularityCounter(), newPopularityCounter()
+	platformCounts, tags := newPopularityCounter(), newPopularityCounter()
+	rl := m.roleLookup(guildID)
+	for uid, picks := range all {
+		mem, err := m.dc(nil).Member(guildID, uid)
+		if err != nil {
+			if discordCode(err) == discordgo.ErrCodeUnknownMember {
+				continue
+			}
+			m.config.Logger.Warnf("squads: trends member lookup for %s: %v", uid, err)
+			return "❌ Could not load complete squad trends."
+		}
+		c := &candidate{}
+		rl.apply(c, mem.Roles)
+		if c.Age > 0 {
+			ages.add(fmt.Sprintf("Age group %d", c.Age))
+		}
+		if c.Region != "" {
+			regionsCount.add(regionName(c.Region))
+		}
+		for _, platform := range platforms {
+			if c.Platforms[platform.Code] {
+				platformCounts.add(platform.Name)
+			}
+		}
+		seenTags := map[string]bool{}
+		seenGames := map[int64]bool{}
+		for _, pick := range picks {
+			if !seenGames[pick.GameID] {
+				seenGames[pick.GameID] = true
+				games.addKey(strconv.FormatInt(pick.GameID, 10), gameInfo{Name: pick.Name, Year: pick.Year}.label())
+			}
+			for _, tag := range pick.Tags {
+				key := strings.ToLower(strings.TrimSpace(tag))
+				if !allowedSquadTag(tag) || seenTags[key] {
+					continue
+				}
+				seenTags[key] = true
+				tags.add(tag)
+			}
+		}
+	}
+	return fmt.Sprintf("## 📊 Squad trends\n**Games:** %s\n**Age groups:** %s\n**Regions:** %s\n**Platforms:** %s\n**Genres/themes:** %s",
+		games.top(3), ages.top(3), regionsCount.top(3), platformCounts.top(3), tags.top(3))
 }
 
 // HandleAutocomplete suggests squads for /squad-admin.

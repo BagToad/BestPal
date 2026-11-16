@@ -706,7 +706,6 @@ type matchReport struct {
 	Queued    int
 	Open      int
 	Left      []string // queued people who left the server
-	Blocked   []string // queued people held back by the blocked role
 	Created   []database.Squad
 	Failures  []string
 	OpenNames map[int64]string
@@ -745,7 +744,8 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			continue
 		}
 		if c.Blocked {
-			report.Blocked = append(report.Blocked, e.UserID)
+			// Held silently: they keep their queue spot but stay out of reports.
+			report.Queued--
 			continue
 		}
 		c.QueuedAt = e.QueuedAt

@@ -434,8 +434,10 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 
 	report, err := m.runMatch(guild, true)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"u1"}, report.Blocked)
-	assert.Contains(t, reportText(report, true), "**Blocked** (1 held in the queue by the blocked role): <@u1>")
+	assert.Equal(t, 5, report.Queued)
+	text := reportText(report, true)
+	assert.NotContains(t, text, "<@u1>", "blocked people are not listed in reports")
+	assert.NotContains(t, text, "Blocked")
 
 	require.NoError(t, m.tick())
 	_, inSquad, err := db.SquadForUser(guild, "u1")
@@ -444,20 +446,6 @@ func TestBlockedRoleHoldsQueuedPeopleOutOfMatching(t *testing.T) {
 	_, queued, err := db.SquadQueueEntryFor(guild, "u1")
 	require.NoError(t, err)
 	assert.True(t, queued, "blocked people keep their place in the queue")
-}
-
-func TestBlockedReportSurvivesTruncation(t *testing.T) {
-	r := matchReport{Queued: 300}
-	for n := range 25 {
-		r.Blocked = append(r.Blocked, fmt.Sprintf("blocked%d", n))
-	}
-	for n := range 200 {
-		r.Plan.Waiting = append(r.Plan.Waiting, &candidate{UserID: fmt.Sprintf("waiting-user-%d", n)})
-	}
-	text := reportText(r, true)
-	assert.LessOrEqual(t, len([]rune(text)), 2000)
-	assert.Contains(t, text, "**Blocked** (25 held in the queue by the blocked role)")
-	assert.Contains(t, text, "<@blocked19> and 5 more")
 }
 
 // queue puts people in the queue with the given picks and roles.

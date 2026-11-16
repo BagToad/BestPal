@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,7 +14,9 @@ import (
 
 // DB wraps the SQL database connection
 type DB struct {
-	conn *sql.DB
+	conn                *sql.DB
+	transcriptDir       string
+	removeTranscriptDir bool
 }
 
 // buildDSN augments a SQLite file path with connection parameters that let the
@@ -34,8 +38,15 @@ func buildDSN(dbPath string) string {
 
 // NewDB creates a new database connection and initializes tables
 func NewDB(dbPath string) (*DB, error) {
+	transcriptDir, removeTranscriptDir, err := squadTranscriptDir(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize transcript storage: %w", err)
+	}
 	conn, err := sql.Open("sqlite3", buildDSN(dbPath))
 	if err != nil {
+		if removeTranscriptDir {
+			_ = os.RemoveAll(transcriptDir)
+		}
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
@@ -46,10 +57,14 @@ func NewDB(dbPath string) (*DB, error) {
 	// since each sqlite3 connection to ":memory:" is otherwise distinct.
 	conn.SetMaxOpenConns(1)
 
-	db := &DB{conn: conn}
+	db := &DB{conn: conn, transcriptDir: transcriptDir, removeTranscriptDir: removeTranscriptDir}
 
 	// Initialize tables
 	if err := db.initTables(); err != nil {
+		_ = conn.Close()
+		if removeTranscriptDir {
+			_ = os.RemoveAll(transcriptDir)
+		}
 		return nil, fmt.Errorf("failed to initialize tables: %w", err)
 	}
 
@@ -58,7 +73,26 @@ func NewDB(dbPath string) (*DB, error) {
 
 // Close closes the database connection
 func (db *DB) Close() error {
-	return db.conn.Close()
+	err := db.conn.Close()
+	if db.removeTranscriptDir {
+		if removeErr := os.RemoveAll(db.transcriptDir); err == nil {
+			err = removeErr
+		}
+	}
+	return err
+}
+
+func squadTranscriptDir(dbPath string) (string, bool, error) {
+	if dbPath == "" || dbPath == ":memory:" || strings.HasPrefix(dbPath, "file::memory:") {
+		dir, err := os.MkdirTemp("", "bestpal-squad-transcripts-")
+		return dir, true, err
+	}
+	path, _, _ := strings.Cut(dbPath, "?")
+	dir := filepath.Clean(path) + ".squad-transcripts"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", false, err
+	}
+	return dir, false, nil
 }
 
 // initTables creates the necessary database tables
@@ -156,6 +190,9 @@ func (db *DB) initTables() error {
 		return fmt.Errorf("failed to create squad tables: %w", err)
 	}
 	if err := db.migrateSquads(); err != nil {
+		return err
+	}
+	if err := db.migrateSquadTranscriptFiles(); err != nil {
 		return err
 	}
 

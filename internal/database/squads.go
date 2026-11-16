@@ -1,9 +1,13 @@
 package database
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -54,6 +58,11 @@ CREATE TABLE IF NOT EXISTS squads (
 	deletion_transcript      BLOB NOT NULL DEFAULT X'',
 	deletion_transcript_name TEXT NOT NULL DEFAULT '',
 	deletion_transcript_type TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file      TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file_name TEXT NOT NULL DEFAULT '',
+	deletion_transcript_file_type TEXT NOT NULL DEFAULT '',
+	deletion_transcript_sha256    TEXT NOT NULL DEFAULT '',
+	deletion_transcript_note      TEXT NOT NULL DEFAULT '',
 	deletion_log_sent        INTEGER NOT NULL DEFAULT 0
 );
 
@@ -646,6 +655,26 @@ func (db *DB) ListSquads(guildID string) ([]Squad, error) {
 // DeleteSquad removes a squad and its memberships while retaining closed
 // membership history.
 func (db *DB) DeleteSquad(id int64, now time.Time) error {
+	var transcriptFile string
+	var transcriptName string
+	var transcriptSent bool
+	err := db.conn.QueryRow(`SELECT deletion_transcript_file, deletion_transcript_file_name,
+		deletion_log_sent FROM squads WHERE id = ?`, id).Scan(&transcriptFile, &transcriptName, &transcriptSent)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if transcriptName != "" && !transcriptSent {
+		return errors.New("cannot delete squad before its transcript delivery is resolved")
+	}
+	if transcriptFile != "" {
+		path, err := db.squadTranscriptPath(transcriptFile)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove squad transcript: %w", err)
+		}
+	}
 	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
@@ -702,16 +731,68 @@ type SquadDeletionTranscript struct {
 
 func (db *DB) SquadDeletionTranscript(id int64) (SquadDeletionTranscript, error) {
 	var transcript SquadDeletionTranscript
-	err := db.conn.QueryRow(`SELECT deletion_transcript_name, deletion_transcript_type,
-		deletion_transcript, deletion_log_sent FROM squads WHERE id = ?`, id).
-		Scan(&transcript.Name, &transcript.ContentType, &transcript.Data, &transcript.LogSent)
-	return transcript, err
+	var file, checksum, note string
+	err := db.conn.QueryRow(`SELECT deletion_transcript_file_name, deletion_transcript_file_type,
+		deletion_transcript_file, deletion_transcript_sha256, deletion_transcript_note, deletion_log_sent
+		FROM squads WHERE id = ?`, id).
+		Scan(&transcript.Name, &transcript.ContentType, &file, &checksum, &note, &transcript.LogSent)
+	if err != nil || transcript.Name == "" || transcript.LogSent {
+		return transcript, err
+	}
+	if file == "" {
+		transcript.Data = []byte(note)
+		return transcript, nil
+	}
+	path, err := db.squadTranscriptPath(file)
+	if err != nil {
+		return SquadDeletionTranscript{}, err
+	}
+	transcript.Data, err = os.ReadFile(path)
+	if err != nil {
+		return SquadDeletionTranscript{}, fmt.Errorf("read squad transcript: %w", err)
+	}
+	sum := sha256.Sum256(transcript.Data)
+	if hex.EncodeToString(sum[:]) != checksum {
+		return SquadDeletionTranscript{}, errors.New("squad transcript checksum mismatch")
+	}
+	return transcript, nil
 }
 
 func (db *DB) SaveSquadDeletionTranscript(id int64, transcript SquadDeletionTranscript) error {
-	_, err := db.conn.Exec(`UPDATE squads SET deletion_transcript_name = ?,
-		deletion_transcript_type = ?, deletion_transcript = ? WHERE id = ?`,
-		transcript.Name, transcript.ContentType, transcript.Data, id)
+	return db.saveSquadDeletionTranscript(id, transcript, true)
+}
+
+func (db *DB) saveSquadDeletionTranscript(id int64, transcript SquadDeletionTranscript, clearLegacy bool) error {
+	var file, checksum, note string
+	var created bool
+	if transcript.ContentType == "application/x-bestpal-transcript-unavailable" {
+		note = string(transcript.Data)
+	} else {
+		var err error
+		file, checksum, created, err = db.writeSquadTranscript(id, transcript.Data)
+		if err != nil {
+			return err
+		}
+	}
+	query := `UPDATE squads SET
+		deletion_transcript_file_name = ?, deletion_transcript_file_type = ?,
+		deletion_transcript_file = ?, deletion_transcript_sha256 = ?, deletion_transcript_note = ?`
+	if clearLegacy {
+		query += `, deletion_transcript = X'', deletion_transcript_name = '', deletion_transcript_type = ''`
+	}
+	result, err := db.conn.Exec(query+` WHERE id = ?`, transcript.Name, transcript.ContentType, file, checksum, note, id)
+	if err == nil {
+		var changed int64
+		changed, err = result.RowsAffected()
+		if err == nil && changed == 0 {
+			err = sql.ErrNoRows
+		}
+	}
+	if err != nil && created {
+		if path, pathErr := db.squadTranscriptPath(file); pathErr == nil {
+			_ = os.Remove(path)
+		}
+	}
 	return err
 }
 
@@ -754,6 +835,11 @@ func (db *DB) migrateSquads() error {
 		{"deletion_transcript", "BLOB NOT NULL DEFAULT X''"},
 		{"deletion_transcript_name", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_transcript_type", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file_name", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_file_type", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_sha256", "TEXT NOT NULL DEFAULT ''"},
+		{"deletion_transcript_note", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
@@ -783,6 +869,127 @@ func (db *DB) migrateSquads() error {
 		(guild_id, user_id, squad_id, joined_at, first_message_at)
 		SELECT guild_id, user_id, squad_id, joined_at, joined_at FROM squad_members`)
 	return err
+}
+
+func (db *DB) writeSquadTranscript(id int64, data []byte) (string, string, bool, error) {
+	sum := sha256.Sum256(data)
+	checksum := hex.EncodeToString(sum[:])
+	name := fmt.Sprintf("squad-%d-%s.transcript", id, checksum)
+	path, err := db.squadTranscriptPath(name)
+	if err != nil {
+		return "", "", false, err
+	}
+	if existing, err := os.ReadFile(path); err == nil {
+		if existingSum := sha256.Sum256(existing); existingSum == sum {
+			return name, checksum, false, nil
+		}
+		return "", "", false, errors.New("existing squad transcript checksum mismatch")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", "", false, fmt.Errorf("read existing squad transcript: %w", err)
+	}
+	tmp, err := os.CreateTemp(db.transcriptDir, ".pending-*")
+	if err != nil {
+		return "", "", false, fmt.Errorf("create squad transcript: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return "", "", false, err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return "", "", false, fmt.Errorf("write squad transcript: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", "", false, fmt.Errorf("sync squad transcript: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", "", false, fmt.Errorf("close squad transcript: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return "", "", false, fmt.Errorf("publish squad transcript: %w", err)
+	}
+	return name, checksum, true, nil
+}
+
+func (db *DB) squadTranscriptPath(name string) (string, error) {
+	if name == "" || filepath.Base(name) != name {
+		return "", errors.New("invalid squad transcript filename")
+	}
+	return filepath.Join(db.transcriptDir, name), nil
+}
+
+func (db *DB) migrateSquadTranscriptFiles() error {
+	rows, err := db.conn.Query(`SELECT id, deletion_transcript_name, deletion_transcript_type,
+		deletion_transcript FROM squads
+		WHERE deletion_transcript_name != '' AND deletion_transcript_file_name = ''`)
+	if err != nil {
+		return fmt.Errorf("load legacy squad transcripts: %w", err)
+	}
+	type legacyTranscript struct {
+		id         int64
+		transcript SquadDeletionTranscript
+	}
+	var legacy []legacyTranscript
+	for rows.Next() {
+		var item legacyTranscript
+		if err := rows.Scan(&item.id, &item.transcript.Name, &item.transcript.ContentType, &item.transcript.Data); err != nil {
+			rows.Close()
+			return err
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, item := range legacy {
+		if err := db.saveSquadDeletionTranscript(item.id, item.transcript, false); err != nil {
+			return fmt.Errorf("externalize legacy squad transcript %d: %w", item.id, err)
+		}
+	}
+	return db.cleanupOrphanedSquadTranscripts(24 * time.Hour)
+}
+
+func (db *DB) cleanupOrphanedSquadTranscripts(minAge time.Duration) error {
+	rows, err := db.conn.Query(`SELECT deletion_transcript_file FROM squads WHERE deletion_transcript_file != ''`)
+	if err != nil {
+		return err
+	}
+	referenced := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		referenced[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(db.transcriptDir)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().Add(-minAge)
+	for _, entry := range entries {
+		if entry.IsDir() || referenced[entry.Name()] {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(db.transcriptDir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 // MarkSquadWarned records that a squad was warned it will be deleted.

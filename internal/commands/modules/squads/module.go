@@ -388,10 +388,14 @@ func (m *Module) modLogFiles(guildID, title string, color int, files []*discordg
 	if ch == "" {
 		return nil
 	}
+	return m.modLogFilesTo(ch, title, color, files, fields...)
+}
+
+func (m *Module) modLogFilesTo(channelID, title string, color int, files []*discordgo.File, fields ...*discordgo.MessageEmbedField) error {
 	for _, f := range fields {
 		f.Value = truncate(f.Value, 1024)
 	}
-	_, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
+	_, err := m.dc(nil).Send(channelID, &discordgo.MessageSend{
 		Embeds: []*discordgo.MessageEmbed{{
 			Title:     title,
 			Color:     color,

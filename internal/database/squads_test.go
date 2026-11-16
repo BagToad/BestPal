@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -335,11 +337,30 @@ func TestMigrateSquadsSeparatesRollbackRejoinToSameSquad(t *testing.T) {
 }
 
 func TestSquadDeletionTranscriptPersistsUntilDeletion(t *testing.T) {
-	db := newSquadDB(t)
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
 	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a", "b"}, time.Unix(100, 0))
 	require.NoError(t, err)
 	want := SquadDeletionTranscript{Name: "transcript.txt", ContentType: "text/plain", Data: []byte("hello")}
 	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, want))
+
+	var legacyBytes []byte
+	var storedFile, checksum string
+	require.NoError(t, db.conn.QueryRow(`SELECT deletion_transcript, deletion_transcript_file,
+		deletion_transcript_sha256 FROM squads WHERE id = ?`, sq.ID).Scan(&legacyBytes, &storedFile, &checksum))
+	assert.Empty(t, legacyBytes, "transcript payloads are not stored in SQLite")
+	assert.NotEmpty(t, storedFile)
+	assert.Len(t, checksum, 64)
+	storedPath := filepath.Join(db.transcriptDir, storedFile)
+	stored, err := os.ReadFile(storedPath)
+	require.NoError(t, err)
+	assert.Equal(t, want.Data, stored)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
 
 	got, err := db.SquadDeletionTranscript(sq.ID)
 	require.NoError(t, err)
@@ -352,4 +373,89 @@ func TestSquadDeletionTranscriptPersistsUntilDeletion(t *testing.T) {
 	got, err = db.SquadDeletionTranscript(sq.ID)
 	require.NoError(t, err)
 	assert.True(t, got.LogSent)
+	require.NoError(t, db.DeleteSquad(sq.ID, time.Unix(200, 0)))
+	_, err = os.Stat(storedPath)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestMigrateSquadTranscriptBlobToDurableFileKeepsRollbackCopy(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	_, err = db.conn.Exec(`UPDATE squads SET deletion_transcript_name = 'legacy.txt',
+		deletion_transcript_type = 'text/plain', deletion_transcript = ? WHERE id = ?`, []byte("legacy payload"), sq.ID)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "legacy.txt", got.Name)
+	assert.Equal(t, []byte("legacy payload"), got.Data)
+	var legacyBytes []byte
+	require.NoError(t, db.conn.QueryRow(`SELECT deletion_transcript FROM squads WHERE id = ?`, sq.ID).Scan(&legacyBytes))
+	assert.Equal(t, []byte("legacy payload"), legacyBytes, "pre-existing payload remains readable by the previous binary until deletion finishes")
+}
+
+func TestUnavailableSquadTranscriptUsesMetadataOnly(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	want := SquadDeletionTranscript{
+		Name: "unavailable", ContentType: "application/x-bestpal-transcript-unavailable", Data: []byte("too many messages"),
+	}
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, want))
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	entries, err := os.ReadDir(db.transcriptDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+}
+
+func TestSquadTranscriptRejectsCorruptFile(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, SquadDeletionTranscript{
+		Name: "transcript.txt", ContentType: "text/plain", Data: []byte("original"),
+	}))
+	var storedFile string
+	require.NoError(t, db.conn.QueryRow(`SELECT deletion_transcript_file FROM squads WHERE id = ?`, sq.ID).Scan(&storedFile))
+	require.NoError(t, os.WriteFile(filepath.Join(db.transcriptDir, storedFile), []byte("tampered"), 0o600))
+
+	_, err = db.SquadDeletionTranscript(sq.ID)
+	assert.ErrorContains(t, err, "checksum mismatch")
+}
+
+func TestSquadTranscriptSaveFailureLeavesNoFile(t *testing.T) {
+	db := newSquadDB(t)
+	err := db.SaveSquadDeletionTranscript(999, SquadDeletionTranscript{
+		Name: "transcript.txt", ContentType: "text/plain", Data: []byte("orphan"),
+	})
+	assert.ErrorIs(t, err, sql.ErrNoRows)
+	entries, readErr := os.ReadDir(db.transcriptDir)
+	require.NoError(t, readErr)
+	assert.Empty(t, entries)
+}
+
+func TestSquadTranscriptCleanupPreservesReferencedFiles(t *testing.T) {
+	db := newSquadDB(t)
+	sq, err := db.CreateSquad(Squad{GuildID: "g", Name: "Squad Axolotl"}, []string{"a"}, time.Unix(100, 0))
+	require.NoError(t, err)
+	require.NoError(t, db.SaveSquadDeletionTranscript(sq.ID, SquadDeletionTranscript{
+		Name: "transcript.txt", ContentType: "text/plain", Data: []byte("referenced"),
+	}))
+	orphan := filepath.Join(db.transcriptDir, "orphan.transcript")
+	require.NoError(t, os.WriteFile(orphan, []byte("orphan"), 0o600))
+	require.NoError(t, db.cleanupOrphanedSquadTranscripts(0))
+	_, err = os.Stat(orphan)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	got, err := db.SquadDeletionTranscript(sq.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("referenced"), got.Data)
 }

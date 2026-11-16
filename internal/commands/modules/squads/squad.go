@@ -611,7 +611,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		} else {
 			fields = append(fields, logField("Transcript", "Unavailable: "+string(transcript.Data), false))
 		}
-		if err := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
+		if err := m.modLogFilesTo(logChannel, "🗑️ Squad Deleted", utils.Colors.Fancy(), files, fields...); err != nil {
 			code := discordCode(err)
 			if code == 10003 || code == 50001 || code == 50008 {
 				m.config.Logger.Warnf("squads: deletion log destination unavailable for %s: %v", sq.Name, err)
@@ -622,7 +622,7 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 			} else if code == 50013 || code == 40005 || discordHTTPStatus(err) == http.StatusRequestEntityTooLarge {
 				files = nil
 				fields = append(fields, logField("Transcript", "Attachment failed permanently: "+err.Error(), false))
-				if fallbackErr := m.modLogFiles(sq.GuildID, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {
+				if fallbackErr := m.modLogFilesTo(logChannel, "🗑️ Squad Deleted", utils.Colors.Fancy(), nil, fields...); fallbackErr == nil {
 					if err := m.db.MarkSquadDeletionLogSent(sq.ID); err != nil {
 						return fmt.Errorf("record deletion log delivery: %w", err)
 					}

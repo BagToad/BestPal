@@ -53,6 +53,7 @@ type fakeAPI struct {
 	addErr      error
 	removeErr   error
 	deleteErr   error
+	deleteHook  func()
 	roleDelErr  error
 	memberErr   map[string]error
 	catPerms    []*discordgo.PermissionOverwrite
@@ -160,6 +161,9 @@ func (f *fakeAPI) DeleteChannel(id string) error {
 		return f.deleteErr
 	}
 	f.delCh = append(f.delCh, id)
+	if f.deleteHook != nil {
+		f.deleteHook()
+	}
 	return nil
 }
 func (f *fakeAPI) Channel(id string) (*discordgo.Channel, error) {
@@ -719,6 +723,25 @@ func TestSquadDeletionDoesNotTrapMembersWhenLogConfigIsRemoved(t *testing.T) {
 	_, ok, getErr := db.GetSquad(sq.ID)
 	require.NoError(t, getErr)
 	assert.False(t, ok, "removed logging configuration cannot trap members in a deleting squad")
+}
+
+func TestSquadDeletionUsesSelectedLogDestinationWhenConfigChanges(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.messages[sq.ChannelID] = []*discordgo.Message{{Content: "saved"}}
+	api.deleteHook = func() {
+		m.config = config.NewMockConfig(map[string]any{
+			"gamerpals_server_id":           guild,
+			config.KeyModActionLogChannelID: "",
+		})
+	}
+
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	_, ok, err := db.GetSquad(sq.ID)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	msg := modLogMessage(t, api)
+	require.Len(t, msg.Files, 1, "the transcript is sent to the destination selected before deletion")
 }
 
 func TestPermanentTranscriptUploadFailureFallsBackToEmbed(t *testing.T) {

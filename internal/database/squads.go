@@ -922,10 +922,6 @@ func (db *DB) writeSquadTranscript(id int64, data []byte) (string, string, bool,
 	}
 	tmpPath := tmp.Name()
 	defer func() { _ = os.Remove(tmpPath) }()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return "", "", false, err
-	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
 		return "", "", false, fmt.Errorf("write squad transcript: %w", err)

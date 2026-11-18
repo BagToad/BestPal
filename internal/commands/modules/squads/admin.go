@@ -505,6 +505,13 @@ func (m *Module) userText(guildID, uid string) string {
 		}
 		fmt.Fprintf(&b, "**Region:** %s · **Age:** %s · **Platforms:** %s\n", region, age, strings.Join(plats, ", "))
 	}
+	if tryNew, err := m.db.SquadTryNewGames(guildID, uid); err == nil {
+		answer := "off"
+		if tryNew {
+			answer = "on"
+		}
+		fmt.Fprintf(&b, "**Try new games:** %s\n", answer)
+	}
 	picks, err := m.db.SquadPicks(guildID, uid)
 	if err != nil {
 		return "❌ Could not load their games."

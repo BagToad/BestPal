@@ -550,6 +550,14 @@ func TestRunMatchUsesPersistedGenreOptIn(t *testing.T) {
 	assert.Contains(t, api.sent[0].Msg.Content, "matched because you're all into **Shooter**")
 }
 
+func TestAdminUserShowsTryNewGames(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** off")
+	require.NoError(t, db.SetSquadTryNewGames(guild, "a", true))
+	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** on")
+}
+
 func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	for n := range 6 {

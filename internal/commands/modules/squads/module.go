@@ -312,23 +312,25 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 	case "join":
 		m.handleJoinButton(s, i, arg(1), arg(2), arg(3))
 	case "add":
-		m.handleAddButton(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+		m.handleAddButton(s, i, parsePickerCtx(parts))
 	case "res":
-		m.handleResultPick(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+		m.handleResultPick(s, i, parsePickerCtx(parts))
 	case "rm":
-		m.handleRemovePick(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+		m.handleRemovePick(s, i, parsePickerCtx(parts))
 	case "back":
-		m.handleBack(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+		m.handleBack(s, i, parsePickerCtx(parts))
 	case "trynewon":
-		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, true)
+		m.handleTryNewGames(s, i, parsePickerCtx(parts), true)
 	case "trynewoff":
-		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, false)
+		m.handleTryNewGames(s, i, parsePickerCtx(parts), false)
 	case "anyregionon":
-		m.handleAnyRegion(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, true)
+		m.handleAnyRegion(s, i, parsePickerCtx(parts), true)
 	case "anyregionoff":
-		m.handleAnyRegion(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, false)
+		m.handleAnyRegion(s, i, parsePickerCtx(parts), false)
+	case "pageprev", "pagenext":
+		m.handleBack(s, i, parsePickerCtx(parts))
 	case "done":
-		m.handleDone(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
+		m.handleDone(s, i, parsePickerCtx(parts))
 	case "leave":
 		m.handleLeaveButton(s, i, arg(1))
 	case "leaveyes":
@@ -348,7 +350,7 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 	}
 	parts := strings.Split(strings.TrimPrefix(i.ModalSubmitData().CustomID, prefix), ":")
 	if parts[0] == "search" && len(parts) >= 3 {
-		m.handleSearchSubmit(s, i, pickerCtx{GuildID: parts[1], ThreadID: parts[2]})
+		m.handleSearchSubmit(s, i, parsePickerCtx(parts))
 		return
 	}
 	m.respondText(s, i, "❌ Unknown squad form.")

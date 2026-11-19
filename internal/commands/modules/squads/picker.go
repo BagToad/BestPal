@@ -17,11 +17,33 @@ import (
 type pickerCtx struct {
 	GuildID  string
 	ThreadID string
+	Page     int // 0-based page of the picks list
 }
 
 func (c pickerCtx) id(action string) string {
-	return prefix + action + ":" + c.GuildID + ":" + c.ThreadID
+	id := prefix + action + ":" + c.GuildID + ":" + c.ThreadID
+	if c.Page > 0 {
+		id += ":" + strconv.Itoa(c.Page)
+	}
+	return id
 }
+
+// parsePickerCtx reads a pickerCtx from custom ID parts after the action.
+// IDs from before pagination have no page and open on the first page.
+func parsePickerCtx(parts []string) pickerCtx {
+	arg := func(n int) string {
+		if n < len(parts) {
+			return parts[n]
+		}
+		return ""
+	}
+	page, _ := strconv.Atoi(arg(3))
+	return pickerCtx{GuildID: arg(1), ThreadID: arg(2), Page: max(page, 0)}
+}
+
+// picksPerPage is how many games the picker lists at once, keeping the
+// message well under Discord's 2,000-character limit.
+const picksPerPage = 10
 
 // joinButton opens the game picker for owner (anyone, if owner is empty).
 func joinButton(guildID, ownerID, threadID string) discordgo.Button {
@@ -61,8 +83,15 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	if len(picks) == 0 {
 		b.WriteString("\n*No games yet. Hit **Add a game** to search.*")
 	}
-	for n, p := range picks {
-		fmt.Fprintf(&b, "\n%d. %s", n+1, truncate(gameInfo{Name: p.Name, Year: p.Year}.label(), maxListedName))
+	pages := max((len(picks)+picksPerPage-1)/picksPerPage, 1)
+	ctx.Page = min(ctx.Page, pages-1)
+	start := ctx.Page * picksPerPage
+	end := min(start+picksPerPage, len(picks))
+	for n := start; n < end; n++ {
+		fmt.Fprintf(&b, "\n%d. %s", n+1, truncate(gameInfo{Name: picks[n].Name, Year: picks[n].Year}.label(), maxListedName))
+	}
+	if pages > 1 {
+		fmt.Fprintf(&b, "\n-# Page %d/%d", ctx.Page+1, pages)
 	}
 	if tryNew {
 		b.WriteString("\n\n✅ **Willing to try new games:** You may also be matched by shared genres.")
@@ -109,12 +138,24 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 			CustomID: ctx.id("add"), Disabled: len(picks) >= maxPicks},
 		discordgo.Button{Label: finish, Emoji: &discordgo.ComponentEmoji{Name: "✅"}, Style: discordgo.SuccessButton,
 			CustomID: ctx.id("done"), Disabled: len(picks) == 0},
-	}}, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+	}}}
+	if pages > 1 {
+		prev, next := ctx, ctx
+		prev.Page, next.Page = ctx.Page-1, ctx.Page+1
+		row := rows[0].(discordgo.ActionsRow)
+		row.Components = append(row.Components,
+			discordgo.Button{Label: "Prev", Emoji: &discordgo.ComponentEmoji{Name: "◀️"}, Style: discordgo.SecondaryButton,
+				CustomID: prev.id("pageprev"), Disabled: ctx.Page == 0},
+			discordgo.Button{Label: "Next", Emoji: &discordgo.ComponentEmoji{Name: "▶️"}, Style: discordgo.SecondaryButton,
+				CustomID: next.id("pagenext"), Disabled: ctx.Page >= pages-1})
+		rows[0] = row
+	}
+	rows = append(rows, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: tryLabel, Emoji: &discordgo.ComponentEmoji{Name: tryEmoji},
 			Style: tryStyle, CustomID: ctx.id(tryAction)},
 		discordgo.Button{Label: regionLabel, Emoji: &discordgo.ComponentEmoji{Name: regionEmoji},
 			Style: regionStyle, CustomID: ctx.id(regionAction)},
-	}}}
+	}})
 	if len(picks) > 0 {
 		var opts []discordgo.SelectMenuOption
 		for _, p := range picks {
@@ -136,8 +177,7 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	}
 }
 
-// maxListedName bounds each game in the picker's list so 25 picks fit in a
-// 2,000-character message.
+// maxListedName bounds each game in the picker's list.
 const maxListedName = 50
 
 func truncate(s string, n int) string {
@@ -339,6 +379,7 @@ func (m *Module) handleResultPick(s *discordgo.Session, i *discordgo.Interaction
 		m.edit(s, i, m.pickerView(ctx, uid, "❌ Game search is unavailable right now."))
 		return
 	}
+	ctx.Page = maxPicks // clamped to the last page so the new game is visible
 	n, added, err := m.db.AddSquadPick(ctx.GuildID, uid, database.SquadPick{GameID: g.ID, Name: g.Name, Year: g.Year, Tags: g.Tags}, maxPicks, m.now())
 	var note string
 	switch {

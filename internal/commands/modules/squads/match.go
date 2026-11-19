@@ -69,10 +69,10 @@ var regionNeighbours = map[string][]string{
 
 // compatible reports whether two people may share a squad. Strict mode needs
 // the same region and age group; relaxed mode also allows neighbours.
-// Unknown region or age matches anything, and two people who both opted into
-// any-region matching ignore region entirely.
+// Unknown region or age matches anything. Someone who opted into any-region
+// matching accepts the lag, so they may join people from any region.
 func compatible(a, b *candidate, relaxed bool) bool {
-	if a.Region != "" && b.Region != "" && a.Region != b.Region && !(a.AnyRegion && b.AnyRegion) {
+	if a.Region != "" && b.Region != "" && a.Region != b.Region && !a.AnyRegion && !b.AnyRegion {
 		if !relaxed || !slices.Contains(regionNeighbours[a.Region], b.Region) {
 			return false
 		}

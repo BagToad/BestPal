@@ -70,7 +70,7 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		b.WriteString("\n\n**Willing to try new games?** Opt in to also be matched by shared genres.")
 	}
 	if anyRegion {
-		b.WriteString("\n✅ **Any region:** Open to other regions.")
+		b.WriteString("\n✅ **Any region:** You may join squads in other regions.")
 	} else {
 		b.WriteString("\n**Any region?** Opt in to match outside your region.")
 	}
@@ -413,7 +413,7 @@ func (m *Module) handleAnyRegion(s *discordgo.Session, i *discordgo.InteractionC
 	}
 	note := "Any-region matching is off. We'll match you within your region."
 	if enabled {
-		note = "✅ You're open to any region. We may match you with people from other regions who opted in too."
+		note = "✅ You're open to any region. We may match you with people from other regions (expect some lag)."
 	}
 	m.edit(s, i, m.pickerView(ctx, uid, note))
 }

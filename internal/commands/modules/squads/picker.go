@@ -411,7 +411,7 @@ func (m *Module) handleAnyRegion(s *discordgo.Session, i *discordgo.InteractionC
 		m.edit(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
 		return
 	}
-	note := "Any-region matching is off. We'll match you within your region."
+	note := "Any-region matching is off. We'll match you in your region, or a nearby one if it's quiet."
 	if enabled {
 		note = "✅ You're open to any region. We may match you with people from other regions (expect some lag)."
 	}

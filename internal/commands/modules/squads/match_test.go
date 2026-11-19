@@ -32,6 +32,35 @@ func willing(c *candidate) *candidate {
 	return c
 }
 
+func anyRegion(c *candidate) *candidate {
+	c.AnyRegion = true
+	return c
+}
+
+func TestCompatibleAnyRegionNeedsBothOptIns(t *testing.T) {
+	eu := person("eu", "eu", 2, time.Hour, 1)
+	as := person("as", "as", 2, time.Hour, 1)
+	assert.False(t, compatible(eu, as, true))
+	anyRegion(eu)
+	assert.False(t, compatible(eu, as, true), "one opt-in isn't enough")
+	anyRegion(as)
+	assert.True(t, compatible(eu, as, false))
+	older := anyRegion(person("as-older", "as", 4, time.Hour, 1))
+	assert.False(t, compatible(eu, older, true), "age groups still apply")
+}
+
+func TestBuildPlanMixesRegionsWhenEveryoneOptsIn(t *testing.T) {
+	queue := []*candidate{
+		anyRegion(person("eu", "eu", 2, time.Hour, 1)),
+		anyRegion(person("na", "na", 2, time.Hour, 1)),
+		anyRegion(person("as", "as", 2, time.Hour, 1)),
+		person("oc", "oc", 2, time.Hour, 1),
+	}
+	p := buildPlan(queue, nil, matchParams{Min: 3, Target: 3, Max: 4, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 7 * 24 * time.Hour}, t0)
+	require.Len(t, p.NewSquads, 1)
+	assert.ElementsMatch(t, []string{"eu", "na", "as"}, ids(p.NewSquads[0]))
+}
+
 var params = matchParams{Min: 3, Target: 6, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 7 * 24 * time.Hour}
 
 func ids(group []*candidate) []string {

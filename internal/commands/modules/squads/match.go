@@ -21,6 +21,7 @@ type candidate struct {
 	Games     map[int64]string // IGDB game ID -> name
 	Tags      map[string]bool  // IGDB genre and theme names
 	TryNew    bool             // opted into genre/theme matching
+	AnyRegion bool             // opted into matching with any region
 	Avoid     map[string]bool  // partners from the most recent completed squad
 	Blocked   bool             // has the squads blocked role
 }
@@ -68,9 +69,10 @@ var regionNeighbours = map[string][]string{
 
 // compatible reports whether two people may share a squad. Strict mode needs
 // the same region and age group; relaxed mode also allows neighbours.
-// Unknown region or age matches anything.
+// Unknown region or age matches anything, and two people who both opted into
+// any-region matching ignore region entirely.
 func compatible(a, b *candidate, relaxed bool) bool {
-	if a.Region != "" && b.Region != "" && a.Region != b.Region {
+	if a.Region != "" && b.Region != "" && a.Region != b.Region && !(a.AnyRegion && b.AnyRegion) {
 		if !relaxed || !slices.Contains(regionNeighbours[a.Region], b.Region) {
 			return false
 		}

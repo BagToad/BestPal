@@ -323,6 +323,10 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, true)
 	case "trynewoff":
 		m.handleTryNewGames(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, false)
+	case "anyregionon":
+		m.handleAnyRegion(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, true)
+	case "anyregionoff":
+		m.handleAnyRegion(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)}, false)
 	case "done":
 		m.handleDone(s, i, pickerCtx{GuildID: arg(1), ThreadID: arg(2)})
 	case "leave":

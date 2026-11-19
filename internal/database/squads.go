@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS squad_preferences (
 	guild_id      TEXT NOT NULL,
 	user_id       TEXT NOT NULL,
 	try_new_games INTEGER NOT NULL DEFAULT 0,
+	any_region    INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (guild_id, user_id)
 );
 
@@ -180,6 +181,26 @@ func (db *DB) SquadTryNewGames(guildID, userID string) (bool, error) {
 func (db *DB) SetSquadTryNewGames(guildID, userID string, enabled bool) error {
 	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, try_new_games) VALUES (?, ?, ?)
 		ON CONFLICT (guild_id, user_id) DO UPDATE SET try_new_games = excluded.try_new_games`,
+		guildID, userID, enabled)
+	return err
+}
+
+// SquadAnyRegion reports whether a member opted into matching with people
+// from any region. Missing preferences default to false.
+func (db *DB) SquadAnyRegion(guildID, userID string) (bool, error) {
+	var enabled bool
+	err := db.conn.QueryRow(`SELECT any_region FROM squad_preferences WHERE guild_id = ? AND user_id = ?`,
+		guildID, userID).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// SetSquadAnyRegion updates a member's any-region matching preference.
+func (db *DB) SetSquadAnyRegion(guildID, userID string, enabled bool) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, any_region) VALUES (?, ?, ?)
+		ON CONFLICT (guild_id, user_id) DO UPDATE SET any_region = excluded.any_region`,
 		guildID, userID, enabled)
 	return err
 }
@@ -813,6 +834,9 @@ func (db *DB) MarkSquadDeletionLogSent(id int64) error {
 // migrateSquads adds columns introduced after the squads table was first
 // created.
 func (db *DB) migrateSquads() error {
+	if err := db.migrateSquadPreferences(); err != nil {
+		return err
+	}
 	rows, err := db.conn.Query(`PRAGMA table_info(squads)`)
 	if err != nil {
 		return fmt.Errorf("failed to check squads schema: %w", err)
@@ -947,6 +971,35 @@ func (db *DB) squadTranscriptPath(name string) (string, error) {
 		return "", errors.New("invalid squad transcript filename")
 	}
 	return filepath.Join(db.transcriptDir, name), nil
+}
+
+// migrateSquadPreferences adds preference columns missing from older databases.
+func (db *DB) migrateSquadPreferences() error {
+	rows, err := db.conn.Query(`PRAGMA table_info(squad_preferences)`)
+	if err != nil {
+		return fmt.Errorf("failed to check squad_preferences schema: %w", err)
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, ctype string
+		var dflt *string
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return fmt.Errorf("failed to scan squad_preferences schema: %w", err)
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read squad_preferences schema: %w", err)
+	}
+	if !have["any_region"] {
+		if _, err := db.conn.Exec(`ALTER TABLE squad_preferences ADD COLUMN any_region INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add squad_preferences.any_region: %w", err)
+		}
+	}
+	return nil
 }
 
 func (db *DB) migrateSquadTranscriptFiles() error {

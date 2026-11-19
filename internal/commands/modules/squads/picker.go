@@ -48,6 +48,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		m.config.Logger.Errorf("squads: load try-new-games preference: %v", err)
 		return ephemeral("❌ Could not load your squad preferences. Try again in a moment.")
 	}
+	anyRegion, err := m.db.SquadAnyRegion(ctx.GuildID, uid)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load any-region preference: %v", err)
+		return ephemeral("❌ Could not load your squad preferences. Try again in a moment.")
+	}
 	var b strings.Builder
 	if note != "" {
 		b.WriteString(truncate(note, 200) + "\n\n")
@@ -63,6 +68,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		b.WriteString("\n\n✅ **Willing to try new games:** You may also be matched by shared genres.")
 	} else {
 		b.WriteString("\n\n**Willing to try new games?** Opt in to also be matched by shared genres.")
+	}
+	if anyRegion {
+		b.WriteString("\n✅ **Any region:** Open to other regions.")
+	} else {
+		b.WriteString("\n**Any region?** Opt in to match outside your region.")
 	}
 
 	finish := "Finish"
@@ -84,6 +94,16 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		tryLabel = "Disable genre matching"
 		tryAction = "trynewoff"
 	}
+	regionStyle := discordgo.SecondaryButton
+	regionEmoji := "🌍"
+	regionLabel := "I'll play with any region"
+	regionAction := "anyregionon"
+	if anyRegion {
+		regionStyle = discordgo.SuccessButton
+		regionEmoji = "✅"
+		regionLabel = "Disable any-region matching"
+		regionAction = "anyregionoff"
+	}
 	rows := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Add a game", Emoji: &discordgo.ComponentEmoji{Name: "➕"}, Style: discordgo.PrimaryButton,
 			CustomID: ctx.id("add"), Disabled: len(picks) >= maxPicks},
@@ -92,6 +112,8 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 	}}, discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: tryLabel, Emoji: &discordgo.ComponentEmoji{Name: tryEmoji},
 			Style: tryStyle, CustomID: ctx.id(tryAction)},
+		discordgo.Button{Label: regionLabel, Emoji: &discordgo.ComponentEmoji{Name: regionEmoji},
+			Style: regionStyle, CustomID: ctx.id(regionAction)},
 	}}}
 	if len(picks) > 0 {
 		var opts []discordgo.SelectMenuOption
@@ -371,6 +393,27 @@ func (m *Module) handleTryNewGames(s *discordgo.Session, i *discordgo.Interactio
 	note := "Genre matching is off. We'll only match you by exact games."
 	if enabled {
 		note = "✅ You're open to trying new games. We may also match you by shared genres."
+	}
+	m.edit(s, i, m.pickerView(ctx, uid, note))
+}
+
+func (m *Module) handleAnyRegion(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx, enabled bool) {
+	if !m.deferUpdate(s, i) {
+		return
+	}
+	uid := userID(i)
+	lock := m.guildLock(ctx.GuildID)
+	lock.Lock()
+	err := m.db.SetSquadAnyRegion(ctx.GuildID, uid, enabled)
+	lock.Unlock()
+	if err != nil {
+		m.config.Logger.Errorf("squads: update any-region preference: %v", err)
+		m.edit(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
+		return
+	}
+	note := "Any-region matching is off. We'll match you within your region."
+	if enabled {
+		note = "✅ You're open to any region. We may match you with people from other regions who opted in too."
 	}
 	m.edit(s, i, m.pickerView(ctx, uid, note))
 }

@@ -365,6 +365,16 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	assert.False(t, tryNew)
 	m.HandleComponent(nil, component("alice", ctx.id("trynewon")))
 
+	m.HandleComponent(nil, component("alice", ctx.id("anyregionon")))
+	assert.Contains(t, editContent(api.lastEdit()), "open to any region")
+	anyRegion, err := db.SquadAnyRegion(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, anyRegion)
+	m.HandleComponent(nil, component("alice", ctx.id("anyregionoff")))
+	anyRegion, err = db.SquadAnyRegion(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, anyRegion)
+
 	m.HandleComponent(nil, component("alice", ctx.id("done")))
 	assert.Contains(t, editContent(api.lastEdit()), "You're in the squad queue")
 	e, ok, err := db.SquadQueueEntryFor(guild, "alice")
@@ -556,6 +566,14 @@ func TestAdminUserShowsTryNewGames(t *testing.T) {
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** off")
 	require.NoError(t, db.SetSquadTryNewGames(guild, "a", true))
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** on")
+}
+
+func TestAdminUserShowsAnyRegion(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	assert.Contains(t, m.userText(guild, "a"), "**Any region:** off")
+	require.NoError(t, db.SetSquadAnyRegion(guild, "a", true))
+	assert.Contains(t, m.userText(guild, "a"), "**Any region:** on")
 }
 
 func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {

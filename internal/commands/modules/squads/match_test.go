@@ -40,12 +40,13 @@ func anyRegion(c *candidate) *candidate {
 func TestCompatibleAnyRegionNeedsOneOptIn(t *testing.T) {
 	eu := person("eu", "eu", 2, time.Hour, 1)
 	as := person("as", "as", 2, time.Hour, 1)
-	assert.False(t, compatible(eu, as, true))
+	assert.False(t, compatible(eu, as, true, true))
 	anyRegion(eu)
-	assert.True(t, compatible(eu, as, false), "one opt-in is enough")
-	assert.True(t, compatible(as, eu, false), "order doesn't matter")
+	assert.False(t, compatible(eu, as, true, false), "own region comes first")
+	assert.True(t, compatible(eu, as, false, true), "one opt-in is enough")
+	assert.True(t, compatible(as, eu, false, true), "order doesn't matter")
 	older := person("as-older", "as", 4, time.Hour, 1)
-	assert.False(t, compatible(eu, older, true), "age groups still apply")
+	assert.False(t, compatible(eu, older, true, true), "age groups still apply")
 }
 
 func TestBuildPlanAnyRegionJoinsAnotherRegion(t *testing.T) {
@@ -59,6 +60,32 @@ func TestBuildPlanAnyRegionJoinsAnotherRegion(t *testing.T) {
 	require.Len(t, p.NewSquads, 1)
 	assert.ElementsMatch(t, []string{"eu", "as1", "as2"}, ids(p.NewSquads[0]),
 		"people who didn't opt in still never mix regions with each other")
+}
+
+func TestBuildPlanAnyRegionPrefersOwnRegion(t *testing.T) {
+	queue := []*candidate{
+		anyRegion(person("eu", "eu", 2, 2*time.Hour, 1, 2, 3)),
+		person("as1", "as", 2, time.Hour, 1, 2, 3),
+		person("as2", "as", 2, time.Hour, 1, 2, 3),
+		person("eu1", "eu", 2, time.Hour, 1, 9),
+		person("eu2", "eu", 2, time.Hour, 1, 8),
+	}
+	p := buildPlan(queue, nil, matchParams{Min: 3, Target: 3, Max: 4, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 7 * 24 * time.Hour}, t0)
+	require.Len(t, p.NewSquads, 1)
+	assert.ElementsMatch(t, []string{"eu", "eu1", "eu2"}, ids(p.NewSquads[0]),
+		"a home-region squad beats a better game overlap abroad")
+}
+
+func TestBestOpenSquadAnyRegionPrefersOwnRegion(t *testing.T) {
+	c := anyRegion(person("eu", "eu", 2, time.Hour, 1, 2, 3))
+	open := []openSquad{
+		{ID: 1, Members: []*candidate{person("as1", "as", 2, 0, 1, 2, 3), person("as2", "as", 2, 0, 1, 2, 3)}},
+		{ID: 2, Members: []*candidate{person("eu1", "eu", 2, 0, 1), person("eu2", "eu", 2, 0, 1)}},
+		{ID: 3, Members: []*candidate{person("af1", "af", 2, 0, 1, 2, 3), person("af2", "af", 2, 0, 1, 2, 3)}},
+	}
+	assert.Equal(t, 1, bestOpenSquad(c, open, 4), "own region first")
+	assert.Equal(t, 1, bestOpenSquad(c, []openSquad{open[0], open[2]}, 4), "then neighbours")
+	assert.Equal(t, 0, bestOpenSquad(c, open[:1], 4), "then any region")
 }
 
 var params = matchParams{Min: 3, Target: 6, Max: 8, FallbackAfter: 48 * time.Hour, UnmatchedAfter: 7 * 24 * time.Hour}
@@ -363,9 +390,9 @@ func TestTooFewForAMinimumSquadWaitThenGiveUp(t *testing.T) {
 }
 
 func TestUnknownRegionMatchesAnyone(t *testing.T) {
-	assert.True(t, compatible(person("a", "", 0, 0), person("b", "eu", 2, 0), false))
-	assert.False(t, compatible(person("a", "eu", 1, 0), person("b", "eu", 3, 0), true))
-	assert.False(t, compatible(person("a", "na", 1, 0), person("b", "eu", 1, 0), true))
+	assert.True(t, compatible(person("a", "", 0, 0), person("b", "eu", 2, 0), false, false))
+	assert.False(t, compatible(person("a", "eu", 1, 0), person("b", "eu", 3, 0), true, false))
+	assert.False(t, compatible(person("a", "na", 1, 0), person("b", "eu", 1, 0), true, false))
 }
 
 func TestCommonGround(t *testing.T) {

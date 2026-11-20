@@ -365,6 +365,16 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	assert.False(t, tryNew)
 	m.HandleComponent(nil, component("alice", ctx.id("trynewon")))
 
+	m.HandleComponent(nil, component("alice", ctx.id("anyregionon")))
+	assert.Contains(t, editContent(api.lastEdit()), "open to any region")
+	anyRegion, err := db.SquadAnyRegion(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, anyRegion)
+	m.HandleComponent(nil, component("alice", ctx.id("anyregionoff")))
+	anyRegion, err = db.SquadAnyRegion(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, anyRegion)
+
 	m.HandleComponent(nil, component("alice", ctx.id("done")))
 	assert.Contains(t, editContent(api.lastEdit()), "You're in the squad queue")
 	e, ok, err := db.SquadQueueEntryFor(guild, "alice")
@@ -556,6 +566,14 @@ func TestAdminUserShowsTryNewGames(t *testing.T) {
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** off")
 	require.NoError(t, db.SetSquadTryNewGames(guild, "a", true))
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** on")
+}
+
+func TestAdminUserShowsAnyRegion(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	assert.Contains(t, m.userText(guild, "a"), "**Any region:** off")
+	require.NoError(t, db.SetSquadAnyRegion(guild, "a", true))
+	assert.Contains(t, m.userText(guild, "a"), "**Any region:** on")
 }
 
 func TestPersistedSensitiveTagCannotCreateGenreMatch(t *testing.T) {
@@ -1529,6 +1547,54 @@ func TestPickerFitsDiscordLimit(t *testing.T) {
 	view := m.pickerView(pickerCtx{GuildID: guild}, "u", "✅ Added **"+strings.Repeat("x", 300)+"**.")
 	assert.LessOrEqual(t, len([]rune(view.Content)), 2000)
 	assert.Contains(t, view.Content, "You're in the queue", "the footer isn't cut off")
+}
+
+func TestPickerPagesThroughPicks(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	for n := range 23 {
+		_, _, err := db.AddSquadPick(guild, "alice", database.SquadPick{GameID: int64(n + 1), Name: fmt.Sprintf("Game %02d", n+1)}, maxPicks, *now)
+		require.NoError(t, err)
+	}
+	ctx := pickerCtx{GuildID: guild, ThreadID: "thread"}
+	view := m.pickerView(ctx, "alice", "")
+	assert.Contains(t, view.Content, "10. Game 10")
+	assert.NotContains(t, view.Content, "Game 11")
+	assert.Contains(t, view.Content, "Page 1/3")
+	row := view.Components[0].(discordgo.ActionsRow).Components
+	require.Len(t, row, 4)
+	prev, next := row[2].(discordgo.Button), row[3].(discordgo.Button)
+	assert.True(t, prev.Disabled)
+	assert.False(t, next.Disabled)
+	opts := view.Components[2].(discordgo.ActionsRow).Components[0].(discordgo.SelectMenu).Options
+	assert.Len(t, opts, 23, "the remove menu still lists every pick")
+
+	m.HandleComponent(nil, component("alice", next.CustomID))
+	page2 := api.lastResponse().Data
+	assert.Contains(t, page2.Content, "11. Game 11")
+	assert.NotContains(t, page2.Content, "Game 10\n")
+	assert.Contains(t, page2.Content, "Page 2/3")
+
+	// Actions on a later page keep you there.
+	trynew := page2.Components[1].(discordgo.ActionsRow).Components[0].(discordgo.Button).CustomID
+	m.HandleComponent(nil, component("alice", trynew))
+	assert.Contains(t, editContent(api.lastEdit()), "Page 2/3")
+
+	// A stale page past the end clamps to the last page.
+	view = m.pickerView(pickerCtx{GuildID: guild, ThreadID: "thread", Page: 9}, "alice", "")
+	assert.Contains(t, view.Content, "23. Game 23")
+	assert.Contains(t, view.Content, "Page 3/3")
+
+	// Old custom IDs without a page still work.
+	assert.Equal(t, pickerCtx{GuildID: guild, ThreadID: "thread"}, parsePickerCtx([]string{"done", guild, "thread"}))
+}
+
+func TestPickerSinglePageHasNoPageButtons(t *testing.T) {
+	m, _, db, now := newTestModule(t, nil)
+	_, _, err := db.AddSquadPick(guild, "alice", database.SquadPick{GameID: 1, Name: "Solo"}, maxPicks, *now)
+	require.NoError(t, err)
+	view := m.pickerView(pickerCtx{GuildID: guild}, "alice", "")
+	assert.Len(t, view.Components[0].(discordgo.ActionsRow).Components, 2)
+	assert.NotContains(t, view.Content, "Page ")
 }
 
 func TestUnmatchedFallsBackToLookedUpIntro(t *testing.T) {

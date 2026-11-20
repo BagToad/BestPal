@@ -83,6 +83,47 @@ func TestSquadTryNewGamesPreference(t *testing.T) {
 	assert.False(t, enabled)
 }
 
+func TestSquadAnyRegionPreference(t *testing.T) {
+	db := newSquadDB(t)
+	enabled, err := db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled, "existing members default to same-region matching")
+
+	require.NoError(t, db.SetSquadTryNewGames("g", "u", true))
+	require.NoError(t, db.SetSquadAnyRegion("g", "u", true))
+	enabled, err = db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	tryNew, err := db.SquadTryNewGames("g", "u")
+	require.NoError(t, err)
+	assert.True(t, tryNew, "setting any-region keeps the try-new preference")
+
+	require.NoError(t, db.SetSquadAnyRegion("g", "u", false))
+	enabled, err = db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled)
+}
+
+func TestMigrateSquadsAddsAnyRegion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	require.NoError(t, db.SetSquadTryNewGames("g", "u", true))
+	_, err = db.conn.Exec(`ALTER TABLE squad_preferences DROP COLUMN any_region`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	enabled, err := db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled)
+	tryNew, err := db.SquadTryNewGames("g", "u")
+	require.NoError(t, err)
+	assert.True(t, tryNew)
+}
+
 func TestCreateSquadMembership(t *testing.T) {
 	db := newSquadDB(t)
 	now := time.Unix(1000, 0)

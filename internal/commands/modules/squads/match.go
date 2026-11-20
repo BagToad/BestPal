@@ -21,6 +21,7 @@ type candidate struct {
 	Games     map[int64]string // IGDB game ID -> name
 	Tags      map[string]bool  // IGDB genre and theme names
 	TryNew    bool             // opted into genre/theme matching
+	AnyRegion bool             // opted into matching with any region
 	Avoid     map[string]bool  // partners from the most recent completed squad
 	Blocked   bool             // has the squads blocked role
 }
@@ -68,10 +69,14 @@ var regionNeighbours = map[string][]string{
 
 // compatible reports whether two people may share a squad. Strict mode needs
 // the same region and age group; relaxed mode also allows neighbours.
-// Unknown region or age matches anything.
-func compatible(a, b *candidate, relaxed bool) bool {
+// Unknown region or age matches anything. With crossRegion, someone who opted
+// into any-region matching accepts the lag, so they may join people from any
+// region; it's only tried once same-region and neighbour matches don't work out.
+func compatible(a, b *candidate, relaxed, crossRegion bool) bool {
 	if a.Region != "" && b.Region != "" && a.Region != b.Region {
-		if !relaxed || !slices.Contains(regionNeighbours[a.Region], b.Region) {
+		neighbour := relaxed && slices.Contains(regionNeighbours[a.Region], b.Region)
+		optedIn := crossRegion && (a.AnyRegion || b.AnyRegion)
+		if !neighbour && !optedIn {
 			return false
 		}
 	}
@@ -158,9 +163,9 @@ func groupScore(c *candidate, group []*candidate) (float64, bool) {
 	return total / float64(len(group)), len(common) > 0 || allTryNew && len(commonTags) > 0
 }
 
-func fitsGroup(c *candidate, group []*candidate, relaxed bool) bool {
+func fitsGroup(c *candidate, group []*candidate, relaxed, crossRegion bool) bool {
 	for _, m := range group {
-		if !compatible(c, m, relaxed) {
+		if !compatible(c, m, relaxed, crossRegion) {
 			return false
 		}
 	}
@@ -169,7 +174,7 @@ func fitsGroup(c *candidate, group []*candidate, relaxed bool) bool {
 
 // grow adds the best-fitting people from pool to group until it has limit
 // members or nobody else fits.
-func grow(group, pool []*candidate, limit int, relaxed bool) []*candidate {
+func grow(group, pool []*candidate, limit int, relaxed, crossRegion bool) []*candidate {
 	used := map[*candidate]bool{}
 	for _, g := range group {
 		used[g] = true
@@ -178,7 +183,7 @@ func grow(group, pool []*candidate, limit int, relaxed bool) []*candidate {
 		var best *candidate
 		bestScore := -1.0
 		for _, c := range pool {
-			if used[c] || !fitsGroup(c, group, relaxed) {
+			if used[c] || !fitsGroup(c, group, relaxed, crossRegion) {
 				continue
 			}
 			s, ok := groupScore(c, group)
@@ -199,10 +204,11 @@ func grow(group, pool []*candidate, limit int, relaxed bool) []*candidate {
 //
 //  1. Full squads (target size) of people with the same region and age group
 //     who share an exact game, or a genre/theme when everyone opted in,
-//     seeded by whoever has waited longest.
+//     seeded by whoever has waited longest. Then the same again, letting
+//     any-region people join other regions.
 //  2. People past the fallback wait join the best open squad (same region and
-//     age first, then neighbours), or seed a smaller squad of at least the
-//     minimum size with neighbours.
+//     age first, then neighbours, then any region for those who opted in), or
+//     seed a smaller squad of at least the minimum size the same way.
 //  3. People past the unmatched wait are given up on.
 func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Time) plan {
 	remaining := slices.Clone(queue)
@@ -213,15 +219,18 @@ func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Tim
 		remaining = slices.DeleteFunc(remaining, func(c *candidate) bool { return slices.Contains(group, c) })
 	}
 
-	// 1. Ideal full squads.
-	for i := 0; i < len(remaining); {
-		group := grow([]*candidate{remaining[i]}, remaining, p.Target, false)
-		if len(group) == p.Target {
-			out.NewSquads = append(out.NewSquads, group)
-			take(group)
-			continue
+	// 1. Ideal full squads, in their own region before any-region people
+	// cross over.
+	for _, crossRegion := range []bool{false, true} {
+		for i := 0; i < len(remaining); {
+			group := grow([]*candidate{remaining[i]}, remaining, p.Target, false, crossRegion)
+			if len(group) == p.Target {
+				out.NewSquads = append(out.NewSquads, group)
+				take(group)
+				continue
+			}
+			i++
 		}
-		i++
 	}
 
 	overdue := func(c *candidate) bool { return now.Sub(c.QueuedAt) >= p.FallbackAfter }
@@ -243,7 +252,10 @@ func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Tim
 	for i := 0; i < len(remaining); {
 		c := remaining[i]
 		if overdue(c) {
-			group := grow([]*candidate{c}, remaining, p.Target, true)
+			group := grow([]*candidate{c}, remaining, p.Target, true, false)
+			if len(group) < p.Min {
+				group = grow([]*candidate{c}, remaining, p.Target, true, true)
+			}
 			if len(group) >= p.Min {
 				out.NewSquads = append(out.NewSquads, group)
 				take(group)
@@ -265,12 +277,13 @@ func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Tim
 }
 
 // bestOpenSquad returns the index of the best open squad for c, preferring a
-// strict fit over a neighbour fit, or -1 if none fits.
+// strict fit over a neighbour fit over an any-region fit, or -1 if none fits.
 func bestOpenSquad(c *candidate, open []openSquad, maxSize int) int {
-	for _, relaxed := range []bool{false, true} {
+	for _, level := range []struct{ relaxed, crossRegion bool }{{false, false}, {true, false}, {true, true}} {
+		relaxed, crossRegion := level.relaxed, level.crossRegion
 		best, bestScore := -1, -1.0
 		for i, sq := range open {
-			if len(sq.Members) >= maxSize || len(sq.Members) == 0 || !fitsGroup(c, sq.Members, relaxed) {
+			if len(sq.Members) >= maxSize || len(sq.Members) == 0 || !fitsGroup(c, sq.Members, relaxed, crossRegion) {
 				continue
 			}
 			if s, ok := groupScore(c, sq.Members); ok && s > bestScore {

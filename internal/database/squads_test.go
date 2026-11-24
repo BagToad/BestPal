@@ -570,3 +570,16 @@ func TestSquadTranscriptCleanupPreservesReferencedFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte("referenced"), got.Data)
 }
+
+func TestSquadExitSurveys(t *testing.T) {
+	db := newSquadDB(t)
+	at := time.Unix(1_790_000_000, 0)
+	require.NoError(t, db.AddSquadExitSurvey(SquadExitSurvey{GuildID: "g", UserID: "u", SquadID: 7, SquadName: "Squad Foot",
+		Reason: "no_response", Feedback: "nobody talked", CreatedAt: at}))
+	require.NoError(t, db.AddSquadExitSurvey(SquadExitSurvey{GuildID: "other", UserID: "u", SquadID: 8, SquadName: "X", CreatedAt: at}))
+	got, err := db.SquadExitSurveys("g")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, SquadExitSurvey{GuildID: "g", UserID: "u", SquadID: 7, SquadName: "Squad Foot",
+		Reason: "no_response", Feedback: "nobody talked", CreatedAt: at}, got[0])
+}

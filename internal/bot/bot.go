@@ -22,6 +22,7 @@ import (
 	"gamerpal/internal/commands/modules/score"
 	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/config"
+	"gamerpal/internal/discordcompat"
 	"gamerpal/internal/events"
 	"gamerpal/internal/scheduler"
 )
@@ -91,6 +92,12 @@ func New(cfg *config.Config) (*Bot, error) {
 
 	// Slash commands
 	session.AddHandler(bot.onInteractionCreate)
+	// Interactions discordgo can't decode yet (modal radio groups).
+	session.AddHandler(func(s *discordgo.Session, e *discordgo.Event) {
+		if ic, ok := discordcompat.FixInteraction(e); ok {
+			bot.onInteractionCreate(s, ic)
+		}
+	})
 
 	// Other events
 	// Wrapped with anonymous function to pass config and (optional) agent.
@@ -321,6 +328,10 @@ func (b *Bot) randomStatus() string {
 
 // onInteractionCreate handles slash command interactions
 func (b *Bot) onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// discordgo couldn't decode the data; the raw event handler retries it.
+	if i.Interaction == nil || i.Data == nil && i.Type != discordgo.InteractionPing {
+		return
+	}
 	// Initialization guard: reject interactions until startup has completed.
 	if !b.ready.Load() {
 		// Use the correct response type per interaction.

@@ -554,6 +554,11 @@ func (gc *GuildConfig) GetSquadsCategoryID() string { return gc.resolveString(Ke
 // GetSquadsModRoleID returns the role that can always see squad channels.
 func (gc *GuildConfig) GetSquadsModRoleID() string { return gc.resolveString(KeySquadsModRoleID) }
 
+// GetSquadsFeedbackChannelID returns the channel squad exit surveys are posted to.
+func (gc *GuildConfig) GetSquadsFeedbackChannelID() string {
+	return gc.resolveString(KeySquadsFeedbackChannelID)
+}
+
 // GetSquadsBlockedRoleID returns the role mods apply to keep someone out of squads.
 func (gc *GuildConfig) GetSquadsBlockedRoleID() string {
 	return gc.resolveString(KeySquadsBlockedRoleID)

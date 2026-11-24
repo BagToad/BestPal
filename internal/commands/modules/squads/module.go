@@ -353,27 +353,46 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 		m.handleSearchSubmit(s, i, parsePickerCtx(parts))
 		return
 	}
+	if parts[0] == "survey" && len(parts) >= 2 {
+		m.handleExitSurveySubmit(s, i, parts[1])
+		return
+	}
 	m.respondText(s, i, "❌ Unknown squad form.")
 }
 
+// modalValue finds a submitted text input, in an action row or a label.
+// Radio groups arrive as text inputs too (see discordcompat).
 func modalValue(i *discordgo.InteractionCreate, id string) string {
-	for _, comp := range i.ModalSubmitData().Components {
-		var row *discordgo.ActionsRow
-		switch v := comp.(type) {
-		case discordgo.ActionsRow:
-			row = &v
-		case *discordgo.ActionsRow:
-			row = v
-		default:
-			continue
-		}
-		for _, inner := range row.Components {
-			if ti, ok := inner.(*discordgo.TextInput); ok && ti.CustomID == id {
-				return ti.Value
+	var find func(comps []discordgo.MessageComponent) (string, bool)
+	find = func(comps []discordgo.MessageComponent) (string, bool) {
+		for _, comp := range comps {
+			switch v := comp.(type) {
+			case *discordgo.TextInput:
+				if v.CustomID == id {
+					return v.Value, true
+				}
+			case discordgo.ActionsRow:
+				if val, ok := find(v.Components); ok {
+					return val, true
+				}
+			case *discordgo.ActionsRow:
+				if val, ok := find(v.Components); ok {
+					return val, true
+				}
+			case discordgo.Label:
+				if val, ok := find([]discordgo.MessageComponent{v.Component}); ok {
+					return val, true
+				}
+			case *discordgo.Label:
+				if val, ok := find([]discordgo.MessageComponent{v.Component}); ok {
+					return val, true
+				}
 			}
 		}
+		return "", false
 	}
-	return ""
+	val, _ := find(i.ModalSubmitData().Components)
+	return val
 }
 
 func parseID(s string) (int64, bool) {

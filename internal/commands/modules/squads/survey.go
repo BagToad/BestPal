@@ -1,6 +1,7 @@
 package squads
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,8 +12,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// Confirming a leave removes you from the squad and opens an optional exit
-// survey. Submitting sends feedback; Cancel just skips it.
+// Leaving a squad goes through an optional exit survey. Everything in it is
+// optional, so submitting it blank just leaves. Discord's Cancel keeps you in
+// the squad.
 
 const (
 	surveyReasonID   = "reason"
@@ -46,13 +48,11 @@ func exitSurvey(sq database.Squad) *discordgo.InteractionResponse {
 	return &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			// The squad may be deleted by the time this is submitted, so the
-			// name rides along in the custom ID (max 100 characters).
-			CustomID: fmt.Sprintf("%ssurvey:%d:%s", prefix, sq.ID, truncate(sq.Name, 60)),
+			CustomID: fmt.Sprintf("%ssurvey:%d", prefix, sq.ID),
 			Title:    truncate("Leave "+sq.Name, 45),
 			Components: []discordgo.MessageComponent{
-				discordgo.TextDisplay{Content: fmt.Sprintf("Leaving **%s**. Mind telling us why? Everything here is optional.\n"+
-					"**Cancel skips feedback submission and leaves the squad.**", sq.Name)},
+				discordgo.TextDisplay{Content: fmt.Sprintf("You'll lose access to **%s**'s channel. Mind telling us why? "+
+					"It's optional: leave it blank and hit Submit to just leave.", sq.Name)},
 				discordgo.Label{Label: "Why are you leaving?", Component: discordcompat.RadioGroup{
 					CustomID: surveyReasonID, Options: surveyReasons, Required: new(false),
 				}},
@@ -66,21 +66,37 @@ func exitSurvey(sq database.Squad) *discordgo.InteractionResponse {
 	}
 }
 
-// handleExitSurveySubmit records answers from someone who already left.
-func (m *Module) handleExitSurveySubmit(s *discordgo.Session, i *discordgo.InteractionCreate, idStr, squadName string) {
+// handleExitSurveySubmit leaves the squad and records any answers.
+func (m *Module) handleExitSurveySubmit(s *discordgo.Session, i *discordgo.InteractionCreate, idStr string) {
 	id, _ := parseID(idStr)
+	if !m.deferReply(s, i) {
+		return
+	}
+	uid := userID(i)
 	reason := modalValue(i, surveyReasonID)
 	if surveyReasonLabel(reason) == "" {
 		reason = ""
 	}
 	feedback := truncate(strings.TrimSpace(modalValue(i, surveyFeedbackID)), maxSurveyText)
-	if reason == "" && feedback == "" {
-		m.respondText(s, i, fmt.Sprintf("👋 You left **%s**. Want a new squad? Run `/squad join`.", squadName))
+
+	lock := m.guildLock(i.GuildID)
+	lock.Lock()
+	sq, err := m.removeMember(i.GuildID, uid, id, database.SquadLeaveVoluntary, "left")
+	lock.Unlock()
+	switch {
+	case errors.Is(err, errNotMember):
+		m.editText(s, i, "You're not in this squad anymore.")
+		return
+	case err != nil:
+		m.config.Logger.Errorf("squads: leave: %v", err)
+		m.editText(s, i, "❌ Could not leave the squad. Try again in a moment.")
 		return
 	}
-	m.respondText(s, i, fmt.Sprintf("👋 You left **%s**. Thanks for the feedback! Want a new squad? Run `/squad join`.", squadName))
-	m.recordExitSurvey(database.SquadExitSurvey{GuildID: i.GuildID, UserID: userID(i), SquadID: id, SquadName: squadName,
-		Reason: reason, Feedback: feedback, CreatedAt: m.now()})
+	m.editText(s, i, fmt.Sprintf("👋 You left **%s**. Want a new squad? Run `/squad join`.", sq.Name))
+	if reason != "" || feedback != "" {
+		m.recordExitSurvey(database.SquadExitSurvey{GuildID: i.GuildID, UserID: uid, SquadID: sq.ID, SquadName: sq.Name,
+			Reason: reason, Feedback: feedback, CreatedAt: m.now()})
+	}
 }
 
 func (m *Module) recordExitSurvey(survey database.SquadExitSurvey) {

@@ -1031,9 +1031,9 @@ func TestLeavingBelowTwoDeletesSquad(t *testing.T) {
 	assert.Contains(t, api.lastResponse().Data.Content, "not in this squad")
 
 	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleave:%d", prefix, sq.ID)))
-	assert.Contains(t, api.lastResponse().Data.Content, "Leave **Squad Axolotl**?")
-	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
 	assert.Equal(t, discordgo.InteractionResponseModal, api.lastResponse().Type, "leaving opens the exit survey")
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	assert.Contains(t, editContent(api.lastEdit()), "You left **Squad Axolotl**")
 	assert.Contains(t, api.roleRems, "a:"+sq.RoleID)
 	assert.Contains(t, api.sent[len(api.sent)-1].Msg.Content, "<@a> left the squad")
 

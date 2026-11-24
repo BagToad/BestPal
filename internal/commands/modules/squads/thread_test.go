@@ -290,3 +290,31 @@ func TestChannelSquadsUnchangedInThreadMode(t *testing.T) {
 	next := makeSquad(t, m, api, db, "e", "f")
 	assert.True(t, next.Thread, "new squads are threads")
 }
+
+// Someone who left a squad thread while the bot was offline is caught by the
+// periodic roster check, but a member still waiting on a retried add isn't.
+func TestThreadLeaveWhileOfflineIsReconciled(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	member(api, "d", "role-eu")
+	api.addErr = errors.New("discord hiccup")
+	require.NoError(t, m.addMember(guild, sq, &candidate{UserID: "d"}))
+	api.addErr = nil
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
+	api.sent = nil
+
+	m.reconcileDepartures(guild)
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.False(t, inSquad, "a left the thread, so the squad")
+	_, inSquad, _ = db.SquadForUser(guild, "d")
+	assert.True(t, inSquad, "d's thread add is still pending")
+	msgs := sentTo(api, sq.ChannelID)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "<@a> left the squad")
+
+	*now = now.Add(5 * time.Minute)
+	require.NoError(t, m.tick())
+	assert.Contains(t, api.threadMembers(sq.ChannelID), "d", "the retry adds d")
+	got, _, _ := db.GetSquad(sq.ID)
+	assert.Equal(t, 3, got.Members)
+}

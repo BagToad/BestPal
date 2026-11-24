@@ -409,3 +409,14 @@ func TestNightlyThreadCheckSparesMemberWhoRejoinedMidCheck(t *testing.T) {
 	_, inSquad, _ := db.SquadForUser(guild, "a")
 	assert.True(t, inSquad, "a's new membership isn't the one that was missing")
 }
+
+func TestLockedThreadAccessChangeIsNotRetried(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	member(api, "d", "role-eu")
+	api.addErr = errThreadLocked
+	require.NoError(t, m.addMember(guild, sq, &candidate{UserID: "d"}))
+	ops, err := db.SquadRoleOps(guild)
+	require.NoError(t, err)
+	assert.Empty(t, ops)
+}

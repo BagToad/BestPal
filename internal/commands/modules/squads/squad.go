@@ -151,10 +151,13 @@ func (m *Module) revokeRole(guildID, uid, key string) {
 }
 
 // recordRoleOp clears a pending role change once it's done (or moot because
-// the member or role is gone) and saves it for retry otherwise.
+// the member, role or open thread is gone) and saves it for retry otherwise.
 func (m *Module) recordRoleOp(op database.SquadRoleOp, err error) {
 	code := discordCode(err)
-	if err == nil || code == discordgo.ErrCodeUnknownMember || code == discordgo.ErrCodeUnknownRole ||
+	if errors.Is(err, errThreadLocked) {
+		m.config.Logger.Warnf("squads: thread %s is locked; dropping access change for %s", op.RoleID, op.UserID)
+	}
+	if err == nil || errors.Is(err, errThreadLocked) || code == discordgo.ErrCodeUnknownMember || code == discordgo.ErrCodeUnknownRole ||
 		(code == discordgo.ErrCodeUnknownChannel && strings.HasPrefix(op.RoleID, database.ThreadAccessPrefix)) {
 		if err := m.db.ClearSquadRoleOp(op.GuildID, op.UserID, op.RoleID); err != nil {
 			m.config.Logger.Warnf("squads: clear role retry: %v", err)

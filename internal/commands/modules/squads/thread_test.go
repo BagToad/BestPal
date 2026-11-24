@@ -192,3 +192,9 @@ func TestDeletedThreadDeletesSquad(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, inSquad, "members are free to queue again")
 }
+
+func TestLockedThreadsAreNotReopened(t *testing.T) {
+	assert.True(t, reopenable(&discordgo.Channel{}))
+	assert.True(t, reopenable(&discordgo.Channel{ThreadMetadata: &discordgo.ThreadMetadata{Archived: true}}))
+	assert.False(t, reopenable(&discordgo.Channel{ThreadMetadata: &discordgo.ThreadMetadata{Archived: true, Locked: true}}))
+}

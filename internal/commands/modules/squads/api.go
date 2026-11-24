@@ -129,17 +129,32 @@ func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
 	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
 }
 
+var errThreadLocked = errors.New("the squad thread is locked for deletion")
+
 // onOpenThread runs op, reopening the thread and trying once more if Discord
-// refuses because it was archived.
+// refuses because it was archived. A locked thread is being deleted, so it
+// stays closed.
 func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
 	err := op()
 	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
 		return err
 	}
+	th, err := a.s.Channel(threadID)
+	if err != nil {
+		return err
+	}
+	if !reopenable(th) {
+		return errThreadLocked
+	}
 	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)}); err != nil {
 		return err
 	}
 	return op()
+}
+
+// reopenable reports whether an archived squad thread may be unarchived.
+func reopenable(th *discordgo.Channel) bool {
+	return th.ThreadMetadata == nil || !th.ThreadMetadata.Locked
 }
 
 func (a sessionAPI) FreezeChannel(channelID string) error {

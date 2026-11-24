@@ -106,7 +106,7 @@ func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 	assert.NotNil(t, post.AllowedMentions, "doesn't ping")
 	e := post.Embeds[0]
 	assert.Contains(t, e.Description, "## <@a>", "includes the user status")
-	assert.Contains(t, e.Description, "**Compatibility:**")
+	assert.NotContains(t, e.Description, "**Compatibility:**", "no guild-wide member lookups")
 	assert.Contains(t, e.Description, "**Region:** Europe")
 	fields := map[string]string{}
 	for _, f := range e.Fields {
@@ -121,6 +121,23 @@ func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 	assert.Equal(t, "• <@b> `b` — 🎮 Game 1, Game 2, Game 3 +2 · 🌍 same region · 🎂 age group 2 · 🕹️ PC\n"+
 		"• <@c> `c` — 🎮 no shared games · 🌍 North America · 🎂 same age group · 🕹️ no shared platform\n"+
 		"• <@d> `d` — not in the server", mates)
+}
+
+func TestExitSurveyReportsSquadDeletion(t *testing.T) {
+	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback"})
+	sq := makeSquad(t, m, api, db, "a", "b")
+	m.HandleModalSubmit(nil, surveySubmit("a", sq.ID, "other", "x"))
+	var squadField string
+	for _, s := range api.sent {
+		if s.ChannelID == "feedback" {
+			for _, f := range s.Msg.Embeds[0].Fields {
+				if f.Name == "Squad" {
+					squadField = f.Value
+				}
+			}
+		}
+	}
+	assert.Contains(t, squadField, "Deleted: too few members left")
 }
 
 func TestExitSurveyBlankJustLeaves(t *testing.T) {

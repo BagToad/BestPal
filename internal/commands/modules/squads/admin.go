@@ -472,6 +472,12 @@ func (m *Module) statusText(guildID string) string {
 }
 
 func (m *Module) userText(guildID, uid string) string {
+	return m.userSummary(guildID, uid, true)
+}
+
+// userSummary is the /squad-admin user status. The server-wide compatibility
+// line looks up every member with picks, so callers on hot paths skip it.
+func (m *Module) userSummary(guildID, uid string, withCompatibility bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "## %s\n", mention(uid))
 	if sq, ok, _ := m.db.SquadForUser(guildID, uid); ok {
@@ -523,7 +529,9 @@ func (m *Module) userText(guildID, uid string) string {
 	if err != nil {
 		return "❌ Could not load their games."
 	}
-	b.WriteString(m.compatibilityText(guildID, uid, picks))
+	if withCompatibility {
+		b.WriteString(m.compatibilityText(guildID, uid, picks))
+	}
 	fmt.Fprintf(&b, "**Games (%d):**", len(picks))
 	if len(picks) == 0 {
 		b.WriteString(" none")

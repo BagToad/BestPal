@@ -135,7 +135,12 @@ func (m *Module) recordExitSurvey(survey database.SquadExitSurvey, sq database.S
 	}
 	squad := fmt.Sprintf("%s · ID `%d` · formed <t:%d:R>", squadRef(sq), sq.ID, sq.CreatedAt.Unix())
 	if sq.Members < 2 {
-		squad += "\nDeleted: too few members left"
+		// removeMember only starts the deletion; a failed one is retried.
+		if _, exists, err := m.db.GetSquad(sq.ID); err == nil && !exists {
+			squad += "\nDeleted: too few members left"
+		} else {
+			squad += "\nDeletion pending: too few members left"
+		}
 	}
 	stay := "unknown"
 	if joined, spoke, err := m.db.SquadLastMembership(sq.ID, survey.UserID); err == nil {
@@ -159,7 +164,7 @@ func (m *Module) recordExitSurvey(survey database.SquadExitSurvey, sq database.S
 	if _, err := m.dc(nil).Send(ch, &discordgo.MessageSend{
 		Embeds: []*discordgo.MessageEmbed{{
 			Title:       "📝 Squad exit survey",
-			Description: m.userText(survey.GuildID, survey.UserID),
+			Description: m.userSummary(survey.GuildID, survey.UserID, false),
 			Color:       utils.Colors.Info(),
 			Fields:      fields,
 			Timestamp:   m.now().Format(time.RFC3339),

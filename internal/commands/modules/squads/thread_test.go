@@ -290,3 +290,42 @@ func TestChannelSquadsUnchangedInThreadMode(t *testing.T) {
 	next := makeSquad(t, m, api, db, "e", "f")
 	assert.True(t, next.Thread, "new squads are threads")
 }
+
+// Someone who left a squad thread while the bot was offline is caught by the
+// nightly check, but a member still waiting on a retried add isn't.
+func TestThreadLeaveWhileOfflineIsReconciledNightly(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	*now = time.Date(2026, 1, 2, 7, 0, 0, 0, time.UTC)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	member(api, "d", "role-eu")
+	api.addErr = errors.New("discord hiccup")
+	require.NoError(t, m.addMember(guild, sq, &candidate{UserID: "d"}))
+	api.addErr = nil
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
+	api.sent = nil
+
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad, "not before the nightly hour")
+
+	*now = now.Add(time.Hour)
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ = db.SquadForUser(guild, "a")
+	assert.False(t, inSquad, "a left the thread, so the squad")
+	_, inSquad, _ = db.SquadForUser(guild, "d")
+	assert.True(t, inSquad, "d's thread add is still pending")
+	msgs := sentTo(api, sq.ChannelID)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "<@a> left the squad")
+
+	// Once a day: a later leave waits for tomorrow.
+	api.threadMems = append(api.threadMems, "-b:"+sq.ChannelID)
+	*now = now.Add(time.Hour)
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ = db.SquadForUser(guild, "b")
+	assert.True(t, inSquad)
+	*now = now.Add(24 * time.Hour)
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ = db.SquadForUser(guild, "b")
+	assert.False(t, inSquad)
+}

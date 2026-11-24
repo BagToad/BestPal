@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"gamerpal/internal/database"
@@ -67,6 +68,7 @@ func (m *Module) tickGuild(guildID string) {
 	defer lock.Unlock()
 	m.retryRoleOps(guildID)
 	m.reconcileDepartures(guildID)
+	m.reconcileThreadsNightly(guildID)
 	m.checkQuiet(guildID)
 
 	gc := m.config.ForGuild(guildID)
@@ -187,6 +189,77 @@ func (m *Module) reconcileDepartures(guildID string) {
 			if _, err := m.removeMember(guildID, uid, sq.ID, database.SquadLeaveServer, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
 				m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
 			}
+		}
+	}
+}
+
+// threadCheckHour is the UTC hour from which the nightly thread check runs
+// (overnight in the Americas).
+const threadCheckHour = 8
+
+// reconcileThreadsNightly runs reconcileThreadLeaves for every thread squad
+// once a day. Leaving a thread while the bot is offline is rare, so it isn't
+// worth listing every thread's members more often. Callers hold the guild
+// lock.
+func (m *Module) reconcileThreadsNightly(guildID string) {
+	now := m.now().UTC()
+	if now.Hour() < threadCheckHour {
+		return
+	}
+	today := now.Format(time.DateOnly)
+	m.mu.Lock()
+	if m.threadsChecked == nil {
+		m.threadsChecked = map[string]string{}
+	}
+	due := m.threadsChecked[guildID] != today
+	m.threadsChecked[guildID] = today
+	m.mu.Unlock()
+	if !due {
+		return
+	}
+	squads, err := m.db.ListSquads(guildID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: list for thread check: %v", err)
+		return
+	}
+	for _, sq := range squads {
+		if sq.Thread && !sq.Deleting() {
+			m.reconcileThreadLeaves(sq)
+		}
+	}
+}
+
+// reconcileThreadLeaves treats squad members missing from their squad's
+// thread as having left it, like OnThreadMembersUpdate does, unless the bot
+// still owes them a thread add. Callers hold the guild lock.
+func (m *Module) reconcileThreadLeaves(sq database.Squad) {
+	ids, err := m.db.SquadMemberIDs(sq.ID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: members of %s: %v", sq.Name, err)
+		return
+	}
+	inThread, err := m.dc(nil).ThreadMemberIDs(sq.ChannelID)
+	if err != nil {
+		// A deleted thread is cleaned up by the quiet check.
+		if discordCode(err) != discordgo.ErrCodeUnknownChannel {
+			m.config.Logger.Warnf("squads: list thread members of %s: %v", sq.Name, err)
+		}
+		return
+	}
+	ops, err := m.db.SquadRoleOps(sq.GuildID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: load access retries: %v", err)
+		return
+	}
+	key := accessKey(sq)
+	for _, uid := range ids {
+		if slices.Contains(inThread, uid) || slices.ContainsFunc(ops, func(op database.SquadRoleOp) bool {
+			return op.Add && op.UserID == uid && op.RoleID == key
+		}) {
+			continue
+		}
+		if _, err := m.removeMember(sq.GuildID, uid, sq.ID, database.SquadLeaveVoluntary, "left"); err != nil && !errors.Is(err, errNotMember) {
+			m.config.Logger.Warnf("squads: %s left the %s thread: %v", uid, sq.Name, err)
 		}
 	}
 }

@@ -248,3 +248,45 @@ func TestClosedSquadThreadIsModOnly(t *testing.T) {
 	assert.Contains(t, api.locked, sq.ChannelID)
 	assert.Empty(t, api.delCh)
 }
+
+// Turning on thread squads leaves existing channel squads working exactly as
+// before: roles, role pings, channel deletion, and no thread handling.
+func TestChannelSquadsUnchangedInThreadMode(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	require.False(t, sq.Thread)
+	require.NotEmpty(t, sq.RoleID)
+	m.config.Set(config.KeySquadsThreadChannelID, "hall")
+	api.threadMems, api.roleAdds, api.roleRems, api.dms = nil, nil, nil, nil
+
+	member(api, "d", "role-eu")
+	require.NoError(t, m.addMember(guild, sq, &candidate{UserID: "d"}))
+	assert.Equal(t, []string{"d:" + sq.RoleID}, api.roleAdds)
+
+	ping, mentions, err := m.squadPing(sq)
+	require.NoError(t, err)
+	assert.Equal(t, "<@&"+sq.RoleID+">", ping)
+	assert.Equal(t, []string{sq.RoleID}, mentions.Roles)
+
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad, "thread events don't touch channel squads")
+
+	for _, uid := range []string{"a", "b", "c"} {
+		_, err := m.removeMember(guild, uid, sq.ID, database.SquadLeaveVoluntary, "left")
+		require.NoError(t, err)
+	}
+	assert.Equal(t, []string{"a:" + sq.RoleID, "b:" + sq.RoleID, "c:" + sq.RoleID}, api.roleRems)
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	assert.Contains(t, api.delCh, sq.ChannelID, "the channel is deleted, not closed like a thread")
+	assert.Contains(t, api.delRoles, sq.RoleID)
+	assert.Empty(t, api.threadMems)
+	assert.Empty(t, api.locked)
+	require.Len(t, api.dms, 1)
+	assert.Equal(t, "d", api.dms[0].ChannelID)
+	assert.Contains(t, api.dms[0].Msg.Content, "was deleted** because it no longer had enough members")
+
+	next := makeSquad(t, m, api, db, "e", "f")
+	assert.True(t, next.Thread, "new squads are threads")
+}

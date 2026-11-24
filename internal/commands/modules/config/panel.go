@@ -53,6 +53,34 @@ func parsePageRef(ref string) (config.Category, int) {
 	return config.Category(cat), max(page, 0)
 }
 
+// legacySections maps squad categories from before they were merged into
+// Squads to their section, so buttons on old panel messages still work.
+var legacySections = map[config.Category]string{
+	"Squad Timing":     "Timing",
+	"Squad Feedback":   "Threads & feedback",
+	"Squad Regions":    "Regions",
+	"Squad Age Groups": "Age groups",
+	"Squad Platforms":  "Platforms",
+}
+
+// resolvePageRef is parsePageRef, sending an old squad category to the
+// Squads page with its section.
+func (m *Module) resolvePageRef(ref string) (config.Category, int) {
+	cat, page := parsePageRef(ref)
+	section, ok := legacySections[cat]
+	if !ok {
+		return cat, page
+	}
+	for i, settings := range m.categoryPages(config.CategorySquads) {
+		for _, st := range settings {
+			if st.Section == section {
+				return config.CategorySquads, i
+			}
+		}
+	}
+	return config.CategorySquads, 0
+}
+
 // hasControl reports whether a setting renders an inline control (a select
 // or toggle) rather than being entered through the Edit values modal.
 func hasControl(st config.Setting) bool {
@@ -214,7 +242,7 @@ func (m *Module) updateToHome(s *discordgo.Session, i *discordgo.InteractionCrea
 
 // updateToCategory renders a category panel in place.
 func (m *Module) updateToCategory(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
-	cat, page := parsePageRef(ref)
+	cat, page := m.resolvePageRef(ref)
 	data := m.renderCategoryPage(i.GuildID, cat, page, "")
 	m.updateMessage(s, i, data)
 }
@@ -414,7 +442,7 @@ func (m *Module) handleToggle(s *discordgo.Session, i *discordgo.InteractionCrea
 // handleOpenEditModal opens a modal holding every modal-entered setting in the
 // category page (int/duration/string), prefilled with current values.
 func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
-	cat, page := parsePageRef(ref)
+	cat, page := m.resolvePageRef(ref)
 	gc := m.config.ForGuild(i.GuildID)
 	pages := m.categoryPages(cat)
 	page = min(page, len(pages)-1)
@@ -455,7 +483,7 @@ func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.Interact
 // category. Blank inputs clear the override; invalid inputs are reported and the
 // previous value is kept for that field.
 func (m *Module) handleEditModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
-	cat, page := parsePageRef(ref)
+	cat, page := m.resolvePageRef(ref)
 	reg := m.config.Registry()
 	gc := m.config.ForGuild(i.GuildID)
 	userID := interactionUserID(i)

@@ -66,6 +66,8 @@ type fakeAPI struct {
 	threadMems      []string          // "+user:thread" / "-user:thread"
 	threadErr       error
 	threadListNoBot bool // ThreadMemberIDs leaves out the bot
+	threadListErr   error
+	onThreadList    func() // runs after ThreadMemberIDs reads the members
 	locked          []string
 
 	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
@@ -189,10 +191,17 @@ func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
 	if _, ok := f.threads[thread]; !ok {
 		return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}}
 	}
-	if f.threadListNoBot {
-		return f.threadMembers(thread), nil
+	if f.threadListErr != nil {
+		return nil, f.threadListErr
 	}
-	return append(f.threadMembers(thread), f.BotID()), nil
+	in := f.threadMembers(thread)
+	if !f.threadListNoBot {
+		in = append(in, f.BotID())
+	}
+	if f.onThreadList != nil {
+		f.onThreadList()
+	}
+	return in, nil
 }
 func (f *fakeAPI) AddThreadMember(thread, uid string) error {
 	if f.addErr != nil {

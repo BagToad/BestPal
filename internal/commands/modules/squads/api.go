@@ -188,43 +188,65 @@ func (a sessionAPI) closeThread(threadID string) error {
 
 func (a sessionAPI) ThreadMemberIDs(threadID string) ([]string, error) {
 	var ids []string
-	after := ""
-	for {
-		members, err := a.s.ThreadMembers(threadID, 100, false, after)
-		if err != nil {
-			return nil, err
-		}
-		for _, tm := range members {
-			ids = append(ids, tm.UserID)
-		}
-		if len(members) < 100 {
-			return ids, nil
-		}
-		after = members[len(members)-1].UserID
-	}
+	err := a.eachThreadMember(threadID, func(uid string) error {
+		ids = append(ids, uid)
+		return nil
+	})
+	return ids, err
 }
 
 // removeThreadMembers removes everyone but the bot from a thread.
 func (a sessionAPI) removeThreadMembers(threadID string) error {
+	var ids []string
+	if err := a.eachThreadMember(threadID, func(uid string) error {
+		ids = append(ids, uid)
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, uid := range ids {
+		if uid == a.BotID() {
+			continue
+		}
+		if err := a.s.ThreadMemberRemove(threadID, uid); err != nil && discordCode(err) != discordgo.ErrCodeUnknownMember {
+			return err
+		}
+	}
+	return nil
+}
+
+// eachThreadMember calls fn for every member of a thread. Before API v11,
+// Discord only pages thread members when with_member is set; without it
+// every request returns the whole list from the start.
+func (a sessionAPI) eachThreadMember(threadID string, fn func(uid string) error) error {
 	after := ""
 	for {
-		members, err := a.s.ThreadMembers(threadID, 100, false, after)
+		members, err := a.s.ThreadMembers(threadID, 100, true, after)
 		if err != nil {
 			return err
 		}
 		for _, tm := range members {
-			if tm.UserID == a.BotID() {
-				continue
-			}
-			if err := a.s.ThreadMemberRemove(threadID, tm.UserID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownMember {
+			if err := fn(tm.UserID); err != nil {
 				return err
 			}
 		}
 		if len(members) < 100 {
 			return nil
 		}
-		after = members[len(members)-1].UserID
+		last := members[len(members)-1].UserID
+		if !snowflakeAfter(last, after) {
+			return fmt.Errorf("thread %s member list didn't advance past %s", threadID, after)
+		}
+		after = last
 	}
+}
+
+// snowflakeAfter reports whether Discord ID a sorts after b ("" sorts first).
+func snowflakeAfter(a, b string) bool {
+	if len(a) != len(b) {
+		return len(a) > len(b)
+	}
+	return a > b
 }
 
 func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []*discordgo.PermissionOverwrite {

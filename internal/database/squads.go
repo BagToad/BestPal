@@ -662,6 +662,28 @@ func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, er
 }
 
 // SquadMemberIDs returns a squad's members, earliest joiners first.
+// SquadMemberships maps each member of a squad to their active membership
+// history ID (0 if they have none), which changes if they leave and rejoin.
+func (db *DB) SquadMemberships(squadID int64) (map[string]int64, error) {
+	rows, err := db.conn.Query(`SELECT m.user_id, COALESCE(h.id, 0) FROM squad_members m
+		LEFT JOIN squad_membership_history h ON h.squad_id = m.squad_id AND h.user_id = m.user_id AND h.left_at = 0
+		WHERE m.squad_id = ?`, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var uid string
+		var id int64
+		if err := rows.Scan(&uid, &id); err != nil {
+			return nil, err
+		}
+		out[uid] = id
+	}
+	return out, rows.Err()
+}
+
 func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 	rows, err := db.conn.Query(`SELECT user_id FROM squad_members WHERE squad_id = ? ORDER BY joined_at, user_id`, squadID)
 	if err != nil {

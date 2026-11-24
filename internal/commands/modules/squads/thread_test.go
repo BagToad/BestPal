@@ -245,8 +245,18 @@ func TestClosedSquadThreadIsModOnly(t *testing.T) {
 	_, err = m.removeMember(guild, "b", sq.ID, database.SquadLeaveVoluntary, "left")
 	require.NoError(t, err)
 	assert.Empty(t, api.threadMembers(sq.ChannelID), "the last member is removed too")
-	assert.Contains(t, api.locked, sq.ChannelID)
+	assert.Equal(t, 1, countOf(api.locked, sq.ChannelID), "closed once, not again after the transcript")
 	assert.Empty(t, api.delCh)
+}
+
+func countOf(list []string, v string) int {
+	n := 0
+	for _, x := range list {
+		if x == v {
+			n++
+		}
+	}
+	return n
 }
 
 // Turning on thread squads leaves existing channel squads working exactly as
@@ -359,4 +369,43 @@ func TestThreadLeaveFromLeavingServerCountsAsServerLeave(t *testing.T) {
 	msgs := sentTo(api, sq.ChannelID)
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0].Content, "left the server")
+}
+
+func TestNightlyThreadCheckRetriesFailedThreads(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	*now = time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
+	api.threadListErr = errors.New("discord is down")
+
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad)
+
+	api.threadListErr = nil
+	*now = now.Add(time.Hour)
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ = db.SquadForUser(guild, "a")
+	assert.False(t, inSquad, "the failed thread is retried the same day")
+}
+
+func TestNightlyThreadCheckSparesMemberWhoRejoinedMidCheck(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	*now = time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
+	api.onThreadList = func() {
+		api.onThreadList = nil
+		lock := m.guildLock(guild)
+		lock.Lock()
+		defer lock.Unlock()
+		_, err := m.removeMember(guild, "a", sq.ID, database.SquadLeaveVoluntary, "left")
+		require.NoError(t, err)
+		cur, _, _ := db.GetSquad(sq.ID)
+		require.NoError(t, m.addMember(guild, cur, &candidate{UserID: "a"}))
+	}
+
+	m.reconcileThreadsNightly(guild)
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad, "a's new membership isn't the one that was missing")
 }

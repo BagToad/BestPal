@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/config"
+	"slices"
 	"strings"
 	"testing"
 
@@ -440,4 +441,18 @@ func TestTextChannelOnlySetting(t *testing.T) {
 	assert.Contains(t, pickProblem(st, pick(discordgo.ChannelTypeGuildForum)), "regular text channel")
 	assert.Contains(t, pickProblem(st, discordgo.MessageComponentInteractionData{Values: []string{"c1"}}), "regular text channel")
 	assert.Empty(t, pickProblem(config.Setting{Kind: config.KindChannel}, pick(discordgo.ChannelTypeGuildForum)))
+}
+
+func TestOldSquadCategoryButtonsOpenTheirSection(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]any{"gamerpals_server_id": "guild1"})
+	cfg.ApplyRegistry(config.NewRegistry((&squads.Module{}).ConfigSettings()))
+	m := &Module{config: cfg}
+	for old, section := range legacySections {
+		cat, page := m.resolvePageRef(string(old))
+		require.Equal(t, config.CategorySquads, cat)
+		assert.True(t, slices.ContainsFunc(m.categoryPages(cat)[page], func(st config.Setting) bool { return st.Section == section }), old)
+	}
+	cat, page := m.resolvePageRef(pageRef(config.CategorySquads, 1))
+	assert.Equal(t, config.CategorySquads, cat)
+	assert.Equal(t, 1, page)
 }

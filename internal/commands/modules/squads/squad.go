@@ -609,7 +609,8 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why st
 // refuses to delete the channel or role, the records are kept so a later
 // attempt can finish the job. Callers hold the guild lock.
 func (m *Module) deleteSquad(sq database.Squad, why string) error {
-	api := m.dc(nil)
+	// Capturing the transcript freezes the channel; don't freeze it again.
+	var api discordAPI = &freezeOnce{discordAPI: m.dc(nil)}
 	// Mark it first so a partial failure leaves it out of matching until the
 	// quiet check finishes the job.
 	if !sq.Deleting() {
@@ -1148,4 +1149,21 @@ func (m *Module) squadPing(sq database.Squad) (string, *discordgo.MessageAllowed
 		pings[n] = mention(uid)
 	}
 	return strings.Join(pings, " "), &discordgo.MessageAllowedMentions{Users: ids}, nil
+}
+
+// freezeOnce skips freezing a channel it has already frozen.
+type freezeOnce struct {
+	discordAPI
+	frozen []string
+}
+
+func (f *freezeOnce) FreezeChannel(channelID string) error {
+	if slices.Contains(f.frozen, channelID) {
+		return nil
+	}
+	if err := f.discordAPI.FreezeChannel(channelID); err != nil {
+		return err
+	}
+	f.frozen = append(f.frozen, channelID)
+	return nil
 }

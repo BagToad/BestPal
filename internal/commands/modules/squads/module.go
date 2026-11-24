@@ -43,6 +43,8 @@ type Module struct {
 
 	mu          sync.Mutex
 	threadRetry map[string]map[int64]bool // guild -> squads whose nightly thread check failed today
+	renames     map[int64][]time.Time     // squad ID -> recent thread renames
+	renaming    map[int64]bool            // squad ID -> rename in flight
 	locks       map[string]*sync.Mutex
 	reconciled  map[string]time.Time // last departure check per guild
 

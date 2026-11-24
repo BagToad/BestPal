@@ -61,3 +61,38 @@ func TestRenameRateLimited(t *testing.T) {
 	got, _, _ := db.GetSquad(sq.ID)
 	assert.Equal(t, sq.Name, got.Name)
 }
+
+func TestRenameLimitedToTwoPerTenMinutes(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+
+	m.handleSquad(nil, renameCmd("a", "One"))
+	m.handleSquad(nil, renameCmd("b", "Two"))
+	m.handleSquad(nil, renameCmd("a", "Three"))
+	assert.Contains(t, editContent(api.lastEdit()), "Try again in a bit")
+	assert.Equal(t, "Two", api.renamed[sq.ChannelID], "the third rename never reaches Discord")
+
+	*now = now.Add(renameWindow)
+	m.handleSquad(nil, renameCmd("a", "Three"))
+	assert.Equal(t, "Three", api.renamed[sq.ChannelID])
+	got, _, _ := db.GetSquad(sq.ID)
+	assert.Equal(t, "Three", got.Name)
+}
+
+func TestRenameRefusedWhileAnotherIsInFlight(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	busy, _ := m.reserveRename(sq.ID)
+	require.False(t, busy)
+
+	m.handleSquad(nil, renameCmd("b", "Mine"))
+	assert.Contains(t, editContent(api.lastEdit()), "Someone else is renaming")
+	assert.Empty(t, api.renamed)
+}
+
+func TestSquadChoiceLabelFitsDiscordLimit(t *testing.T) {
+	label := choiceLabel(strings.Repeat("x", maxSquadName), " (4 members)")
+	assert.Len(t, []rune(label), 100)
+	assert.True(t, strings.HasSuffix(label, "x… (4 members)"))
+	assert.Equal(t, "Owls (2 members)", choiceLabel("Owls", " (2 members)"))
+}

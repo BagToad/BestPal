@@ -762,7 +762,7 @@ func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.Interacti
 				continue
 			}
 			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-				Name:  fmt.Sprintf("%s (%s)", sq.Name, plural(sq.Members, "member", "members")),
+				Name:  choiceLabel(sq.Name, " ("+plural(sq.Members, "member", "members")+")"),
 				Value: fmt.Sprint(sq.ID),
 			})
 			if len(choices) == 25 {
@@ -774,4 +774,14 @@ func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.Interacti
 		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
 		Data: &discordgo.InteractionResponseData{Choices: choices},
 	})
+}
+
+// choiceLabel joins name and suffix, shortening name so the label fits
+// Discord's 100-character limit on choice names.
+func choiceLabel(name, suffix string) string {
+	room := 100 - len([]rune(suffix))
+	if n := []rune(name); len(n) > room {
+		name = string(n[:room-1]) + "…"
+	}
+	return name + suffix
 }

@@ -303,6 +303,36 @@ func (m *Module) OnChannelDelete(_ *discordgo.Session, cd *discordgo.ChannelDele
 	}
 }
 
+// OnThreadMembersUpdate treats someone leaving a squad thread by hand as
+// leaving the squad, without an exit survey. Removals the bot made itself
+// are already gone from the squad by the time the event arrives.
+func (m *Module) OnThreadMembersUpdate(_ *discordgo.Session, u *discordgo.ThreadMembersUpdate) {
+	if m.db == nil || len(u.RemovedMembers) == 0 {
+		return
+	}
+	m.chMu.Lock()
+	_, ok := m.channels[u.ID]
+	m.chMu.Unlock()
+	if !ok {
+		return
+	}
+	lock := m.guildLock(u.GuildID)
+	lock.Lock()
+	defer lock.Unlock()
+	sq, found, err := m.db.SquadByChannel(u.ID)
+	if err != nil || !found || !sq.Thread || sq.Deleting() {
+		return
+	}
+	for _, uid := range u.RemovedMembers {
+		if uid == m.dc(nil).BotID() {
+			continue
+		}
+		if _, err := m.removeMember(u.GuildID, uid, sq.ID, database.SquadLeaveVoluntary, "left"); err != nil && !errors.Is(err, errNotMember) {
+			m.config.Logger.Warnf("squads: %s left the %s thread: %v", uid, sq.Name, err)
+		}
+	}
+}
+
 // OnThreadDelete cleans up a squad whose thread was deleted by hand.
 func (m *Module) OnThreadDelete(_ *discordgo.Session, td *discordgo.ThreadDelete) {
 	if td.Channel != nil {

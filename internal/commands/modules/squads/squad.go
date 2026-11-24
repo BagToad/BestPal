@@ -604,7 +604,8 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why st
 	return sq, nil
 }
 
-// deleteSquad removes a squad's channel, role and records. If Discord
+// deleteSquad removes a squad's channel, role and records (a squad thread is
+// archived and locked rather than deleted). If Discord
 // refuses to delete the channel or role, the records are kept so a later
 // attempt can finish the job. Callers hold the guild lock.
 func (m *Module) deleteSquad(sq database.Squad, why string) error {
@@ -661,8 +662,14 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 		}
 	}
 	// Delete the channel last so a failed role deletion cannot destroy the
-	// only source for the transcript needed on the retry.
-	if sq.ChannelID != "" {
+	// only source for the transcript needed on the retry. A thread is
+	// closed (archived and locked) instead, keeping its history readable.
+	if sq.Thread && sq.ChannelID != "" {
+		if err := api.FreezeChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
+			m.config.Logger.Warnf("squads: close thread of %s: %v", sq.Name, err)
+			return fmt.Errorf("close thread: %w", err)
+		}
+	} else if sq.ChannelID != "" {
 		if err := api.DeleteChannel(sq.ChannelID); err != nil && discordCode(err) != discordgo.ErrCodeUnknownChannel {
 			m.config.Logger.Warnf("squads: delete channel of %s: %v", sq.Name, err)
 			return fmt.Errorf("delete channel: %w", err)

@@ -72,15 +72,16 @@ func TestThreadSquadMembersLeaveAndJoinTheThread(t *testing.T) {
 	assert.Empty(t, api.roleRems)
 }
 
-func TestThreadSquadDeletionLocksAndDeletesTheThread(t *testing.T) {
+func TestThreadSquadDeletionClosesTheThread(t *testing.T) {
 	m, api, db, _ := threadModule(t)
 	sq := makeSquad(t, m, api, db, "a", "b")
 
 	_, err := m.removeMember(guild, "a", sq.ID, database.SquadLeaveVoluntary, "left")
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{sq.ChannelID}, api.locked, "locked before the transcript is read")
-	assert.Equal(t, []string{sq.ChannelID}, api.delCh)
+	require.NotEmpty(t, api.locked)
+	assert.Equal(t, sq.ChannelID, api.locked[0], "locked before the transcript is read")
+	assert.Empty(t, api.delCh, "the thread is archived, not deleted")
 	assert.Empty(t, api.delRoles)
 	_, ok, err := db.GetSquad(sq.ID)
 	require.NoError(t, err)
@@ -197,4 +198,39 @@ func TestLockedThreadsAreNotReopened(t *testing.T) {
 	assert.True(t, reopenable(&discordgo.Channel{}))
 	assert.True(t, reopenable(&discordgo.Channel{ThreadMetadata: &discordgo.ThreadMetadata{Archived: true}}))
 	assert.False(t, reopenable(&discordgo.Channel{ThreadMetadata: &discordgo.ThreadMetadata{Archived: true, Locked: true}}))
+}
+
+func TestThreadSquadClosedWithoutModLog(t *testing.T) {
+	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsThreadChannelID: "hall", config.KeyModActionLogChannelID: ""})
+	sq := makeSquad(t, m, api, db, "a", "b")
+	require.NoError(t, m.deleteSquad(sq, "a mod deleted it"))
+	assert.Equal(t, []string{sq.ChannelID}, api.locked)
+	assert.Empty(t, api.delCh)
+}
+
+func TestLeavingSquadThreadLeavesTheSquad(t *testing.T) {
+	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsThreadChannelID: "hall", config.KeySquadsFeedbackChannelID: "feedback"})
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.sent = nil
+
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a", "bot"}})
+	_, inSquad, err := db.SquadForUser(guild, "a")
+	require.NoError(t, err)
+	assert.False(t, inSquad)
+	got, _, _ := db.GetSquad(sq.ID)
+	assert.Equal(t, 2, got.Members)
+	msgs := sentTo(api, sq.ChannelID)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "<@a> left the squad")
+	assert.Empty(t, sentTo(api, "feedback"), "no exit survey")
+
+	// The bot's own removals (and unrelated threads) are ignored.
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: "other", GuildID: guild, RemovedMembers: []string{"b"}})
+	got, _, _ = db.GetSquad(sq.ID)
+	assert.Equal(t, 2, got.Members)
+
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"b"}})
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok, "dropping below 2 closes the squad")
 }

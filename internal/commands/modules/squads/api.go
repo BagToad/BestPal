@@ -34,6 +34,9 @@ type discordAPI interface {
 	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
+	// GuildCounts reports how many channels are in a category and the
+	// server, and how many roles the server has.
+	GuildCounts(guildID, categoryID string) (inCategory, channels, roles int, err error)
 	BotID() string
 	Channel(channelID string) (*discordgo.Channel, error)
 	ChannelMessages(channelID string) ([]*discordgo.Message, error)
@@ -124,6 +127,36 @@ func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []
 		overwrites = append(overwrites, &copy)
 	}
 	return overwrites
+}
+
+func (a sessionAPI) GuildCounts(guildID, categoryID string) (int, int, int, error) {
+	var channels []*discordgo.Channel
+	var roles []*discordgo.Role
+	if a.s.State != nil {
+		if g, err := a.s.State.Guild(guildID); err == nil && len(g.Channels) > 0 && len(g.Roles) > 0 {
+			channels, roles = g.Channels, g.Roles
+		}
+	}
+	if channels == nil {
+		var err error
+		if channels, err = a.s.GuildChannels(guildID); err != nil {
+			return 0, 0, 0, err
+		}
+		if roles, err = a.s.GuildRoles(guildID); err != nil {
+			return 0, 0, 0, err
+		}
+	}
+	inCategory, total := 0, 0
+	for _, ch := range channels {
+		if ch.IsThread() {
+			continue
+		}
+		total++
+		if categoryID != "" && ch.ParentID == categoryID {
+			inCategory++
+		}
+	}
+	return inCategory, total, len(roles), nil
 }
 
 func (a sessionAPI) DeleteChannel(channelID string) error {

@@ -62,6 +62,10 @@ type fakeAPI struct {
 	messages    map[string][]*discordgo.Message
 	historyErr  error
 	prompted    map[string]bool // thread ID -> already has a join button
+
+	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
+	countsErr                                  error
+	channelCap                                 int // CreateChannel fails once this many exist
 }
 
 func newFakeAPI() *fakeAPI {
@@ -135,6 +139,9 @@ func (f *fakeAPI) RemoveRole(_, uid, rid string) error {
 	return nil
 }
 func (f *fakeAPI) CreateChannel(_ string, d discordgo.GuildChannelCreateData) (*discordgo.Channel, error) {
+	if f.channelCap > 0 && len(f.channels) >= f.channelCap {
+		return nil, errors.New("maximum number of channels reached")
+	}
 	id := f.id()
 	f.channels[id] = d
 	return &discordgo.Channel{ID: id, Name: d.Name}, nil
@@ -155,6 +162,36 @@ func (f *fakeAPI) FreezeChannel(id string) error {
 		return err
 	}
 	return f.EditChannelPerms(id, frozenOverwrites(channel.PermissionOverwrites, f.BotID()))
+}
+func (f *fakeAPI) GuildCounts(_, categoryID string) (int, int, int, error) {
+	if f.countsErr != nil {
+		return 0, 0, 0, f.countsErr
+	}
+	deleted := map[string]bool{}
+	for _, id := range f.delCh {
+		deleted[id] = true
+	}
+	inCat, total := f.extraInCategory, f.extraInCategory+f.extraChannels
+	for id, ch := range f.channels {
+		if deleted[id] {
+			continue
+		}
+		total++
+		if ch.ParentID == categoryID {
+			inCat++
+		}
+	}
+	gone := map[string]bool{}
+	for _, id := range f.delRoles {
+		gone[id] = true
+	}
+	roles := f.extraRoles
+	for id := range f.roles {
+		if !gone[id] {
+			roles++
+		}
+	}
+	return inCat, total, roles, nil
 }
 func (f *fakeAPI) DeleteChannel(id string) error {
 	if f.deleteErr != nil {

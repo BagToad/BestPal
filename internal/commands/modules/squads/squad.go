@@ -712,6 +712,40 @@ type matchReport struct {
 	OpenNames map[int64]string
 }
 
+// Discord's limits on channels and roles. Each squad needs one of each.
+const (
+	maxCategoryChannels = 50
+	maxGuildChannels    = 500
+	maxGuildRoles       = 250
+)
+
+// squadRoom is how many squads Discord will let us create right now, and
+// which limit is closest.
+func (m *Module) squadRoom(guildID string) (int, string, error) {
+	category := m.config.ForGuild(guildID).GetSquadsCategoryID()
+	inCat, channels, roles, err := m.dc(nil).GuildCounts(guildID, category)
+	if err != nil {
+		return 0, "", err
+	}
+	room, why := maxCategoryChannels-inCat, fmt.Sprintf("the squads category has %d of %d channels", inCat, maxCategoryChannels)
+	if n := maxGuildChannels - channels; n < room {
+		room, why = n, fmt.Sprintf("the server has %d of %d channels", channels, maxGuildChannels)
+	}
+	if n := maxGuildRoles - roles; n < room {
+		room, why = n, fmt.Sprintf("the server has %d of %d roles", roles, maxGuildRoles)
+	}
+	return max(room, 0), why, nil
+}
+
+// postpone keeps only the first n new squads; everyone else in the plan's
+// new squads goes back to waiting.
+func (r *matchReport) postpone(n int) {
+	for _, g := range r.Plan.NewSquads[n:] {
+		r.Plan.Waiting = append(r.Plan.Waiting, g...)
+	}
+	r.Plan.NewSquads = r.Plan.NewSquads[:n]
+}
+
 // runMatch loads the queue and open squads, plans, and (unless dry) applies
 // the plan. Callers hold the guild lock.
 func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
@@ -799,6 +833,13 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 	}
 	report.Open = len(open)
 	report.Plan = buildPlan(cands, open, params, now)
+	if room, why, err := m.squadRoom(guildID); err != nil {
+		m.config.Logger.Warnf("squads: check channel and role limits: %v", err)
+	} else if len(report.Plan.NewSquads) > room {
+		report.Failures = append(report.Failures, fmt.Sprintf("Only room for %s: %s. The rest stay in the queue.",
+			plural(room, "new squad", "new squads"), why))
+		report.postpone(room)
+	}
 	if dry {
 		return report, nil
 	}
@@ -819,7 +860,9 @@ func (m *Module) runMatch(guildID string, dry bool) (matchReport, error) {
 			m.config.Logger.Errorf("squads: create squad: %v", err)
 			report.Failures = append(report.Failures, "create squad: "+err.Error())
 			// Creation fails for everyone the same way (e.g. no category),
-			// so don't hammer Discord with the rest of the plan.
+			// so don't hammer Discord with the rest of the plan. Those people
+			// stay queued, so the report lists them as waiting.
+			report.postpone(len(report.Created))
 			break
 		}
 		report.Created = append(report.Created, sq)

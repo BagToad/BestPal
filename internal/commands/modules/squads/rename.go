@@ -98,7 +98,20 @@ func (m *Module) renameSquad(guildID, uid, name string) string {
 	// Rename outside the lock: Discord rate limits renames, and nothing else
 	// should wait on it.
 	api := m.dc(nil)
-	err = api.RenameThread(sq.ChannelID, name)
+	// Reopening an archived thread is done under the lock, and only while
+	// the squad isn't closing, so it can't undo a close.
+	err = api.RenameThread(sq.ChannelID, name, func(reopen func() error) error {
+		lock.Lock()
+		defer lock.Unlock()
+		cur, found, err := m.db.GetSquad(sq.ID)
+		switch {
+		case err != nil:
+			return err
+		case !found || cur.Deleting():
+			return errThreadLocked
+		}
+		return reopen()
+	})
 	var rl *discordgo.RateLimitError
 	switch {
 	case errors.As(err, &rl):

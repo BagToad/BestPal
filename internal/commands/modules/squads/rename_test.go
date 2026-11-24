@@ -112,3 +112,22 @@ func TestDiscordRateLimitBlocksRenamesUntilItResets(t *testing.T) {
 	m.handleSquad(nil, renameCmd("a", "Two"))
 	assert.Equal(t, "Two", api.renamed[sq.ChannelID])
 }
+
+func TestRenameReopensAnArchivedThread(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.renameArchived = true
+	m.handleSquad(nil, renameCmd("a", "Moon Base"))
+	assert.Equal(t, []string{sq.ChannelID}, api.reopened)
+	assert.Equal(t, "Moon Base", api.renamed[sq.ChannelID])
+}
+
+func TestRenameDoesNotReopenAClosingSquad(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.renameArchived = true
+	api.onRename = func() { require.NoError(t, db.MarkSquadDeleting(sq.ID, "mod")) }
+	m.handleSquad(nil, renameCmd("a", "Moon Base"))
+	assert.Empty(t, api.reopened)
+	assert.Empty(t, api.renamed)
+}

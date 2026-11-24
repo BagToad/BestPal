@@ -71,6 +71,9 @@ type fakeAPI struct {
 	locked          []string
 	renamed         map[string]string // thread ID -> new name
 	renameErr       error
+	renameArchived  bool // the thread is archived when renamed
+	onRename        func()
+	reopened        []string // thread IDs RenameThread's guard reopened
 
 	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
 	countsErr                                  error
@@ -208,9 +211,17 @@ func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
 	}
 	return in, nil
 }
-func (f *fakeAPI) RenameThread(thread, name string) error {
+func (f *fakeAPI) RenameThread(thread, name string, guard func(func() error) error) error {
 	if f.renameErr != nil {
 		return f.renameErr
+	}
+	if f.onRename != nil {
+		f.onRename()
+	}
+	if f.renameArchived {
+		if err := guard(func() error { f.reopened = append(f.reopened, thread); return nil }); err != nil {
+			return err
+		}
 	}
 	if f.renamed == nil {
 		f.renamed = map[string]string{}

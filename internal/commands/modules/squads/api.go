@@ -41,8 +41,10 @@ type discordAPI interface {
 	// ThreadMemberIDs lists everyone in a thread, the bot included.
 	ThreadMemberIDs(threadID string) ([]string, error)
 	// RenameThread renames a squad thread. It fails rather than waits when
-	// Discord's rename rate limit is hit.
-	RenameThread(threadID, name string) error
+	// Discord's rename rate limit is hit. If the thread is archived, reopening
+	// it runs inside guard, which may refuse with an error, so a rename can't
+	// reopen a thread that is being closed.
+	RenameThread(threadID, name string, guard func(reopen func() error) error) error
 	// FreezeChannel stops members posting: a channel loses its chat
 	// permissions, and a thread is closed: every member but the bot is
 	// removed and it's archived and locked, leaving a mod-only archive.
@@ -142,8 +144,8 @@ func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
 	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
 }
 
-func (a sessionAPI) RenameThread(threadID, name string) error {
-	return a.onOpenThread(threadID, func() error {
+func (a sessionAPI) RenameThread(threadID, name string, guard func(reopen func() error) error) error {
+	rename := func() error {
 		// Renames get their own rate-limit bucket. Discord's rename limit
 		// (2 per 10 minutes) would otherwise empty the thread's bucket, and
 		// discordgo would hold every later edit of it, closing included,
@@ -157,7 +159,15 @@ func (a sessionAPI) RenameThread(threadID, name string) error {
 		}
 		_, err := a.s.RequestWithBucketID("PATCH", uri, &discordgo.ChannelEdit{Name: name}, bucket, discordgo.WithRetryOnRatelimit(false))
 		return err
-	})
+	}
+	err := rename()
+	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
+		return err
+	}
+	if err := guard(func() error { return a.reopenThread(threadID) }); err != nil {
+		return err
+	}
+	return rename()
 }
 
 var errThreadLocked = errors.New("the squad thread is locked for deletion")
@@ -170,6 +180,14 @@ func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
 	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
 		return err
 	}
+	if err := a.reopenThread(threadID); err != nil {
+		return err
+	}
+	return op()
+}
+
+// reopenThread unarchives a thread unless it is locked for deletion.
+func (a sessionAPI) reopenThread(threadID string) error {
 	th, err := a.s.Channel(threadID)
 	if err != nil {
 		return err
@@ -177,10 +195,8 @@ func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
 	if !reopenable(th) {
 		return errThreadLocked
 	}
-	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)}); err != nil {
-		return err
-	}
-	return op()
+	_, err = a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)})
+	return err
 }
 
 // reopenable reports whether an archived squad thread may be unarchived.

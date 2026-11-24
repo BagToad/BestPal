@@ -3,6 +3,7 @@ package squads
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -116,25 +117,45 @@ func (m *Module) squadOverwrites(guildID, roleID string) ([]*discordgo.Permissio
 	return overwrites(guildID, roleID, gc.GetSquadsModRoleID(), api.BotID(), gc.GetSquadsVisibility(), cat.PermissionOverwrites), nil
 }
 
-// grantRole gives someone their squad role, recording it for retry if
-// Discord refuses.
-func (m *Module) grantRole(guildID, uid, roleID string) {
-	err := m.dc(nil).AddRole(guildID, uid, roleID)
-	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: roleID, Add: true}, err)
+// accessKey is what grants a squad's access: its role, or for a thread
+// squad, the thread marked with database.ThreadAccessPrefix.
+func accessKey(sq database.Squad) string {
+	if sq.Thread {
+		return database.ThreadAccessPrefix + sq.ChannelID
+	}
+	return sq.RoleID
 }
 
-// revokeRole takes someone's squad role away, recording it for retry if
+// grantRole gives someone their squad access (a role, or membership of a
+// squad thread), recording it for retry if Discord refuses.
+func (m *Module) grantRole(guildID, uid, key string) {
+	var err error
+	if thread, ok := strings.CutPrefix(key, database.ThreadAccessPrefix); ok {
+		err = m.dc(nil).AddThreadMember(thread, uid)
+	} else {
+		err = m.dc(nil).AddRole(guildID, uid, key)
+	}
+	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: key, Add: true}, err)
+}
+
+// revokeRole takes someone's squad access away, recording it for retry if
 // Discord refuses.
-func (m *Module) revokeRole(guildID, uid, roleID string) {
-	err := m.dc(nil).RemoveRole(guildID, uid, roleID)
-	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: roleID}, err)
+func (m *Module) revokeRole(guildID, uid, key string) {
+	var err error
+	if thread, ok := strings.CutPrefix(key, database.ThreadAccessPrefix); ok {
+		err = m.dc(nil).RemoveThreadMember(thread, uid)
+	} else {
+		err = m.dc(nil).RemoveRole(guildID, uid, key)
+	}
+	m.recordRoleOp(database.SquadRoleOp{GuildID: guildID, UserID: uid, RoleID: key}, err)
 }
 
 // recordRoleOp clears a pending role change once it's done (or moot because
 // the member or role is gone) and saves it for retry otherwise.
 func (m *Module) recordRoleOp(op database.SquadRoleOp, err error) {
 	code := discordCode(err)
-	if err == nil || code == discordgo.ErrCodeUnknownMember || code == discordgo.ErrCodeUnknownRole {
+	if err == nil || code == discordgo.ErrCodeUnknownMember || code == discordgo.ErrCodeUnknownRole ||
+		(code == discordgo.ErrCodeUnknownChannel && strings.HasPrefix(op.RoleID, database.ThreadAccessPrefix)) {
 		if err := m.db.ClearSquadRoleOp(op.GuildID, op.UserID, op.RoleID); err != nil {
 			m.config.Logger.Warnf("squads: clear role retry: %v", err)
 		}
@@ -144,7 +165,7 @@ func (m *Module) recordRoleOp(op database.SquadRoleOp, err error) {
 	if op.Add {
 		verb = "give"
 	}
-	m.config.Logger.Warnf("squads: %s role %s for %s (will retry): %v", verb, op.RoleID, op.UserID, err)
+	m.config.Logger.Warnf("squads: %s access %s for %s (will retry): %v", verb, op.RoleID, op.UserID, err)
 	if err := m.db.SetSquadRoleOp(op, m.now()); err != nil {
 		m.config.Logger.Errorf("squads: save role retry: %v", err)
 	}
@@ -184,6 +205,9 @@ func (m *Module) unregisterChannel(channelID string) {
 // together by hand, so the welcome doesn't claim they were matched.
 func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (database.Squad, error) {
 	gc := m.config.ForGuild(guildID)
+	if parent := gc.GetSquadsThreadChannelID(); parent != "" {
+		return m.createThreadSquad(guildID, parent, group, byMod)
+	}
 	category := gc.GetSquadsCategoryID()
 	if category == "" {
 		return database.Squad{}, errors.New("the squads category isn't set in /config → Squads")
@@ -229,9 +253,50 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 		return database.Squad{}, fmt.Errorf("save squad: %w", err)
 	}
 	m.registerChannel(ch.ID, sq.ID)
-
 	for _, uid := range ids {
 		m.grantRole(guildID, uid, role.ID)
+	}
+	return m.welcomeSquad(sq, group, byMod), nil
+}
+
+// createThreadSquad makes a squad as a private thread in parent. Members are
+// added to the thread directly, so it needs no role. Callers hold the guild
+// lock.
+func (m *Module) createThreadSquad(guildID, parent string, group []*candidate, byMod bool) (database.Squad, error) {
+	existing, err := m.db.ListSquads(guildID)
+	if err != nil {
+		return database.Squad{}, err
+	}
+	name := m.pickName(existing)
+	api := m.dc(nil)
+	th, err := api.CreateThread(parent, name)
+	if err != nil {
+		return database.Squad{}, fmt.Errorf("create thread: %w", err)
+	}
+	ids := make([]string, len(group))
+	for n, c := range group {
+		ids[n] = c.UserID
+	}
+	sq, err := m.db.CreateSquad(database.Squad{GuildID: guildID, Name: name, ChannelID: th.ID, Thread: true}, ids, m.now())
+	if err != nil {
+		_ = api.DeleteChannel(th.ID)
+		return database.Squad{}, fmt.Errorf("save squad: %w", err)
+	}
+	m.registerChannel(th.ID, sq.ID)
+	for _, uid := range ids {
+		m.grantRole(guildID, uid, accessKey(sq))
+	}
+	return m.welcomeSquad(sq, group, byMod), nil
+}
+
+// welcomeSquad posts and pins a new squad's welcome, then DMs its members.
+// Failures are logged; the squad exists either way.
+func (m *Module) welcomeSquad(sq database.Squad, group []*candidate, byMod bool) database.Squad {
+	guildID, name, api := sq.GuildID, sq.Name, m.dc(nil)
+	gc := m.config.ForGuild(guildID)
+	ids := make([]string, len(group))
+	for n, c := range group {
+		ids[n] = c.UserID
 	}
 	// Notify after the welcome and intro posts are attempted so members do not
 	// follow the DM into an empty channel.
@@ -246,8 +311,8 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 	if byMod {
 		ground = "A moderator put this squad together."
 	}
-	welcome, introPosts := welcomeText(guildID, name, role.ID, ground, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter())
-	msg, err := api.Send(ch.ID, &discordgo.MessageSend{
+	welcome, introPosts := welcomeText(guildID, name, sq.RoleID, ground, group, gc.GetSquadsQuietWarnAfter()+gc.GetSquadsQuietDeleteAfter())
+	msg, err := api.Send(sq.ChannelID, &discordgo.MessageSend{
 		Content:         welcome,
 		AllowedMentions: &discordgo.MessageAllowedMentions{Users: ids},
 		Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
@@ -257,16 +322,16 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 	})
 	if err != nil {
 		m.config.Logger.Warnf("squads: welcome post in %s: %v", name, err)
-		return sq, nil
+		return sq
 	}
-	if err := api.Pin(ch.ID, msg.ID); err != nil {
+	if err := api.Pin(sq.ChannelID, msg.ID); err != nil {
 		m.config.Logger.Warnf("squads: pin welcome in %s: %v", name, err)
 	}
 	if err := m.db.SetSquadWelcome(sq.ID, msg.ID); err != nil {
 		m.config.Logger.Warnf("squads: save welcome for %s: %v", name, err)
 	}
 	for _, post := range introPosts {
-		if _, err := api.Send(ch.ID, &discordgo.MessageSend{
+		if _, err := api.Send(sq.ChannelID, &discordgo.MessageSend{
 			Content:         post,
 			AllowedMentions: &discordgo.MessageAllowedMentions{},
 		}); err != nil {
@@ -274,7 +339,7 @@ func (m *Module) createSquad(guildID string, group []*candidate, byMod bool) (da
 			break
 		}
 	}
-	return sq, nil
+	return sq
 }
 
 func (m *Module) notifySquadFormed(sq database.Squad, members []string) {
@@ -308,8 +373,11 @@ func welcomeText(guildID, name, roleID, ground string, group []*candidate, quiet
 			intros = append(intros, link)
 		}
 	}
-	tail := "\n\n" + ground +
-		fmt.Sprintf("\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID) +
+	home := fmt.Sprintf("\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID)
+	if roleID == "" {
+		home = "\n\nThis is your squad's private thread. Only your squad and the mods can see it."
+	}
+	tail := "\n\n" + ground + home +
 		fmt.Sprintf("\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))
 	if len(intros) == 0 {
 		return truncate(head.String()+tail, maxMessageLen), nil
@@ -460,7 +528,7 @@ func (m *Module) addMember(guildID string, sq database.Squad, c *candidate) erro
 		return err
 	}
 	api := m.dc(nil)
-	m.grantRole(guildID, c.UserID, sq.RoleID)
+	m.grantRole(guildID, c.UserID, accessKey(sq))
 	text := "👋 " + mention(c.UserID) + " joined the squad!"
 	var names []string
 	for _, name := range c.Games {
@@ -521,7 +589,7 @@ func (m *Module) removeMember(guildID, uid string, squadID int64, reason, why st
 	}
 	sq.Members--
 	api := m.dc(nil)
-	m.revokeRole(guildID, uid, sq.RoleID)
+	m.revokeRole(guildID, uid, accessKey(sq))
 	if sq.Members < 2 {
 		// A failed delete is retried by the quiet check.
 		_ = m.deleteSquad(sq, "it dropped below 2 members")
@@ -722,7 +790,12 @@ const (
 // squadRoom is how many squads Discord will let us create right now, and
 // which limit is closest.
 func (m *Module) squadRoom(guildID string) (int, string, error) {
-	category := m.config.ForGuild(guildID).GetSquadsCategoryID()
+	gc := m.config.ForGuild(guildID)
+	if gc.GetSquadsThreadChannelID() != "" {
+		// Private threads don't use up channels or roles.
+		return math.MaxInt, "", nil
+	}
+	category := gc.GetSquadsCategoryID()
 	inCat, channels, roles, err := m.dc(nil).GuildCounts(guildID, category)
 	if err != nil {
 		return 0, "", err
@@ -982,10 +1055,15 @@ func (m *Module) checkQuiet(guildID string) {
 			if m.missedChat(sq) {
 				continue
 			}
-			_, err := m.dc(nil).Send(sq.ChannelID, &discordgo.MessageSend{
-				Content: fmt.Sprintf("👀 <@&%s> it's been quiet in here for %s. This squad will be deleted <t:%d:R> unless someone says something!",
-					sq.RoleID, humanDuration(warnAfter), now.Add(deleteAfter).Unix()),
-				AllowedMentions: &discordgo.MessageAllowedMentions{Roles: []string{sq.RoleID}},
+			ping, mentions, err := m.squadPing(sq)
+			if err != nil {
+				m.config.Logger.Warnf("squads: load members to warn %s: %v", sq.Name, err)
+				continue
+			}
+			_, err = m.dc(nil).Send(sq.ChannelID, &discordgo.MessageSend{
+				Content: fmt.Sprintf("👀 %s it's been quiet in here for %s. This squad will be deleted <t:%d:R> unless someone says something!",
+					ping, humanDuration(warnAfter), now.Add(deleteAfter).Unix()),
+				AllowedMentions: mentions,
 			})
 			if discordCode(err) == discordgo.ErrCodeUnknownChannel {
 				m.deleteSquad(sq, "its channel was deleted")
@@ -1042,4 +1120,21 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(string(r[0])) + string(r[1:])
+}
+
+// squadPing mentions everyone in a squad: its role, or for a thread squad
+// (which has none) each member.
+func (m *Module) squadPing(sq database.Squad) (string, *discordgo.MessageAllowedMentions, error) {
+	if !sq.Thread {
+		return "<@&" + sq.RoleID + ">", &discordgo.MessageAllowedMentions{Roles: []string{sq.RoleID}}, nil
+	}
+	ids, err := m.db.SquadMemberIDs(sq.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	pings := make([]string, len(ids))
+	for n, uid := range ids {
+		pings[n] = mention(uid)
+	}
+	return strings.Join(pings, " "), &discordgo.MessageAllowedMentions{Users: ids}, nil
 }

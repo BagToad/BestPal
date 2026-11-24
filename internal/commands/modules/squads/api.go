@@ -31,6 +31,12 @@ type discordAPI interface {
 	RemoveRole(guildID, userID, roleID string) error
 	CreateChannel(guildID string, data discordgo.GuildChannelCreateData) (*discordgo.Channel, error)
 	EditChannelPerms(channelID string, overwrites []*discordgo.PermissionOverwrite) error
+	// CreateThread starts a private, member-only thread in a channel.
+	CreateThread(parentID, name string) (*discordgo.Channel, error)
+	AddThreadMember(threadID, userID string) error
+	RemoveThreadMember(threadID, userID string) error
+	// FreezeChannel stops members posting: a channel loses its chat
+	// permissions and a thread is locked.
 	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
@@ -102,9 +108,47 @@ func (a sessionAPI) EditChannelPerms(channelID string, overwrites []*discordgo.P
 	return err
 }
 
+// squadThreadArchive is how long a quiet squad thread stays open (7 days, the
+// most Discord allows). Posting in an archived thread reopens it.
+const squadThreadArchive = 10080
+
+func (a sessionAPI) CreateThread(parentID, name string) (*discordgo.Channel, error) {
+	return a.s.ThreadStartComplex(parentID, &discordgo.ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: squadThreadArchive,
+		Type:                discordgo.ChannelTypeGuildPrivateThread,
+		Invitable:           false,
+	})
+}
+
+func (a sessionAPI) AddThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberAdd(threadID, userID) })
+}
+
+func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
+}
+
+// onOpenThread runs op, reopening the thread and trying once more if Discord
+// refuses because it was archived.
+func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
+	err := op()
+	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
+		return err
+	}
+	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)}); err != nil {
+		return err
+	}
+	return op()
+}
+
 func (a sessionAPI) FreezeChannel(channelID string) error {
 	channel, err := a.Channel(channelID)
 	if err != nil {
+		return err
+	}
+	if channel.IsThread() {
+		_, err := a.s.ChannelEdit(channelID, &discordgo.ChannelEdit{Archived: new(false), Locked: new(true)})
 		return err
 	}
 	return a.EditChannelPerms(channelID, frozenOverwrites(channel.PermissionOverwrites, a.BotID()))

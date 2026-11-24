@@ -260,11 +260,14 @@ func (db *DB) SetSquadAnyRegion(guildID, userID string, enabled bool) error {
 
 // Squad is one squad and its channel/role.
 type Squad struct {
-	ID               int64
-	GuildID          string
-	Name             string
-	ChannelID        string
-	RoleID           string
+	ID        int64
+	GuildID   string
+	Name      string
+	ChannelID string
+	RoleID    string
+	// Thread marks a squad that lives in a private thread (ChannelID is the
+	// thread). Its members are thread members rather than role holders.
+	Thread           bool
 	WelcomeMessageID string
 	CreatedAt        time.Time
 	LastActivityAt   time.Time
@@ -441,8 +444,8 @@ func (db *DB) CreateSquad(sq Squad, members []string, now time.Time) (Squad, err
 		return sq, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`INSERT INTO squads (guild_id, name, channel_id, role_id, created_at, last_activity_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, sq.GuildID, sq.Name, sq.ChannelID, sq.RoleID, now.Unix(), now.Unix())
+	res, err := tx.Exec(`INSERT INTO squads (guild_id, name, channel_id, role_id, thread, created_at, last_activity_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, sq.GuildID, sq.Name, sq.ChannelID, sq.RoleID, sq.Thread, now.Unix(), now.Unix())
 	if err != nil {
 		return sq, err
 	}
@@ -671,7 +674,7 @@ func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-const squadCols = `s.id, s.guild_id, s.name, s.channel_id, s.role_id, s.welcome_message_id,
+const squadCols = `s.id, s.guild_id, s.name, s.channel_id, s.role_id, s.thread, s.welcome_message_id,
 	s.created_at, s.last_activity_at, s.warned_at, s.delete_reason,
 	(SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id)`
 
@@ -680,7 +683,7 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanSquad(r rowScanner) (Squad, error) {
 	var sq Squad
 	var created, active, warned int64
-	err := r.Scan(&sq.ID, &sq.GuildID, &sq.Name, &sq.ChannelID, &sq.RoleID, &sq.WelcomeMessageID,
+	err := r.Scan(&sq.ID, &sq.GuildID, &sq.Name, &sq.ChannelID, &sq.RoleID, &sq.Thread, &sq.WelcomeMessageID,
 		&created, &active, &warned, &sq.DeleteReason, &sq.Members)
 	sq.CreatedAt = time.Unix(created, 0)
 	sq.LastActivityAt = time.Unix(active, 0)
@@ -769,7 +772,9 @@ func (db *DB) DeleteSquad(id int64, now time.Time) error {
 	if _, err := tx.Exec(`DELETE FROM squad_members WHERE squad_id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM squad_role_ops WHERE role_id IN (SELECT role_id FROM squads WHERE id = ? AND role_id != '')`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM squad_role_ops WHERE role_id IN (
+		SELECT role_id FROM squads WHERE id = ? AND role_id != ''
+		UNION SELECT ? || channel_id FROM squads WHERE id = ? AND thread = 1 AND channel_id != '')`, id, ThreadAccessPrefix, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM squads WHERE id = ?`, id); err != nil {
@@ -937,6 +942,7 @@ func (db *DB) migrateSquads() error {
 		{"deletion_transcript_note", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_file_log_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
+		{"thread", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
 		if have[column.name] {
@@ -1141,6 +1147,10 @@ func (db *DB) MarkSquadWarned(id int64, now time.Time) error {
 	_, err := db.conn.Exec(`UPDATE squads SET warned_at = ? WHERE id = ?`, now.Unix(), id)
 	return err
 }
+
+// ThreadAccessPrefix marks a squad_role_ops entry that adds or removes a
+// private-thread member instead of a role; the rest is the thread ID.
+const ThreadAccessPrefix = "thread:"
 
 // SquadRoleOp is a squad role grant (Add) or revocation that failed and
 // should be retried.

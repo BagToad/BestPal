@@ -293,7 +293,8 @@ func (m *Module) refreshPermissions(guildID string) string {
 		return "❌ Could not load squads."
 	}
 	failed := 0
-	squads = slices.DeleteFunc(squads, database.Squad.Deleting)
+	// Thread squads are private by design and have no permissions of their own.
+	squads = slices.DeleteFunc(squads, func(sq database.Squad) bool { return sq.Deleting() || sq.Thread })
 	for _, sq := range squads {
 		perms, err := m.squadOverwrites(guildID, sq.RoleID)
 		if err != nil {

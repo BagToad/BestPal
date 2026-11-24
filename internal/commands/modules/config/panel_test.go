@@ -126,7 +126,7 @@ func TestSquadCategoriesWithinDiscordLimits(t *testing.T) {
 	cfg.ApplyRegistry(config.NewRegistry((&squads.Module{}).ConfigSettings()))
 	m := &Module{config: cfg}
 	cats := cfg.Registry().Categories()
-	require.Len(t, cats, 6)
+	require.Len(t, cats, 7)
 	for _, cat := range cats {
 		inner := categoryInner(t, m.renderCategory("guild1", cat, ""))
 		total := 1

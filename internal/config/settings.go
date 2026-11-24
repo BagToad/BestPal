@@ -71,6 +71,7 @@ const (
 	KeySquadsModRoleID         = "squads_mod_role_id"
 	KeySquadsBlockedRoleID     = "squads_blocked_role_id"
 	KeySquadsFeedbackChannelID = "squads_feedback_channel_id"
+	KeySquadsThreadChannelID   = "squads_thread_channel_id"
 	KeySquadsTargetSize        = "squads_target_size"
 	KeySquadsMinSize           = "squads_min_size"
 	KeySquadsMaxSize           = "squads_max_size"
@@ -137,6 +138,7 @@ const (
 	CategorySquadRegions   Category = "Squad Regions"
 	CategorySquadAges      Category = "Squad Age Groups"
 	CategorySquadPlatforms Category = "Squad Platforms"
+	CategorySquadThreads   Category = "Squad Threads"
 	CategorySquadFeedback  Category = "Squad Feedback"
 	CategoryMisc           Category = "Moderation & Misc"
 )
@@ -157,6 +159,7 @@ var categoryOrder = []Category{
 	CategorySquadRegions,
 	CategorySquadAges,
 	CategorySquadPlatforms,
+	CategorySquadThreads,
 	CategorySquadFeedback,
 	CategoryMisc,
 }

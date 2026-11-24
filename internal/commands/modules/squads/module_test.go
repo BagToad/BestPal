@@ -61,7 +61,11 @@ type fakeAPI struct {
 	humanByUser map[string]map[string]time.Time
 	messages    map[string][]*discordgo.Message
 	historyErr  error
-	prompted    map[string]bool // thread ID -> already has a join button
+	prompted    map[string]bool   // thread ID -> already has a join button
+	threads     map[string]string // thread ID -> parent channel
+	threadMems  []string          // "+user:thread" / "-user:thread"
+	threadErr   error
+	locked      []string
 
 	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
 	countsErr                                  error
@@ -153,9 +157,38 @@ func (f *fakeAPI) EditChannelPerms(id string, o []*discordgo.PermissionOverwrite
 	f.permEdits[id] = o
 	return nil
 }
+func (f *fakeAPI) CreateThread(parent, name string) (*discordgo.Channel, error) {
+	if f.threadErr != nil {
+		return nil, f.threadErr
+	}
+	if f.threads == nil {
+		f.threads = map[string]string{}
+	}
+	id := f.id()
+	f.threads[id] = parent
+	return &discordgo.Channel{ID: id, Name: name, ParentID: parent, Type: discordgo.ChannelTypeGuildPrivateThread}, nil
+}
+func (f *fakeAPI) AddThreadMember(thread, uid string) error {
+	if f.addErr != nil {
+		return f.addErr
+	}
+	f.threadMems = append(f.threadMems, "+"+uid+":"+thread)
+	return nil
+}
+func (f *fakeAPI) RemoveThreadMember(thread, uid string) error {
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.threadMems = append(f.threadMems, "-"+uid+":"+thread)
+	return nil
+}
 func (f *fakeAPI) FreezeChannel(id string) error {
 	if f.permErr != nil {
 		return f.permErr
+	}
+	if _, ok := f.threads[id]; ok {
+		f.locked = append(f.locked, id)
+		return nil
 	}
 	channel, err := f.Channel(id)
 	if err != nil {

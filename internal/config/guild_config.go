@@ -554,6 +554,12 @@ func (gc *GuildConfig) GetSquadsCategoryID() string { return gc.resolveString(Ke
 // GetSquadsModRoleID returns the role that can always see squad channels.
 func (gc *GuildConfig) GetSquadsModRoleID() string { return gc.resolveString(KeySquadsModRoleID) }
 
+// GetSquadsThreadChannelID returns the channel new squads are created in as
+// private threads. Empty means new squads get their own channel.
+func (gc *GuildConfig) GetSquadsThreadChannelID() string {
+	return gc.resolveString(KeySquadsThreadChannelID)
+}
+
 // GetSquadsFeedbackChannelID returns the channel squad exit surveys are posted to.
 func (gc *GuildConfig) GetSquadsFeedbackChannelID() string {
 	return gc.resolveString(KeySquadsFeedbackChannelID)

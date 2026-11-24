@@ -25,7 +25,105 @@ const (
 // max 5 text inputs per modal, and (Components V2) max 40 components per
 // message. Category panels render one labeled select per row, so they stay well
 // within these.
-const maxButtonsPerRow = 5
+const (
+	maxButtonsPerRow   = 5
+	maxPanelComponents = 40
+	maxModalFields     = 5
+)
+
+// pageSep separates a category from its page number in customIDs.
+const pageSep = "|"
+
+// pageRef names a page of a category in a customID; page 0 is just the
+// category, so existing IDs keep working.
+func pageRef(cat config.Category, page int) string {
+	if page == 0 {
+		return string(cat)
+	}
+	return string(cat) + pageSep + strconv.Itoa(page)
+}
+
+// parsePageRef reverses pageRef.
+func parsePageRef(ref string) (config.Category, int) {
+	cat, n, ok := strings.Cut(ref, pageSep)
+	if !ok {
+		return config.Category(ref), 0
+	}
+	page, _ := strconv.Atoi(n)
+	return config.Category(cat), max(page, 0)
+}
+
+// hasControl reports whether a setting renders an inline control (a select
+// or toggle) rather than being entered through the Edit values modal.
+func hasControl(st config.Setting) bool {
+	return isSelectKind(st.Kind) || st.Kind == config.KindBool
+}
+
+// startsSection reports whether st gets a section heading: it has a section
+// and either opens the page or follows a setting from another section.
+func startsSection(prev *config.Setting, st config.Setting) bool {
+	return st.Section != "" && (prev == nil || prev.Section != st.Section)
+}
+
+// categoryPages splits a category's settings into pages that each fit
+// Discord's limits: maxPanelComponents per message and maxModalFields in the
+// Edit values modal. Most categories fit on one page.
+func (m *Module) categoryPages(cat config.Category) [][]config.Setting {
+	reg := m.config.Registry()
+	settings := reg.ByCategory(cat)
+	// Container, header, a possible warning, and the nav row (Edit values,
+	// previous, next, back).
+	overhead := 3 + 1 + 4
+	if n := len(reg.ActionsByCategory(cat)); n > 0 {
+		overhead += n + (n+maxButtonsPerRow-1)/maxButtonsPerRow
+	}
+	var pages [][]config.Setting
+	var cur []config.Setting
+	used, modal := overhead, 0
+	for _, st := range settings {
+		var prev *config.Setting
+		if len(cur) > 0 {
+			prev = &cur[len(cur)-1]
+		}
+		cost := 2 // label and separator
+		if hasControl(st) {
+			cost += 2 // action row and its control
+		}
+		if startsSection(prev, st) {
+			cost++
+		}
+		full := used+cost > maxPanelComponents || (!hasControl(st) && modal == maxModalFields)
+		if full && len(cur) > 0 {
+			pages = append(pages, cur)
+			cur, used, modal = nil, overhead, 0
+			cost = 2
+			if hasControl(st) {
+				cost += 2
+			}
+			if st.Section != "" {
+				cost++
+			}
+		}
+		cur = append(cur, st)
+		used += cost
+		if !hasControl(st) {
+			modal++
+		}
+	}
+	return append(pages, cur)
+}
+
+// pageOf returns the page of cat that holds key.
+func (m *Module) pageOf(cat config.Category, key string) int {
+	for n, page := range m.categoryPages(cat) {
+		for _, st := range page {
+			if st.Key == key {
+				return n
+			}
+		}
+	}
+	return 0
+}
 
 // panelColor is the accent stripe for the panel container (Discord blurple),
 // replacing the embed color the panel used before moving to Components V2.
@@ -115,8 +213,9 @@ func (m *Module) updateToHome(s *discordgo.Session, i *discordgo.InteractionCrea
 }
 
 // updateToCategory renders a category panel in place.
-func (m *Module) updateToCategory(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
-	data := m.renderCategory(i.GuildID, config.Category(catStr), "")
+func (m *Module) updateToCategory(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
+	cat, page := parsePageRef(ref)
+	data := m.renderCategoryPage(i.GuildID, cat, page, "")
 	m.updateMessage(s, i, data)
 }
 
@@ -127,18 +226,35 @@ func (m *Module) updateToCategory(s *discordgo.Session, i *discordgo.Interaction
 // "Edit values…" button). An optional note shows save feedback. Built with
 // Components V2 because classic action rows have no per-select label.
 func (m *Module) renderCategory(guildID string, cat config.Category, note string) *discordgo.InteractionResponseData {
+	return m.renderCategoryPage(guildID, cat, 0, note)
+}
+
+// renderCategoryPage renders one page of a category; see renderCategory.
+func (m *Module) renderCategoryPage(guildID string, cat config.Category, page int, note string) *discordgo.InteractionResponseData {
 	reg := m.config.Registry()
-	settings := reg.ByCategory(cat)
+	pages := m.categoryPages(cat)
+	page = min(max(page, 0), len(pages)-1)
+	settings := pages[page]
 	gc := m.config.ForGuild(guildID)
 
 	header := "## ⚙️ " + string(cat)
+	if len(pages) > 1 {
+		header += fmt.Sprintf("\n-# Page %d of %d", page+1, len(pages))
+	}
 	if note != "" {
 		header += "\n" + note
 	}
 	inner := []discordgo.MessageComponent{discordgo.TextDisplay{Content: header}}
 
 	hasModalFields := false
-	for _, st := range settings {
+	for n, st := range settings {
+		var prev *config.Setting
+		if n > 0 {
+			prev = &settings[n-1]
+		}
+		if startsSection(prev, st) {
+			inner = append(inner, discordgo.TextDisplay{Content: "### " + st.Section})
+		}
 		raw, overridden := effectiveRaw(gc, st)
 
 		label := fmt.Sprintf("**%s:** %s", st.Label, formatValue(st, raw))
@@ -199,7 +315,21 @@ func (m *Module) renderCategory(guildID string, cat config.Category, note string
 		navBtns = append(navBtns, discordgo.Button{
 			Label:    "Edit values…",
 			Style:    discordgo.PrimaryButton,
-			CustomID: editID(string(cat)),
+			CustomID: editID(pageRef(cat, page)),
+		})
+	}
+	if page > 0 {
+		navBtns = append(navBtns, discordgo.Button{
+			Label:    "◀ Previous",
+			Style:    discordgo.SecondaryButton,
+			CustomID: categoryID(pageRef(cat, page-1)),
+		})
+	}
+	if page < len(pages)-1 {
+		navBtns = append(navBtns, discordgo.Button{
+			Label:    "Next ▶",
+			Style:    discordgo.SecondaryButton,
+			CustomID: categoryID(pageRef(cat, page+1)),
 		})
 	}
 	navBtns = append(navBtns, discordgo.Button{
@@ -260,7 +390,7 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 			note = "✅ Saved " + st.Label
 		}
 	}
-	m.updateMessage(s, i, m.renderCategory(i.GuildID, st.Category, note))
+	m.updateMessage(s, i, m.renderCategoryPage(i.GuildID, st.Category, m.pageOf(st.Category, key), note))
 }
 
 // handleToggle flips a boolean setting and saves it.
@@ -278,19 +408,20 @@ func (m *Module) handleToggle(s *discordgo.Session, i *discordgo.InteractionCrea
 		m.config.Logger.Warnf("config panel: toggle %s: %v", key, err)
 		note = "❌ Could not update " + st.Label
 	}
-	m.updateMessage(s, i, m.renderCategory(i.GuildID, st.Category, note))
+	m.updateMessage(s, i, m.renderCategoryPage(i.GuildID, st.Category, m.pageOf(st.Category, key), note))
 }
 
 // handleOpenEditModal opens a modal holding every modal-entered setting in the
-// category (int/duration/string), prefilled with current values.
-func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
-	cat := config.Category(catStr)
-	reg := m.config.Registry()
+// category page (int/duration/string), prefilled with current values.
+func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
+	cat, page := parsePageRef(ref)
 	gc := m.config.ForGuild(i.GuildID)
+	pages := m.categoryPages(cat)
+	page = min(page, len(pages)-1)
 
 	var rows []discordgo.MessageComponent
-	for _, st := range reg.ByCategory(cat) {
-		if isSelectKind(st.Kind) || st.Kind == config.KindBool {
+	for _, st := range pages[page] {
+		if hasControl(st) {
 			continue
 		}
 		raw, _ := effectiveRaw(gc, st)
@@ -313,8 +444,8 @@ func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.Interact
 	_ = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
 		Data: &discordgo.InteractionResponseData{
-			CustomID:   editModalID(catStr),
-			Title:      truncate("Edit "+catStr, 45),
+			CustomID:   editModalID(pageRef(cat, page)),
+			Title:      truncate("Edit "+string(cat), 45),
 			Components: rows,
 		},
 	})
@@ -323,8 +454,8 @@ func (m *Module) handleOpenEditModal(s *discordgo.Session, i *discordgo.Interact
 // handleEditModalSubmit validates and persists modal values, then re-renders the
 // category. Blank inputs clear the override; invalid inputs are reported and the
 // previous value is kept for that field.
-func (m *Module) handleEditModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, catStr string) {
-	cat := config.Category(catStr)
+func (m *Module) handleEditModalSubmit(s *discordgo.Session, i *discordgo.InteractionCreate, ref string) {
+	cat, page := parsePageRef(ref)
 	reg := m.config.Registry()
 	gc := m.config.ForGuild(i.GuildID)
 	userID := interactionUserID(i)
@@ -376,7 +507,7 @@ func (m *Module) handleEditModalSubmit(s *discordgo.Session, i *discordgo.Intera
 	if len(errs) > 0 {
 		note += "\n⚠️ " + strings.Join(errs, "; ")
 	}
-	m.updateMessage(s, i, m.renderCategory(i.GuildID, cat, note))
+	m.updateMessage(s, i, m.renderCategoryPage(i.GuildID, cat, page, note))
 }
 
 // updateMessage edits the originating panel message in place.

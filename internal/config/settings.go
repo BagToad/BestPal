@@ -124,23 +124,17 @@ const (
 type Category string
 
 const (
-	CategoryChannels       Category = "Server Channels"
-	CategoryIntro          Category = "Introductions"
-	CategoryLFG            Category = "Looking for Game"
-	CategoryNewPals        Category = "New Pals"
-	CategoryScamGuard      Category = "ScamGuard"
-	CategoryAgent          Category = "Agent"
-	CategoryTrickOrTreat   Category = "Trick or Treat"
-	CategoryEvents         Category = "Events"
-	CategorySlidePuzzle    Category = "Slide Puzzle"
-	CategorySquads         Category = "Squads"
-	CategorySquadTiming    Category = "Squad Timing"
-	CategorySquadRegions   Category = "Squad Regions"
-	CategorySquadAges      Category = "Squad Age Groups"
-	CategorySquadPlatforms Category = "Squad Platforms"
-	CategorySquadThreads   Category = "Squad Threads"
-	CategorySquadFeedback  Category = "Squad Feedback"
-	CategoryMisc           Category = "Moderation & Misc"
+	CategoryChannels     Category = "Server Channels"
+	CategoryIntro        Category = "Introductions"
+	CategoryLFG          Category = "Looking for Game"
+	CategoryNewPals      Category = "New Pals"
+	CategoryScamGuard    Category = "ScamGuard"
+	CategoryAgent        Category = "Agent"
+	CategoryTrickOrTreat Category = "Trick or Treat"
+	CategoryEvents       Category = "Events"
+	CategorySlidePuzzle  Category = "Slide Puzzle"
+	CategorySquads       Category = "Squads"
+	CategoryMisc         Category = "Moderation & Misc"
 )
 
 // categoryOrder is the canonical display order of categories in the panel.
@@ -155,12 +149,6 @@ var categoryOrder = []Category{
 	CategoryEvents,
 	CategorySlidePuzzle,
 	CategorySquads,
-	CategorySquadTiming,
-	CategorySquadRegions,
-	CategorySquadAges,
-	CategorySquadPlatforms,
-	CategorySquadThreads,
-	CategorySquadFeedback,
 	CategoryMisc,
 }
 
@@ -182,6 +170,9 @@ type Setting struct {
 	Kind        Kind
 	Default     any
 	EnumOptions []Option // populated for KindEnum
+	// Section is an optional subheading that groups settings within a
+	// category's panel.
+	Section string
 	// TextChannelOnly limits a KindChannel setting to regular text channels.
 	TextChannelOnly bool
 	Validate        func(string) error // optional; nil means validate by Kind

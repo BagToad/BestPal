@@ -185,15 +185,15 @@ func (m *Module) squadmateCompatibility(guildID, uid string, mates []string) str
 		return "*None*"
 	}
 	rl := m.roleLookup(guildID)
-	load := func(id string) (*candidate, []database.SquadPick, error) {
+	load := func(id string) (*candidate, []database.SquadPick, bool, error) {
 		picks, err := m.db.SquadPicks(guildID, id)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
-		c, _, err := m.loadCandidate(guildID, id, picks, rl)
-		return c, picks, err
+		c, gone, err := m.loadCandidate(guildID, id, picks, rl)
+		return c, picks, gone, err
 	}
-	self, selfPicks, err := load(uid)
+	self, selfPicks, _, err := load(uid)
 	if err != nil {
 		lines := make([]string, len(mates))
 		for n, id := range mates {
@@ -203,9 +203,14 @@ func (m *Module) squadmateCompatibility(guildID, uid string, mates []string) str
 	}
 	var lines []string
 	for _, id := range mates {
-		other, _, err := load(id)
-		if err != nil {
+		other, _, gone, err := load(id)
+		switch {
+		case gone:
 			lines = append(lines, fmt.Sprintf("• %s — not in the server", idMention(id)))
+			continue
+		case err != nil:
+			m.config.Logger.Warnf("squads: exit survey compatibility for %s: %v", id, err)
+			lines = append(lines, fmt.Sprintf("• %s — compatibility unavailable", idMention(id)))
 			continue
 		}
 		var shared []string

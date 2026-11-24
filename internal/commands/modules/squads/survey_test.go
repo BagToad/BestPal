@@ -2,6 +2,7 @@ package squads
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -67,11 +68,13 @@ func TestSquadLeaveCommandOpensExitSurvey(t *testing.T) {
 
 func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback", config.KeySquadsPlatformPCRoleID: "role-pc"})
-	sq := makeSquad(t, m, api, db, "a", "b", "c", "d")
+	sq := makeSquad(t, m, api, db, "a", "b", "c", "d", "e")
 	member(api, "a", "role-eu", "role-18", "role-pc")
 	member(api, "b", "role-eu", "role-25", "role-pc")
 	member(api, "c", "role-na", "role-18")
 	delete(api.members, "d") // left the server
+	member(api, "e", "role-eu")
+	api.memberErr["e"] = errors.New("discord is down")
 	pick := func(uid string, ids ...int64) {
 		for _, id := range ids {
 			_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{GameID: id, Name: fmt.Sprintf("Game %d", id)}, 25, t0)
@@ -117,10 +120,11 @@ func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 	assert.Contains(t, fields["Time in squad"], "👻 never spoke")
 	assert.Equal(t, "Nobody is responding", fields["Reason"])
 	assert.Equal(t, "nobody ever talked", fields["Feedback"])
-	mates := fields["Squadmates when they left (3)"]
+	mates := fields["Squadmates when they left (4)"]
 	assert.Equal(t, "• <@b> `b` — 🎮 Game 1, Game 2, Game 3 +2 · 🌍 same region · 🎂 age group 2 · 🕹️ PC\n"+
 		"• <@c> `c` — 🎮 no shared games · 🌍 North America · 🎂 same age group · 🕹️ no shared platform\n"+
-		"• <@d> `d` — not in the server", mates)
+		"• <@d> `d` — not in the server\n"+
+		"• <@e> `e` — compatibility unavailable", mates)
 }
 
 func TestExitSurveyReportsSquadDeletion(t *testing.T) {

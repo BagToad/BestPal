@@ -314,6 +314,9 @@ func TestThreadLeaveWhileOfflineIsReconciledNightly(t *testing.T) {
 	assert.False(t, inSquad, "a left the thread, so the squad")
 	_, inSquad, _ = db.SquadForUser(guild, "d")
 	assert.True(t, inSquad, "d's thread add is still pending")
+	checked, err := db.SquadThreadCheck(guild)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-01-02", checked, "the date is saved so a restart doesn't rerun it")
 	msgs := sentTo(api, sq.ChannelID)
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0].Content, "<@a> left the squad")
@@ -328,4 +331,32 @@ func TestThreadLeaveWhileOfflineIsReconciledNightly(t *testing.T) {
 	m.reconcileThreadsNightly(guild)
 	_, inSquad, _ = db.SquadForUser(guild, "b")
 	assert.False(t, inSquad)
+}
+
+func TestNightlyThreadCheckSkipsListWithoutBot(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	*now = time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID, "-b:"+sq.ChannelID, "-c:"+sq.ChannelID)
+	api.threadListNoBot = true
+
+	m.reconcileThreadsNightly(guild)
+	for _, uid := range []string{"a", "b", "c"} {
+		_, inSquad, _ := db.SquadForUser(guild, uid)
+		assert.True(t, inSquad, "an incomplete member list mustn't evict %s", uid)
+	}
+}
+
+func TestThreadLeaveFromLeavingServerCountsAsServerLeave(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	delete(api.members, "a")
+	api.sent = nil
+
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.False(t, inSquad)
+	msgs := sentTo(api, sq.ChannelID)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "left the server")
 }

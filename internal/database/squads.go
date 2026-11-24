@@ -115,6 +115,11 @@ CREATE TABLE IF NOT EXISTS squad_state (
 	last_match_at INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS squad_thread_checks (
+	guild_id   TEXT PRIMARY KEY,
+	checked_on TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS squad_exit_surveys (
 	id         INTEGER PRIMARY KEY AUTOINCREMENT,
 	guild_id   TEXT NOT NULL,
@@ -1221,6 +1226,24 @@ func (db *DB) SquadLastMatch(guildID string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.Unix(at, 0), err
+}
+
+// SquadThreadCheck returns the UTC date (YYYY-MM-DD) of the guild's last
+// nightly thread check, or "" if it has never run.
+func (db *DB) SquadThreadCheck(guildID string) (string, error) {
+	var on string
+	err := db.conn.QueryRow(`SELECT checked_on FROM squad_thread_checks WHERE guild_id = ?`, guildID).Scan(&on)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return on, err
+}
+
+// SetSquadThreadCheck records the UTC date of the guild's nightly thread check.
+func (db *DB) SetSquadThreadCheck(guildID, on string) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_thread_checks (guild_id, checked_on) VALUES (?, ?)
+		ON CONFLICT (guild_id) DO UPDATE SET checked_on = excluded.checked_on`, guildID, on)
+	return err
 }
 
 // SetSquadLastMatch records when the matcher last ran for a guild.

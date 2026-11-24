@@ -31,41 +31,42 @@ type sentMsg struct {
 }
 
 type fakeAPI struct {
-	mu          sync.Mutex
-	nextID      int
-	responses   []*discordgo.InteractionResponse
-	edits       []*discordgo.WebhookEdit
-	sent        []sentMsg
-	dms         []sentMsg
-	pins        []string
-	members     map[string]*discordgo.Member
-	roles       map[string]string // role ID -> name
-	channels    map[string]discordgo.GuildChannelCreateData
-	roleAdds    []string // "user:role"
-	roleRems    []string
-	delCh       []string
-	delRoles    []string
-	permEdits   map[string][]*discordgo.PermissionOverwrite
-	permErr     error
-	dmErr       error
-	sendErr     map[string]error
-	sendErrOnce map[string]error
-	addErr      error
-	removeErr   error
-	deleteErr   error
-	deleteHook  func()
-	roleDelErr  error
-	memberErr   map[string]error
-	catPerms    []*discordgo.PermissionOverwrite
-	lastHuman   map[string]time.Time
-	humanByUser map[string]map[string]time.Time
-	messages    map[string][]*discordgo.Message
-	historyErr  error
-	prompted    map[string]bool   // thread ID -> already has a join button
-	threads     map[string]string // thread ID -> parent channel
-	threadMems  []string          // "+user:thread" / "-user:thread"
-	threadErr   error
-	locked      []string
+	mu              sync.Mutex
+	nextID          int
+	responses       []*discordgo.InteractionResponse
+	edits           []*discordgo.WebhookEdit
+	sent            []sentMsg
+	dms             []sentMsg
+	pins            []string
+	members         map[string]*discordgo.Member
+	roles           map[string]string // role ID -> name
+	channels        map[string]discordgo.GuildChannelCreateData
+	roleAdds        []string // "user:role"
+	roleRems        []string
+	delCh           []string
+	delRoles        []string
+	permEdits       map[string][]*discordgo.PermissionOverwrite
+	permErr         error
+	dmErr           error
+	sendErr         map[string]error
+	sendErrOnce     map[string]error
+	addErr          error
+	removeErr       error
+	deleteErr       error
+	deleteHook      func()
+	roleDelErr      error
+	memberErr       map[string]error
+	catPerms        []*discordgo.PermissionOverwrite
+	lastHuman       map[string]time.Time
+	humanByUser     map[string]map[string]time.Time
+	messages        map[string][]*discordgo.Message
+	historyErr      error
+	prompted        map[string]bool   // thread ID -> already has a join button
+	threads         map[string]string // thread ID -> parent channel
+	threadMems      []string          // "+user:thread" / "-user:thread"
+	threadErr       error
+	threadListNoBot bool // ThreadMemberIDs leaves out the bot
+	locked          []string
 
 	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
 	countsErr                                  error
@@ -188,7 +189,10 @@ func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
 	if _, ok := f.threads[thread]; !ok {
 		return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}}
 	}
-	return f.threadMembers(thread), nil
+	if f.threadListNoBot {
+		return f.threadMembers(thread), nil
+	}
+	return append(f.threadMembers(thread), f.BotID()), nil
 }
 func (f *fakeAPI) AddThreadMember(thread, uid string) error {
 	if f.addErr != nil {

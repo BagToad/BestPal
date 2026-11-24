@@ -401,8 +401,8 @@ func (m *Module) statusText(guildID string) string {
 	} else if !gc.GetSquadsIntroButton() {
 		problems = append(problems, "Intro posts don't get a Join button (Post on intros is off), so only /squad join works.")
 	}
-	if gc.GetSquadsCategoryID() == "" {
-		problems = append(problems, "No squads category set, so squads can't be created.")
+	if gc.GetSquadsThreadChannelID() == "" && gc.GetSquadsCategoryID() == "" {
+		problems = append(problems, "No thread channel or squads category set, so squads can't be created.")
 	}
 	if len(gc.GetSquadRoles(config.SquadRegionKeys)) == 0 {
 		problems = append(problems, "No region roles set, so everyone counts as the same region.")

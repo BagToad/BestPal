@@ -146,7 +146,9 @@ func (m *Module) recordExitSurvey(survey database.SquadExitSurvey, sq database.S
 	if joined, spoke, err := m.db.SquadLastMembership(sq.ID, survey.UserID); err == nil {
 		spokeText := "👻 never spoke"
 		if spoke {
-			spokeText = "spoke in the channel"
+			// Also set when chat history couldn't be checked, so leavers
+			// aren't wrongly counted as ghosting.
+			spokeText = "not counted as ghosting (spoke, or history couldn't be checked)"
 		}
 		stay = fmt.Sprintf("joined <t:%d:R> (%s) · %s", joined.Unix(), humanDuration(survey.CreatedAt.Sub(joined)), spokeText)
 	}

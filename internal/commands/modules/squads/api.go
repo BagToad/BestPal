@@ -40,6 +40,9 @@ type discordAPI interface {
 	RemoveThreadMember(threadID, userID string) error
 	// ThreadMemberIDs lists everyone in a thread, the bot included.
 	ThreadMemberIDs(threadID string) ([]string, error)
+	// RenameThread renames a squad thread. It fails rather than waits when
+	// Discord's rename rate limit is hit.
+	RenameThread(threadID, name string) error
 	// FreezeChannel stops members posting: a channel loses its chat
 	// permissions, and a thread is closed: every member but the bot is
 	// removed and it's archived and locked, leaving a mod-only archive.
@@ -137,6 +140,13 @@ func (a sessionAPI) AddThreadMember(threadID, userID string) error {
 
 func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
 	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
+}
+
+func (a sessionAPI) RenameThread(threadID, name string) error {
+	return a.onOpenThread(threadID, func() error {
+		_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithRetryOnRatelimit(false))
+		return err
+	})
 }
 
 var errThreadLocked = errors.New("the squad thread is locked for deletion")

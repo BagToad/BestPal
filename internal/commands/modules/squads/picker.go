@@ -555,6 +555,17 @@ func (m *Module) handleSquad(s *discordgo.Session, i *discordgo.InteractionCreat
 		data := m.leaveQueue(i.GuildID, uid)
 		lock.Unlock()
 		m.edit(s, i, data)
+	case "rename":
+		var name string
+		for _, o := range opts[0].Options {
+			if o.Name == "name" {
+				name = o.StringValue()
+			}
+		}
+		if !m.deferReply(s, i) {
+			return
+		}
+		m.editText(s, i, m.renameSquad(i.GuildID, uid, name))
 	}
 }
 

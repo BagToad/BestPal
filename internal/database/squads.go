@@ -825,6 +825,12 @@ func (db *DB) SetSquadChannel(id int64, channelID, roleID string) error {
 }
 
 // SetSquadWelcome records the pinned welcome message.
+// RenameSquad changes a squad's name.
+func (db *DB) RenameSquad(id int64, name string) error {
+	_, err := db.conn.Exec(`UPDATE squads SET name = ? WHERE id = ?`, name, id)
+	return err
+}
+
 func (db *DB) SetSquadWelcome(id int64, messageID string) error {
 	_, err := db.conn.Exec(`UPDATE squads SET welcome_message_id = ? WHERE id = ?`, messageID, id)
 	return err

@@ -69,6 +69,8 @@ type fakeAPI struct {
 	threadListErr   error
 	onThreadList    func() // runs after ThreadMemberIDs reads the members
 	locked          []string
+	renamed         map[string]string // thread ID -> new name
+	renameErr       error
 
 	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
 	countsErr                                  error
@@ -205,6 +207,16 @@ func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
 		f.onThreadList()
 	}
 	return in, nil
+}
+func (f *fakeAPI) RenameThread(thread, name string) error {
+	if f.renameErr != nil {
+		return f.renameErr
+	}
+	if f.renamed == nil {
+		f.renamed = map[string]string{}
+	}
+	f.renamed[thread] = name
+	return nil
 }
 func (f *fakeAPI) AddThreadMember(thread, uid string) error {
 	if f.addErr != nil {

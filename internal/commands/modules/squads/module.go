@@ -135,6 +135,9 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "join", Description: "Pick your games and join the squad queue"},
 				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "leave", Description: "Leave your squad (or the queue)"},
+				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "rename", Description: "Rename your squad's thread",
+					Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "name",
+						Description: "The new name", Required: true, MinLength: new(1), MaxLength: maxSquadName}}},
 			},
 		},
 		HandlerFunc: m.handleSquad,

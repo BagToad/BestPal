@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gamerpal/internal/config"
+	"gamerpal/internal/database"
 	"gamerpal/internal/discordcompat"
 
 	"github.com/bwmarrin/discordgo"
@@ -65,8 +66,22 @@ func TestSquadLeaveCommandOpensExitSurvey(t *testing.T) {
 }
 
 func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
-	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback"})
-	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback", config.KeySquadsPlatformPCRoleID: "role-pc"})
+	sq := makeSquad(t, m, api, db, "a", "b", "c", "d")
+	member(api, "a", "role-eu", "role-18", "role-pc")
+	member(api, "b", "role-eu", "role-25", "role-pc")
+	member(api, "c", "role-na", "role-18")
+	delete(api.members, "d") // left the server
+	pick := func(uid string, ids ...int64) {
+		for _, id := range ids {
+			_, _, err := db.AddSquadPick(guild, uid, database.SquadPick{GameID: id, Name: fmt.Sprintf("Game %d", id)}, 25, t0)
+			require.NoError(t, err)
+		}
+	}
+	pick("a", 1, 2, 3, 4, 5)
+	pick("b", 1, 2, 3, 4, 5)
+	pick("c", 9)
+
 	m.HandleModalSubmit(nil, surveySubmit("a", sq.ID, "no_response", "  nobody ever talked  "))
 	assert.Contains(t, editContent(api.lastEdit()), "You left **Squad Axolotl**")
 	_, inSquad, _ := db.SquadForUser(guild, "a")
@@ -88,12 +103,24 @@ func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 		}
 	}
 	require.NotNil(t, post, "posted to the feedback channel")
-	var fields []string
-	for _, f := range post.Embeds[0].Fields {
-		fields = append(fields, f.Name+": "+f.Value)
-	}
-	assert.Equal(t, []string{"Member: <@a>", "Squad: Squad Axolotl", "Reason: Nobody is responding", "Feedback: nobody ever talked"}, fields)
 	assert.NotNil(t, post.AllowedMentions, "doesn't ping")
+	e := post.Embeds[0]
+	assert.Contains(t, e.Description, "## <@a>", "includes the user status")
+	assert.Contains(t, e.Description, "**Compatibility:**")
+	assert.Contains(t, e.Description, "**Region:** Europe")
+	fields := map[string]string{}
+	for _, f := range e.Fields {
+		fields[f.Name] = f.Value
+	}
+	assert.Equal(t, "<@a> `a`", fields["Member"])
+	assert.Contains(t, fields["Squad"], fmt.Sprintf("ID `%d`", sq.ID))
+	assert.Contains(t, fields["Time in squad"], "👻 never spoke")
+	assert.Equal(t, "Nobody is responding", fields["Reason"])
+	assert.Equal(t, "nobody ever talked", fields["Feedback"])
+	mates := fields["Squadmates when they left (3)"]
+	assert.Equal(t, "• <@b> `b` — 🎮 Game 1, Game 2, Game 3 +2 · 🌍 same region · 🎂 age group 2 · 🕹️ PC\n"+
+		"• <@c> `c` — 🎮 no shared games · 🌍 North America · 🎂 same age group · 🕹️ no shared platform\n"+
+		"• <@d> `d` — not in the server", mates)
 }
 
 func TestExitSurveyBlankJustLeaves(t *testing.T) {

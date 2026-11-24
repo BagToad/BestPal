@@ -535,6 +535,15 @@ func (db *DB) SquadMembershipEngagement(squadID int64, userID string) (time.Time
 	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
 }
 
+// SquadLastMembership returns when someone most recently joined a squad and
+// whether they spoke there, including memberships that have ended.
+func (db *DB) SquadLastMembership(squadID int64, userID string) (time.Time, bool, error) {
+	var joinedAt, firstMessageAt int64
+	err := db.conn.QueryRow(`SELECT joined_at, first_message_at FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1`, squadID, userID).Scan(&joinedAt, &firstMessageAt)
+	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
+}
+
 // DueSquadReminders returns current members who have never spoken and have not
 // been reminded within interval.
 func (db *DB) DueSquadReminders(guildID string, now time.Time, interval time.Duration) ([]SquadReminder, error) {

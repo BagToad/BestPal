@@ -251,7 +251,9 @@ func (m *Module) handlePick(s *discordgo.Session, i *discordgo.InteractionCreate
 		if st.Kind == config.KindChannelList {
 			raw = strings.Join(vals, ",")
 		}
-		if err := gc.SetOverride(key, raw, interactionUserID(i)); err != nil {
+		if problem := pickProblem(st, i.MessageComponentData()); problem != "" {
+			note = "❌ " + problem
+		} else if err := gc.SetOverride(key, raw, interactionUserID(i)); err != nil {
 			m.config.Logger.Warnf("config panel: set %s: %v", key, err)
 			note = "❌ Could not save " + st.Label
 		} else {
@@ -498,7 +500,7 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 			Placeholder:  "Select (deselect to clear)",
 			MinValues:    new(0),
 			MaxValues:    1,
-			ChannelTypes: channelTypesFor(st.Kind),
+			ChannelTypes: channelTypesFor(st),
 		}
 		if raw != "" {
 			sm.DefaultValues = []discordgo.SelectMenuDefaultValue{{ID: raw, Type: discordgo.SelectMenuDefaultValueChannel}}
@@ -507,9 +509,24 @@ func buildSelect(st config.Setting, raw string) discordgo.MessageComponent {
 	}
 }
 
-func channelTypesFor(k config.Kind) []discordgo.ChannelType {
-	if k == config.KindCategory {
+// pickProblem explains why a picked value can't be saved, or returns "".
+func pickProblem(st config.Setting, data discordgo.MessageComponentInteractionData) string {
+	if !st.TextChannelOnly || len(data.Values) == 0 {
+		return ""
+	}
+	ch := data.Resolved.Channels[data.Values[0]]
+	if ch == nil || ch.Type != discordgo.ChannelTypeGuildText {
+		return st.Label + " must be a regular text channel."
+	}
+	return ""
+}
+
+func channelTypesFor(st config.Setting) []discordgo.ChannelType {
+	if st.Kind == config.KindCategory {
 		return []discordgo.ChannelType{discordgo.ChannelTypeGuildCategory}
+	}
+	if st.TextChannelOnly {
+		return []discordgo.ChannelType{discordgo.ChannelTypeGuildText}
 	}
 	return []discordgo.ChannelType{
 		discordgo.ChannelTypeGuildText,

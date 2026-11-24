@@ -142,6 +142,7 @@ func New(cfg *config.Config) (*Bot, error) {
 	if mod, ok := handler.GetModule("squads").(*squads.Module); ok {
 		session.AddHandler(mod.OnMessageCreate)
 		session.AddHandler(mod.OnChannelDelete)
+		session.AddHandler(mod.OnThreadDelete)
 		session.AddHandler(mod.OnGuildMemberRemove)
 	}
 	// eventfeed module - new event posts; reminders run on the scheduler.

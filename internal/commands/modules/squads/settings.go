@@ -35,7 +35,7 @@ func (m *Module) ConfigSettings() []config.Setting {
 			Kind:        config.KindRole},
 		{Key: config.KeySquadsThreadChannelID, Category: config.CategorySquadThreads, Label: "Thread channel",
 			Description: "When set, new squads are private threads in this channel instead of their own channels. Existing squad channels keep working. The bot needs Create Private Threads and Manage Threads here.",
-			Kind:        config.KindChannel},
+			Kind:        config.KindChannel, TextChannelOnly: true},
 		{Key: config.KeySquadsFeedbackChannelID, Category: config.CategorySquadFeedback, Label: "Feedback channel",
 			Description: "Private channel where exit survey answers from people leaving a squad are posted. Keep it to app developers.",
 			Kind:        config.KindChannel},

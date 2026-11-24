@@ -298,20 +298,33 @@ func (m *Module) OnMessageCreate(_ *discordgo.Session, mc *discordgo.MessageCrea
 
 // OnChannelDelete cleans up a squad whose channel was deleted by hand.
 func (m *Module) OnChannelDelete(_ *discordgo.Session, cd *discordgo.ChannelDelete) {
-	if cd.Channel == nil || m.db == nil {
+	if cd.Channel != nil {
+		m.channelDeleted(cd.GuildID, cd.ID, "its channel was deleted")
+	}
+}
+
+// OnThreadDelete cleans up a squad whose thread was deleted by hand.
+func (m *Module) OnThreadDelete(_ *discordgo.Session, td *discordgo.ThreadDelete) {
+	if td.Channel != nil {
+		m.channelDeleted(td.GuildID, td.ID, "its thread was deleted")
+	}
+}
+
+func (m *Module) channelDeleted(guildID, channelID, why string) {
+	if m.db == nil {
 		return
 	}
 	m.chMu.Lock()
-	_, ok := m.channels[cd.ID]
+	_, ok := m.channels[channelID]
 	m.chMu.Unlock()
 	if !ok {
 		return
 	}
-	lock := m.guildLock(cd.GuildID)
+	lock := m.guildLock(guildID)
 	lock.Lock()
 	defer lock.Unlock()
-	if sq, found, err := m.db.SquadByChannel(cd.ID); err == nil && found {
-		m.deleteSquad(sq, "its channel was deleted")
+	if sq, found, err := m.db.SquadByChannel(channelID); err == nil && found {
+		m.deleteSquad(sq, why)
 	}
 }
 

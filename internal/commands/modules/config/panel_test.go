@@ -377,3 +377,18 @@ func TestCategoryActionButtons(t *testing.T) {
 		t.Fatalf("categories = %v", cats)
 	}
 }
+
+func TestTextChannelOnlySetting(t *testing.T) {
+	st := config.Setting{Label: "Thread channel", Kind: config.KindChannel, TextChannelOnly: true}
+	assert.Equal(t, []discordgo.ChannelType{discordgo.ChannelTypeGuildText}, channelTypesFor(st))
+	assert.Len(t, channelTypesFor(config.Setting{Kind: config.KindChannel}), 4)
+
+	pick := func(typ discordgo.ChannelType) discordgo.MessageComponentInteractionData {
+		return discordgo.MessageComponentInteractionData{Values: []string{"c1"},
+			Resolved: discordgo.ComponentInteractionDataResolved{Channels: map[string]*discordgo.Channel{"c1": {ID: "c1", Type: typ}}}}
+	}
+	assert.Empty(t, pickProblem(st, pick(discordgo.ChannelTypeGuildText)))
+	assert.Contains(t, pickProblem(st, pick(discordgo.ChannelTypeGuildForum)), "regular text channel")
+	assert.Contains(t, pickProblem(st, discordgo.MessageComponentInteractionData{Values: []string{"c1"}}), "regular text channel")
+	assert.Empty(t, pickProblem(config.Setting{Kind: config.KindChannel}, pick(discordgo.ChannelTypeGuildForum)))
+}

@@ -181,8 +181,10 @@ type Setting struct {
 	Description string
 	Kind        Kind
 	Default     any
-	EnumOptions []Option           // populated for KindEnum
-	Validate    func(string) error // optional; nil means validate by Kind
+	EnumOptions []Option // populated for KindEnum
+	// TextChannelOnly limits a KindChannel setting to regular text channels.
+	TextChannelOnly bool
+	Validate        func(string) error // optional; nil means validate by Kind
 }
 
 // ConfigProvider is implemented by any component that owns config settings

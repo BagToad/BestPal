@@ -176,3 +176,19 @@ func TestRefreshPermissionsSkipsThreadSquads(t *testing.T) {
 	assert.Contains(t, api.permEdits, legacy.ChannelID)
 	assert.NotContains(t, api.permEdits, "thread-x")
 }
+
+func TestDeletedThreadDeletesSquad(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+
+	m.OnThreadDelete(nil, &discordgo.ThreadDelete{Channel: &discordgo.Channel{ID: "someone-elses", GuildID: guild}})
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.True(t, ok)
+
+	m.OnThreadDelete(nil, &discordgo.ThreadDelete{Channel: &discordgo.Channel{ID: sq.ChannelID, GuildID: guild}})
+	_, ok, _ = db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	_, inSquad, err := db.SquadForUser(guild, "a")
+	require.NoError(t, err)
+	assert.False(t, inSquad, "members are free to queue again")
+}

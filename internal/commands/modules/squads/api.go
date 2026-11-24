@@ -36,7 +36,7 @@ type discordAPI interface {
 	AddThreadMember(threadID, userID string) error
 	RemoveThreadMember(threadID, userID string) error
 	// FreezeChannel stops members posting: a channel loses its chat
-	// permissions and a thread is locked.
+	// permissions and a thread is archived and locked.
 	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
@@ -148,7 +148,9 @@ func (a sessionAPI) FreezeChannel(channelID string) error {
 		return err
 	}
 	if channel.IsThread() {
-		_, err := a.s.ChannelEdit(channelID, &discordgo.ChannelEdit{Archived: new(false), Locked: new(true)})
+		// Locking alone doesn't stop posting in an open thread; archiving
+		// does, and the lock keeps members from reopening it.
+		_, err := a.s.ChannelEdit(channelID, &discordgo.ChannelEdit{Archived: new(true), Locked: new(true)})
 		return err
 	}
 	return a.EditChannelPerms(channelID, frozenOverwrites(channel.PermissionOverwrites, a.BotID()))

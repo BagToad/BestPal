@@ -1066,7 +1066,11 @@ func (m *Module) checkQuiet(guildID string) {
 				AllowedMentions: mentions,
 			})
 			if discordCode(err) == discordgo.ErrCodeUnknownChannel {
-				m.deleteSquad(sq, "its channel was deleted")
+				why := "its channel was deleted"
+				if sq.Thread {
+					why = "its thread was deleted"
+				}
+				m.deleteSquad(sq, why)
 				continue
 			}
 			if err != nil {

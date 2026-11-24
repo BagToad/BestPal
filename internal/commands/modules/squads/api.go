@@ -144,7 +144,18 @@ func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
 
 func (a sessionAPI) RenameThread(threadID, name string) error {
 	return a.onOpenThread(threadID, func() error {
-		_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Name: name}, discordgo.WithRetryOnRatelimit(false))
+		// Renames get their own rate-limit bucket. Discord's rename limit
+		// (2 per 10 minutes) would otherwise empty the thread's bucket, and
+		// discordgo would hold every later edit of it, closing included,
+		// until it refills. Waiting on the rename bucket is refused too.
+		uri := discordgo.EndpointChannel(threadID)
+		bucket := uri + "#rename"
+		rl := a.s.Ratelimiter
+		if wait := rl.GetWaitTime(rl.GetBucket(bucket), 1); wait > 0 {
+			return &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
+				TooManyRequests: &discordgo.TooManyRequests{RetryAfter: wait}, URL: uri}}
+		}
+		_, err := a.s.RequestWithBucketID("PATCH", uri, &discordgo.ChannelEdit{Name: name}, bucket, discordgo.WithRetryOnRatelimit(false))
 		return err
 	})
 }

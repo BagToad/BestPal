@@ -734,6 +734,9 @@ func (m *Module) deleteSquad(sq database.Squad, why string) error {
 	if sq.ChannelID != "" {
 		m.unregisterChannel(sq.ChannelID)
 	}
+	m.mu.Lock()
+	delete(m.renames, sq.ID)
+	m.mu.Unlock()
 	for _, uid := range notifyMembers {
 		if _, err := api.Member(sq.GuildID, uid); discordCode(err) == discordgo.ErrCodeUnknownMember {
 			continue

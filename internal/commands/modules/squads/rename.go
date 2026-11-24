@@ -40,7 +40,11 @@ func (m *Module) reserveRename(squadID int64) (busy, limited bool) {
 		m.renames = map[int64][]time.Time{}
 		m.renaming = map[int64]bool{}
 	}
-	m.renames[squadID] = recent
+	if len(recent) == 0 {
+		delete(m.renames, squadID)
+	} else {
+		m.renames[squadID] = recent
+	}
 	if len(recent) >= renameLimit {
 		return false, true
 	}
@@ -48,14 +52,14 @@ func (m *Module) reserveRename(squadID int64) (busy, limited bool) {
 	return false, false
 }
 
-// finishRename releases a claim from reserveRename, counting it toward the
-// limit if Discord saw the rename.
-func (m *Module) finishRename(squadID int64, counted bool) {
+// finishRename releases a claim from reserveRename, counting uses renames
+// toward the limit.
+func (m *Module) finishRename(squadID int64, uses int) {
 	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.renaming, squadID)
-	if counted {
+	for range uses {
 		m.renames[squadID] = append(m.renames[squadID], now)
 	}
 }
@@ -94,32 +98,34 @@ func (m *Module) renameSquad(guildID, uid, name string) string {
 	// Rename outside the lock: Discord rate limits renames, and nothing else
 	// should wait on it.
 	api := m.dc(nil)
-	if err := api.RenameThread(sq.ChannelID, name); err != nil {
-		var rl *discordgo.RateLimitError
-		limited := errors.As(err, &rl)
-		m.finishRename(sq.ID, limited)
-		switch {
-		case limited:
-			return "⏳ Discord only allows a couple of renames every 10 minutes. Try again in a bit."
-		case errors.Is(err, errThreadLocked):
-			return "You're not in a squad."
-		}
+	err = api.RenameThread(sq.ChannelID, name)
+	var rl *discordgo.RateLimitError
+	switch {
+	case errors.As(err, &rl):
+		// Discord says the renames are used up, whatever was counted here.
+		m.finishRename(sq.ID, renameLimit)
+		return "⏳ Discord only allows a couple of renames every 10 minutes. Try again in a bit."
+	case errors.Is(err, errThreadLocked):
+		m.finishRename(sq.ID, 0)
+		return "You're not in a squad."
+	case err != nil:
+		m.finishRename(sq.ID, 0)
 		m.config.Logger.Warnf("squads: rename %s: %v", sq.Name, err)
 		return "❌ Could not rename your squad. Try again in a moment."
 	}
-	m.finishRename(sq.ID, true)
-	// The squad may have closed while Discord renamed it.
+	// Save before releasing the claim, so a later rename can't be saved
+	// first. The squad may have closed while Discord renamed it.
 	lock.Lock()
 	cur, found, err := m.db.GetSquad(sq.ID)
 	if err == nil && found && !cur.Deleting() {
-		if err = m.db.RenameSquad(sq.ID, name); err != nil {
-			err = m.db.RenameSquad(sq.ID, name)
-		}
+		err = m.db.RenameSquad(sq.ID, name)
 	}
 	lock.Unlock()
+	m.finishRename(sq.ID, 1)
 	switch {
 	case err != nil:
 		m.config.Logger.Warnf("squads: save new name of %s: %v", sq.Name, err)
+		return "⚠️ Renamed the thread to **" + name + "**, but couldn't save the new name. Run the command again to fix it."
 	case !found || cur.Deleting():
 		return "You're not in a squad."
 	}

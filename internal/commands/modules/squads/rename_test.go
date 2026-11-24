@@ -96,3 +96,19 @@ func TestSquadChoiceLabelFitsDiscordLimit(t *testing.T) {
 	assert.True(t, strings.HasSuffix(label, "x… (4 members)"))
 	assert.Equal(t, "Owls (2 members)", choiceLabel("Owls", " (2 members)"))
 }
+
+func TestDiscordRateLimitBlocksRenamesUntilItResets(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.renameErr = &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{TooManyRequests: &discordgo.TooManyRequests{}}}
+	m.handleSquad(nil, renameCmd("a", "One"))
+	api.renameErr = nil
+
+	m.handleSquad(nil, renameCmd("a", "Two"))
+	assert.Contains(t, editContent(api.lastEdit()), "Try again in a bit")
+	assert.Empty(t, api.renamed, "no request while Discord's limit is used up")
+
+	*now = now.Add(renameWindow)
+	m.handleSquad(nil, renameCmd("a", "Two"))
+	assert.Equal(t, "Two", api.renamed[sq.ChannelID])
+}

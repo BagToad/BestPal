@@ -17,7 +17,7 @@ func surveySubmit(uid string, squadID int64, reason, feedback string) *discordgo
 	return &discordgo.InteractionCreate{Interaction: &discordgo.Interaction{
 		Type: discordgo.InteractionModalSubmit, GuildID: guild,
 		Member: &discordgo.Member{User: &discordgo.User{ID: uid}},
-		Data: discordgo.ModalSubmitInteractionData{CustomID: fmt.Sprintf("%ssurvey:%d", prefix, squadID), Components: []discordgo.MessageComponent{
+		Data: discordgo.ModalSubmitInteractionData{CustomID: fmt.Sprintf("%ssurvey:%d:Squad Axolotl", prefix, squadID), Components: []discordgo.MessageComponent{
 			&discordgo.TextDisplay{},
 			&discordgo.Label{Component: &discordgo.TextInput{CustomID: surveyReasonID, Value: reason}},
 			&discordgo.Label{Component: &discordgo.TextInput{CustomID: surveyFeedbackID, Value: feedback}},
@@ -26,15 +26,21 @@ func surveySubmit(uid string, squadID int64, reason, feedback string) *discordgo
 	}}
 }
 
-func TestLeaveButtonOpensExitSurvey(t *testing.T) {
+func TestLeaveConfirmOpensSurveyAndLeaves(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")
 	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleave:%d", prefix, sq.ID)))
+	assert.Contains(t, api.lastResponse().Data.Content, "Leave **Squad Axolotl**?")
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad, "the Leave button only asks")
+
+	m.HandleComponent(nil, component("a", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
 	r := api.lastResponse()
 	require.Equal(t, discordgo.InteractionResponseModal, r.Type)
-	assert.Equal(t, fmt.Sprintf("%ssurvey:%d", prefix, sq.ID), r.Data.CustomID)
+	assert.Equal(t, fmt.Sprintf("%ssurvey:%d:Squad Axolotl", prefix, sq.ID), r.Data.CustomID)
 	assert.LessOrEqual(t, len(r.Data.Title), 45)
 	require.Len(t, r.Data.Components, 4)
+	assert.Contains(t, r.Data.Components[0].(discordgo.TextDisplay).Content, "Cancel skips feedback submission and leaves the squad.")
 
 	radio := r.Data.Components[1].(discordgo.Label).Component.(discordcompat.RadioGroup)
 	assert.False(t, *radio.Required, "picking a reason is optional")
@@ -53,30 +59,38 @@ func TestLeaveButtonOpensExitSurvey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"type":21`)
 
-	_, inSquad, _ := db.SquadForUser(guild, "a")
-	assert.True(t, inSquad, "opening the survey doesn't leave yet")
+	_, inSquad, _ = db.SquadForUser(guild, "a")
+	assert.False(t, inSquad, "left without waiting for the survey, so Cancel still leaves")
+	got, _ := db.SquadExitSurveys(guild)
+	assert.Empty(t, got)
 }
 
-func TestSquadLeaveCommandOpensExitSurvey(t *testing.T) {
+func TestSquadLeaveCommandAsksToConfirm(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	makeSquad(t, m, api, db, "a", "b", "c")
 	m.handleSquad(nil, command("a", 0, "squad", "leave"))
-	assert.Equal(t, discordgo.InteractionResponseModal, api.lastResponse().Type)
+	assert.Contains(t, editContent(api.lastEdit()), "Leave **Squad Axolotl**?")
 }
 
-func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
-	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback"})
+func TestLeaveConfirmNotMember(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
 	sq := makeSquad(t, m, api, db, "a", "b", "c")
-	m.HandleModalSubmit(nil, surveySubmit("a", sq.ID, "no_response", "  nobody ever talked  "))
-	assert.Contains(t, editContent(api.lastEdit()), "You left **Squad Axolotl**")
-	_, inSquad, _ := db.SquadForUser(guild, "a")
-	assert.False(t, inSquad)
+	m.HandleComponent(nil, component("zed", fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)))
+	r := api.lastResponse()
+	assert.Equal(t, discordgo.InteractionResponseUpdateMessage, r.Type)
+	assert.Contains(t, r.Data.Content, "not in this squad")
+}
+
+func TestExitSurveySubmitRecords(t *testing.T) {
+	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback"})
+	m.HandleModalSubmit(nil, surveySubmit("a", 7, "no_response", "  nobody ever talked  "))
+	assert.Contains(t, api.lastResponse().Data.Content, "Thanks for the feedback")
 
 	got, err := db.SquadExitSurveys(guild)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "a", got[0].UserID)
-	assert.Equal(t, sq.ID, got[0].SquadID)
+	assert.Equal(t, int64(7), got[0].SquadID)
 	assert.Equal(t, "Squad Axolotl", got[0].SquadName)
 	assert.Equal(t, "no_response", got[0].Reason)
 	assert.Equal(t, "nobody ever talked", got[0].Feedback)
@@ -96,13 +110,10 @@ func TestExitSurveySubmitLeavesAndRecords(t *testing.T) {
 	assert.NotNil(t, post.AllowedMentions, "doesn't ping")
 }
 
-func TestExitSurveyBlankJustLeaves(t *testing.T) {
+func TestExitSurveyBlankRecordsNothing(t *testing.T) {
 	m, api, db, _ := newTestModule(t, map[string]any{config.KeySquadsFeedbackChannelID: "feedback"})
-	sq := makeSquad(t, m, api, db, "a", "b", "c")
-	m.HandleModalSubmit(nil, surveySubmit("a", sq.ID, "", " "))
-	assert.Contains(t, editContent(api.lastEdit()), "You left **Squad Axolotl**")
-	_, inSquad, _ := db.SquadForUser(guild, "a")
-	assert.False(t, inSquad)
+	m.HandleModalSubmit(nil, surveySubmit("a", 7, "", " "))
+	assert.Contains(t, api.lastResponse().Data.Content, "You left **Squad Axolotl**")
 	got, err := db.SquadExitSurveys(guild)
 	require.NoError(t, err)
 	assert.Empty(t, got)
@@ -112,21 +123,11 @@ func TestExitSurveyBlankJustLeaves(t *testing.T) {
 }
 
 func TestExitSurveyWithoutChannelStillSaves(t *testing.T) {
-	m, api, db, _ := newTestModule(t, nil)
-	sq := makeSquad(t, m, api, db, "a", "b", "c")
-	m.HandleModalSubmit(nil, surveySubmit("a", sq.ID, "bogus", "hi"))
+	m, _, db, _ := newTestModule(t, nil)
+	m.HandleModalSubmit(nil, surveySubmit("a", 7, "bogus", "hi"))
 	got, err := db.SquadExitSurveys(guild)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Empty(t, got[0].Reason, "unknown reasons are dropped")
 	assert.Equal(t, "hi", got[0].Feedback)
-}
-
-func TestExitSurveyNotMember(t *testing.T) {
-	m, api, db, _ := newTestModule(t, nil)
-	sq := makeSquad(t, m, api, db, "a", "b", "c")
-	m.HandleModalSubmit(nil, surveySubmit("zed", sq.ID, "other", "x"))
-	assert.Contains(t, editContent(api.lastEdit()), "not in this squad")
-	got, _ := db.SquadExitSurveys(guild)
-	assert.Empty(t, got)
 }

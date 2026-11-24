@@ -353,8 +353,8 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 		m.handleSearchSubmit(s, i, parsePickerCtx(parts))
 		return
 	}
-	if parts[0] == "survey" && len(parts) >= 2 {
-		m.handleExitSurveySubmit(s, i, parts[1])
+	if parts[0] == "survey" && len(parts) >= 3 {
+		m.handleExitSurveySubmit(s, i, parts[1], strings.Join(parts[2:], ":"))
 		return
 	}
 	m.respondText(s, i, "❌ Unknown squad form.")

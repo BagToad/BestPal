@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -106,4 +107,30 @@ func TestCapacityWarningSurvivesLongReports(t *testing.T) {
 	text := reportText(dry, true)
 	assert.LessOrEqual(t, len([]rune(text)), 2000)
 	assert.Contains(t, text, "Only room for 0 new squads: the squads category has 50 of 50 channels")
+}
+
+func TestCountChannels(t *testing.T) {
+	in, total := countChannels([]*discordgo.Channel{
+		{ID: "1", ParentID: "cat", Type: discordgo.ChannelTypeGuildText},
+		{ID: "2", ParentID: "cat", Type: discordgo.ChannelTypeGuildVoice},
+		{ID: "3", ParentID: "other", Type: discordgo.ChannelTypeGuildText},
+		{ID: "4", ParentID: "1", Type: discordgo.ChannelTypeGuildPublicThread},
+		nil,
+	}, "cat")
+	assert.Equal(t, 2, in)
+	assert.Equal(t, 3, total, "threads don't count toward channel limits")
+}
+
+func TestSessionGuildCountsUsesState(t *testing.T) {
+	s := &discordgo.Session{State: discordgo.NewState()}
+	require.NoError(t, s.State.GuildAdd(&discordgo.Guild{ID: guild,
+		Channels: []*discordgo.Channel{
+			{ID: "1", GuildID: guild, ParentID: "cat", Type: discordgo.ChannelTypeGuildText},
+			{ID: "2", GuildID: guild, Type: discordgo.ChannelTypeGuildText},
+		},
+		Roles: []*discordgo.Role{{ID: "r1"}, {ID: "r2"}, {ID: "r3"}},
+	}))
+	in, total, roles, err := sessionAPI{s}.GuildCounts(guild, "cat")
+	require.NoError(t, err)
+	assert.Equal(t, []int{1, 2, 3}, []int{in, total, roles})
 }

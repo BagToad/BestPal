@@ -130,25 +130,34 @@ func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []
 }
 
 func (a sessionAPI) GuildCounts(guildID, categoryID string) (int, int, int, error) {
-	var channels []*discordgo.Channel
-	var roles []*discordgo.Role
-	if a.s.State != nil {
-		if g, err := a.s.State.Guild(guildID); err == nil && len(g.Channels) > 0 && len(g.Roles) > 0 {
-			channels, roles = g.Channels, g.Roles
+	if st := a.s.State; st != nil {
+		if g, err := st.Guild(guildID); err == nil {
+			// The cached guild is shared with gateway updates.
+			st.RLock()
+			ok := len(g.Channels) > 0 && len(g.Roles) > 0
+			inCategory, total := countChannels(g.Channels, categoryID)
+			roles := len(g.Roles)
+			st.RUnlock()
+			if ok {
+				return inCategory, total, roles, nil
+			}
 		}
 	}
-	if channels == nil {
-		var err error
-		if channels, err = a.s.GuildChannels(guildID); err != nil {
-			return 0, 0, 0, err
-		}
-		if roles, err = a.s.GuildRoles(guildID); err != nil {
-			return 0, 0, 0, err
-		}
+	channels, err := a.s.GuildChannels(guildID)
+	if err != nil {
+		return 0, 0, 0, err
 	}
-	inCategory, total := 0, 0
+	roles, err := a.s.GuildRoles(guildID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	inCategory, total := countChannels(channels, categoryID)
+	return inCategory, total, len(roles), nil
+}
+
+func countChannels(channels []*discordgo.Channel, categoryID string) (inCategory, total int) {
 	for _, ch := range channels {
-		if ch.IsThread() {
+		if ch == nil || ch.IsThread() {
 			continue
 		}
 		total++
@@ -156,7 +165,7 @@ func (a sessionAPI) GuildCounts(guildID, categoryID string) (int, int, int, erro
 			inCategory++
 		}
 	}
-	return inCategory, total, len(roles), nil
+	return inCategory, total
 }
 
 func (a sessionAPI) DeleteChannel(channelID string) error {

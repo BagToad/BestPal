@@ -89,3 +89,21 @@ func countSubstr(s, sub string) int {
 	}
 	return n
 }
+
+func TestCapacityWarningSurvivesLongReports(t *testing.T) {
+	m, api, _, now := newTestModule(t, nil)
+	for g := range 15 {
+		var uids []string
+		for u := range 6 {
+			uids = append(uids, fmt.Sprintf("1%017d", g*10+u))
+		}
+		queue(t, m, api, m.db, now.Add(-time.Hour), uids, []int64{int64(100 + g)}, "role-eu", "role-25")
+	}
+	api.extraInCategory = 50
+	dry, err := m.runMatch(guild, true)
+	require.NoError(t, err)
+	assert.Empty(t, dry.Plan.NewSquads)
+	text := reportText(dry, true)
+	assert.LessOrEqual(t, len([]rune(text)), 2000)
+	assert.Contains(t, text, "Only room for 0 new squads: the squads category has 50 of 50 channels")
+}

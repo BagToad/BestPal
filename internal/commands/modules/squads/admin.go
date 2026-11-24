@@ -349,6 +349,13 @@ func reportText(r matchReport, dry bool) string {
 		b.WriteString("✅ **Pairing ran.**\n")
 	}
 	fmt.Fprintf(&b, "Queue: %d · open young squads: %d\n", r.Queued, r.Open)
+	// Problems go first so long member lists can't truncate them away.
+	if len(r.Failures) > 0 {
+		b.WriteString("\n⚠️ **Problems**\n")
+		for _, f := range r.Failures {
+			b.WriteString("• " + f + "\n")
+		}
+	}
 	if len(r.Plan.NewSquads) > 0 {
 		b.WriteString("\n**New squads**\n")
 		for _, g := range r.Plan.NewSquads {
@@ -374,12 +381,6 @@ func reportText(r matchReport, dry bool) string {
 	}
 	if len(r.Plan.Waiting) > 0 {
 		fmt.Fprintf(&b, "\n**Still waiting:** %s\n", names(r.Plan.Waiting))
-	}
-	if len(r.Failures) > 0 {
-		b.WriteString("\n⚠️ **Problems**\n")
-		for _, f := range r.Failures {
-			b.WriteString("• " + f + "\n")
-		}
 	}
 	if len(r.Plan.NewSquads)+len(r.Plan.Joins)+len(r.Plan.Unmatched)+len(r.Plan.Waiting) == 0 {
 		b.WriteString("\nNobody to match.")

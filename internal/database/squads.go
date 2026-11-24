@@ -114,7 +114,60 @@ CREATE TABLE IF NOT EXISTS squad_state (
 	guild_id      TEXT PRIMARY KEY,
 	last_match_at INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS squad_exit_surveys (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	guild_id   TEXT NOT NULL,
+	user_id    TEXT NOT NULL,
+	squad_id   INTEGER NOT NULL,
+	squad_name TEXT NOT NULL,
+	reason     TEXT NOT NULL DEFAULT '',
+	feedback   TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_squad_exit_surveys_guild
+	ON squad_exit_surveys(guild_id, created_at);
 `
+
+// SquadExitSurvey is the optional feedback someone gives when leaving a squad.
+type SquadExitSurvey struct {
+	GuildID   string
+	UserID    string
+	SquadID   int64
+	SquadName string
+	Reason    string // poor_match, no_response, other, or "" when not picked
+	Feedback  string
+	CreatedAt time.Time
+}
+
+// AddSquadExitSurvey stores an exit survey response.
+func (db *DB) AddSquadExitSurvey(s SquadExitSurvey) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_exit_surveys
+		(guild_id, user_id, squad_id, squad_name, reason, feedback, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		s.GuildID, s.UserID, s.SquadID, s.SquadName, s.Reason, s.Feedback, s.CreatedAt.Unix())
+	return err
+}
+
+// SquadExitSurveys returns a guild's exit survey responses, oldest first.
+func (db *DB) SquadExitSurveys(guildID string) ([]SquadExitSurvey, error) {
+	rows, err := db.conn.Query(`SELECT user_id, squad_id, squad_name, reason, feedback, created_at
+		FROM squad_exit_surveys WHERE guild_id = ? ORDER BY created_at, id`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SquadExitSurvey
+	for rows.Next() {
+		s := SquadExitSurvey{GuildID: guildID}
+		var at int64
+		if err := rows.Scan(&s.UserID, &s.SquadID, &s.SquadName, &s.Reason, &s.Feedback, &at); err != nil {
+			return nil, err
+		}
+		s.CreatedAt = time.Unix(at, 0)
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
 
 // ErrSquadMember is returned when adding someone who is already in a squad.
 var ErrSquadMember = errors.New("user is already in a squad")
@@ -479,6 +532,15 @@ func (db *DB) SquadMembershipEngagement(squadID int64, userID string) (time.Time
 	var joinedAt, firstMessageAt int64
 	err := db.conn.QueryRow(`SELECT joined_at, first_message_at FROM squad_membership_history
 		WHERE squad_id = ? AND user_id = ? AND left_at = 0`, squadID, userID).Scan(&joinedAt, &firstMessageAt)
+	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
+}
+
+// SquadLastMembership returns when someone most recently joined a squad and
+// whether they spoke there, including memberships that have ended.
+func (db *DB) SquadLastMembership(squadID int64, userID string) (time.Time, bool, error) {
+	var joinedAt, firstMessageAt int64
+	err := db.conn.QueryRow(`SELECT joined_at, first_message_at FROM squad_membership_history
+		WHERE squad_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1`, squadID, userID).Scan(&joinedAt, &firstMessageAt)
 	return time.Unix(joinedAt, 0), firstMessageAt != 0, err
 }
 

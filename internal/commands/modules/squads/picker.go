@@ -540,6 +540,11 @@ func (m *Module) handleSquad(s *discordgo.Session, i *discordgo.InteractionCreat
 		}
 		m.respond(s, i, m.pickerView(pickerCtx{GuildID: i.GuildID, ThreadID: m.lookupIntro(i.GuildID, uid)}, uid, ""))
 	case "leave":
+		// Squad members get the exit survey, which must be the first response.
+		if sq, ok, err := m.db.SquadForUser(i.GuildID, uid); err == nil && ok {
+			m.openExitSurvey(s, i, sq)
+			return
+		}
 		// Hold the guild lock so a running matcher can't place someone
 		// after they're told they left the queue.
 		if !m.deferReply(s, i) {
@@ -553,8 +558,8 @@ func (m *Module) handleSquad(s *discordgo.Session, i *discordgo.InteractionCreat
 	}
 }
 
-// leaveQueue takes someone out of the queue, or asks them to confirm leaving
-// their squad. Callers hold the guild lock.
+// leaveQueue takes someone out of the queue, or points them at leaving the
+// squad they were just placed in. Callers hold the guild lock.
 func (m *Module) leaveQueue(guildID, uid string) *discordgo.InteractionResponseData {
 	sq, ok, err := m.db.SquadForUser(guildID, uid)
 	if err != nil {
@@ -577,7 +582,7 @@ func leaveConfirm(sq database.Squad) *discordgo.InteractionResponseData {
 	data := ephemeral(fmt.Sprintf("Leave **%s**? You'll lose access to its channel. You can join a new squad later.", sq.Name))
 	data.Components = []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Leave squad", Emoji: &discordgo.ComponentEmoji{Name: "🚪"}, Style: discordgo.DangerButton,
-			CustomID: fmt.Sprintf("%sleaveyes:%d", prefix, sq.ID)},
+			CustomID: fmt.Sprintf("%sleave:%d", prefix, sq.ID)},
 	}}}
 	return data
 }
@@ -591,10 +596,12 @@ func (m *Module) handleLeaveButton(s *discordgo.Session, i *discordgo.Interactio
 	case !ok || sq.ID != id:
 		m.respondText(s, i, "You're not in this squad.")
 	default:
-		m.respond(s, i, leaveConfirm(sq))
+		m.openExitSurvey(s, i, sq)
 	}
 }
 
+// handleLeaveConfirm leaves straight away from confirmations sent before the
+// exit survey existed.
 func (m *Module) handleLeaveConfirm(s *discordgo.Session, i *discordgo.InteractionCreate, idStr string) {
 	id, _ := parseID(idStr)
 	if !m.deferUpdate(s, i) {

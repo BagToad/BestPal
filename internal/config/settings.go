@@ -64,21 +64,22 @@ const (
 	KeySlidePuzzleGridSize      = "slide_puzzle_grid_size"
 	KeySlidePuzzleRoundDuration = "slide_puzzle_round_duration"
 
-	KeySquadsEnabled          = "squads_enabled"
-	KeySquadsIntroButton      = "squads_intro_button"
-	KeySquadsCategoryID       = "squads_category_id"
-	KeySquadsVisibility       = "squads_visibility"
-	KeySquadsModRoleID        = "squads_mod_role_id"
-	KeySquadsBlockedRoleID    = "squads_blocked_role_id"
-	KeySquadsTargetSize       = "squads_target_size"
-	KeySquadsMinSize          = "squads_min_size"
-	KeySquadsMaxSize          = "squads_max_size"
-	KeySquadsMatchInterval    = "squads_match_interval"
-	KeySquadsFallbackAfter    = "squads_fallback_after"
-	KeySquadsUnmatchedAfter   = "squads_unmatched_after"
-	KeySquadsYoungFor         = "squads_young_for"
-	KeySquadsQuietWarnAfter   = "squads_quiet_warn_after"
-	KeySquadsQuietDeleteAfter = "squads_quiet_delete_after"
+	KeySquadsEnabled           = "squads_enabled"
+	KeySquadsIntroButton       = "squads_intro_button"
+	KeySquadsCategoryID        = "squads_category_id"
+	KeySquadsVisibility        = "squads_visibility"
+	KeySquadsModRoleID         = "squads_mod_role_id"
+	KeySquadsBlockedRoleID     = "squads_blocked_role_id"
+	KeySquadsFeedbackChannelID = "squads_feedback_channel_id"
+	KeySquadsTargetSize        = "squads_target_size"
+	KeySquadsMinSize           = "squads_min_size"
+	KeySquadsMaxSize           = "squads_max_size"
+	KeySquadsMatchInterval     = "squads_match_interval"
+	KeySquadsFallbackAfter     = "squads_fallback_after"
+	KeySquadsUnmatchedAfter    = "squads_unmatched_after"
+	KeySquadsYoungFor          = "squads_young_for"
+	KeySquadsQuietWarnAfter    = "squads_quiet_warn_after"
+	KeySquadsQuietDeleteAfter  = "squads_quiet_delete_after"
 
 	KeySquadsRegionNARoleID = "squads_region_na_role_id"
 	KeySquadsRegionSARoleID = "squads_region_sa_role_id"
@@ -136,6 +137,7 @@ const (
 	CategorySquadRegions   Category = "Squad Regions"
 	CategorySquadAges      Category = "Squad Age Groups"
 	CategorySquadPlatforms Category = "Squad Platforms"
+	CategorySquadFeedback  Category = "Squad Feedback"
 	CategoryMisc           Category = "Moderation & Misc"
 )
 
@@ -155,6 +157,7 @@ var categoryOrder = []Category{
 	CategorySquadRegions,
 	CategorySquadAges,
 	CategorySquadPlatforms,
+	CategorySquadFeedback,
 	CategoryMisc,
 }
 

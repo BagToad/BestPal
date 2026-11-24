@@ -176,6 +176,16 @@ func (a sessionAPI) closeThread(threadID string) error {
 	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false), Locked: new(true)}); err != nil {
 		return err
 	}
+	removeErr := a.removeThreadMembers(threadID)
+	// Locking alone doesn't stop posting in an open thread; archiving does,
+	// and the lock keeps members from reopening it. Archive even if removing
+	// members failed, so nobody can post until the retry.
+	_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(true), Locked: new(true)})
+	return errors.Join(removeErr, err)
+}
+
+// removeThreadMembers removes everyone but the bot from a thread.
+func (a sessionAPI) removeThreadMembers(threadID string) error {
 	after := ""
 	for {
 		members, err := a.s.ThreadMembers(threadID, 100, false, after)
@@ -191,14 +201,10 @@ func (a sessionAPI) closeThread(threadID string) error {
 			}
 		}
 		if len(members) < 100 {
-			break
+			return nil
 		}
 		after = members[len(members)-1].UserID
 	}
-	// Locking alone doesn't stop posting in an open thread; archiving does,
-	// and the lock keeps members from reopening it.
-	_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(true), Locked: new(true)})
-	return err
 }
 
 func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []*discordgo.PermissionOverwrite {

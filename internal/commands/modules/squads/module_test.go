@@ -168,6 +168,22 @@ func (f *fakeAPI) CreateThread(parent, name string) (*discordgo.Channel, error) 
 	f.threads[id] = parent
 	return &discordgo.Channel{ID: id, Name: name, ParentID: parent, Type: discordgo.ChannelTypeGuildPrivateThread}, nil
 }
+
+// threadMembers is who's in a fake thread now, in the order they joined.
+func (f *fakeAPI) threadMembers(thread string) []string {
+	var in []string
+	for _, op := range f.threadMems {
+		uid, th, _ := strings.Cut(op[1:], ":")
+		if th != thread {
+			continue
+		}
+		in = slices.DeleteFunc(in, func(u string) bool { return u == uid })
+		if op[0] == '+' {
+			in = append(in, uid)
+		}
+	}
+	return in
+}
 func (f *fakeAPI) AddThreadMember(thread, uid string) error {
 	if f.addErr != nil {
 		return f.addErr
@@ -187,6 +203,9 @@ func (f *fakeAPI) FreezeChannel(id string) error {
 		return f.permErr
 	}
 	if _, ok := f.threads[id]; ok {
+		for _, uid := range f.threadMembers(id) {
+			f.threadMems = append(f.threadMems, "-"+uid+":"+id)
+		}
 		f.locked = append(f.locked, id)
 		return nil
 	}

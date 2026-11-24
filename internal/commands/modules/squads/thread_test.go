@@ -234,3 +234,17 @@ func TestLeavingSquadThreadLeavesTheSquad(t *testing.T) {
 	_, ok, _ := db.GetSquad(sq.ID)
 	assert.False(t, ok, "dropping below 2 closes the squad")
 }
+
+func TestClosedSquadThreadIsModOnly(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	_, err := m.removeMember(guild, "a", sq.ID, database.SquadLeaveVoluntary, "left")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b", "c"}, api.threadMembers(sq.ChannelID))
+
+	_, err = m.removeMember(guild, "b", sq.ID, database.SquadLeaveVoluntary, "left")
+	require.NoError(t, err)
+	assert.Empty(t, api.threadMembers(sq.ChannelID), "the last member is removed too")
+	assert.Contains(t, api.locked, sq.ChannelID)
+	assert.Empty(t, api.delCh)
+}

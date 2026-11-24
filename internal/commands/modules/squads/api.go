@@ -35,8 +35,6 @@ type discordAPI interface {
 	CreateThread(parentID, name string) (*discordgo.Channel, error)
 	AddThreadMember(threadID, userID string) error
 	RemoveThreadMember(threadID, userID string) error
-	// ThreadMemberIDs lists everyone in a thread, the bot included.
-	ThreadMemberIDs(threadID string) ([]string, error)
 	// FreezeChannel stops members posting: a channel loses its chat
 	// permissions, and a thread is closed: every member but the bot is
 	// removed and it's archived and locked, leaving a mod-only archive.
@@ -184,24 +182,6 @@ func (a sessionAPI) closeThread(threadID string) error {
 	// members failed, so nobody can post until the retry.
 	_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(true), Locked: new(true)})
 	return errors.Join(removeErr, err)
-}
-
-func (a sessionAPI) ThreadMemberIDs(threadID string) ([]string, error) {
-	var ids []string
-	after := ""
-	for {
-		members, err := a.s.ThreadMembers(threadID, 100, false, after)
-		if err != nil {
-			return nil, err
-		}
-		for _, tm := range members {
-			ids = append(ids, tm.UserID)
-		}
-		if len(members) < 100 {
-			return ids, nil
-		}
-		after = members[len(members)-1].UserID
-	}
 }
 
 // removeThreadMembers removes everyone but the bot from a thread.

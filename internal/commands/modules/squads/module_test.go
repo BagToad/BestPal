@@ -184,12 +184,6 @@ func (f *fakeAPI) threadMembers(thread string) []string {
 	}
 	return in
 }
-func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
-	if _, ok := f.threads[thread]; !ok {
-		return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}}
-	}
-	return f.threadMembers(thread), nil
-}
 func (f *fakeAPI) AddThreadMember(thread, uid string) error {
 	if f.addErr != nil {
 		return f.addErr

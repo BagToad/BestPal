@@ -3,7 +3,6 @@ package squads
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"gamerpal/internal/database"
@@ -145,8 +144,7 @@ func (m *Module) sendInactivityReminders(guildID string) {
 const reconcileEvery = time.Hour
 
 // reconcileDepartures removes squad members who are confirmed to have left
-// the server, or left their squad's thread by hand while the bot wasn't
-// watching. Lookup failures keep the membership. Callers hold the guild
+// the server. Lookup failures keep the membership. Callers hold the guild
 // lock.
 func (m *Module) reconcileDepartures(guildID string) {
 	now := m.now()
@@ -177,11 +175,9 @@ func (m *Module) reconcileDepartures(guildID string) {
 			m.config.Logger.Warnf("squads: members of %s: %v", sq.Name, err)
 			continue
 		}
-		var stayed []string
 		for _, uid := range ids {
 			_, err := api.Member(guildID, uid)
 			if err == nil {
-				stayed = append(stayed, uid)
 				continue
 			}
 			if discordCode(err) != discordgo.ErrCodeUnknownMember {
@@ -191,39 +187,6 @@ func (m *Module) reconcileDepartures(guildID string) {
 			if _, err := m.removeMember(guildID, uid, sq.ID, database.SquadLeaveServer, "left the server and"); err != nil && !errors.Is(err, errNotMember) {
 				m.config.Logger.Warnf("squads: remove departed %s: %v", uid, err)
 			}
-		}
-		if sq.Thread {
-			m.reconcileThreadLeaves(sq, stayed)
-		}
-	}
-}
-
-// reconcileThreadLeaves treats squad members missing from their squad's
-// thread as having left it, like OnThreadMembersUpdate does, unless the bot
-// still owes them a thread add. Callers hold the guild lock.
-func (m *Module) reconcileThreadLeaves(sq database.Squad, ids []string) {
-	inThread, err := m.dc(nil).ThreadMemberIDs(sq.ChannelID)
-	if err != nil {
-		// A deleted thread is cleaned up by the quiet check.
-		if discordCode(err) != discordgo.ErrCodeUnknownChannel {
-			m.config.Logger.Warnf("squads: list thread members of %s: %v", sq.Name, err)
-		}
-		return
-	}
-	ops, err := m.db.SquadRoleOps(sq.GuildID)
-	if err != nil {
-		m.config.Logger.Warnf("squads: load access retries: %v", err)
-		return
-	}
-	key := accessKey(sq)
-	for _, uid := range ids {
-		if slices.Contains(inThread, uid) || slices.ContainsFunc(ops, func(op database.SquadRoleOp) bool {
-			return op.Add && op.UserID == uid && op.RoleID == key
-		}) {
-			continue
-		}
-		if _, err := m.removeMember(sq.GuildID, uid, sq.ID, database.SquadLeaveVoluntary, "left"); err != nil && !errors.Is(err, errNotMember) {
-			m.config.Logger.Warnf("squads: %s left the %s thread: %v", uid, sq.Name, err)
 		}
 	}
 }

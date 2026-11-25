@@ -180,6 +180,9 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(i.ModalSubmitData().CustomID, prefix), ":")
+	if !m.open(s, i) {
+		return
+	}
 	switch parts[0] {
 	case "ans":
 		if len(parts) > 1 {

@@ -114,7 +114,7 @@ func (m *Module) handleAnswerSubmit(s *discordgo.Session, i *discordgo.Interacti
 	text := truncate(cleanText(modalValue(i, answerInputID)), maxAnswerLen)
 	norm := normalize(text)
 	if !hasWord(text) || norm == "" {
-		m.respondText(s, i, "❌ That answer needs some letters or numbers.")
+		m.respondText(s, i, "❌ That answer needs some letters, numbers or an emoji.")
 		return
 	}
 	_, err = m.db.AddFeudResponse(i.GuildID, qid, userID(i), text, norm, m.now())
@@ -155,17 +155,11 @@ func (m *Module) handleSubmitQuestion(s *discordgo.Session, i *discordgo.Interac
 	}
 	uid := userID(i)
 	m.ensureSeeded(i.GuildID)
-	pending, err := m.db.CountFeudPendingBy(i.GuildID, uid)
-	if err != nil {
-		m.config.Logger.Warnf("feud: count pending: %v", err)
-		m.respondText(s, i, "❌ Couldn't save your question. Try again in a moment.")
+	id, err := m.db.SubmitFeudQuestion(i.GuildID, uid, text, normalize(text), maxPendingByUser, m.now())
+	if errors.Is(err, database.ErrFeudTooManyPending) {
+		m.respondText(s, i, fmt.Sprintf("You already have %d questions waiting for review. Try again once mods get to them.", maxPendingByUser))
 		return
 	}
-	if pending >= maxPendingByUser {
-		m.respondText(s, i, fmt.Sprintf("You already have %d questions waiting for review. Try again once mods get to them.", pending))
-		return
-	}
-	id, err := m.db.SubmitFeudQuestion(i.GuildID, uid, text, normalize(text), m.now())
 	if errors.Is(err, database.ErrFeudDuplicateQuestion) {
 		m.respondText(s, i, "Someone already asked that one!")
 		return
@@ -200,6 +194,11 @@ func (m *Module) postForReview(s *discordgo.Session, guildID string, id int64) {
 	}
 	if err := m.db.SetFeudQuestionReviewMessage(q.ID, ch, msg.ID); err != nil {
 		m.config.Logger.Warnf("feud: save review message: %v", err)
+		return
+	}
+	// A mod may have decided while the post was being sent.
+	if fresh, ok, err := m.db.FeudQuestion(guildID, id); err == nil && ok && fresh.Status != database.FeudPending {
+		m.syncReviewPost(s, fresh)
 	}
 }
 

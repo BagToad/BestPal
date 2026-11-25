@@ -5,14 +5,14 @@ import (
 	"unicode"
 )
 
-// normalize reduces text to a matching key: lowercase letters and digits,
+// normalize reduces text to a matching key: lowercase letters, digits and emoji,
 // single spaces, no leading article, and simple plurals made singular, so
 // "The Cats!" and "cat" match.
 func normalize(s string) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(s) {
 		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
+		case unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.So, r):
 			b.WriteRune(r)
 		case r == '\'' || r == '’':
 			// "don't" -> "dont"
@@ -50,7 +50,7 @@ func cleanText(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// hasWord reports whether text contains a letter or digit.
+// hasWord reports whether text contains a letter, digit or emoji.
 func hasWord(s string) bool {
-	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) >= 0
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.So, r) }) >= 0
 }

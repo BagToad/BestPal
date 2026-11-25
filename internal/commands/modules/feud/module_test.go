@@ -129,13 +129,15 @@ func TestAnswerFlow(t *testing.T) {
 	m.HandleModalSubmit(nil, modal("u1", "gf:ans:"+qid, answerInputID, "cats"))
 	assert.Contains(t, api.last(t).Data.Content, "already answered")
 	m.HandleModalSubmit(nil, modal("u2", "gf:ans:"+qid, answerInputID, "???"))
-	assert.Contains(t, api.last(t).Data.Content, "letters or numbers")
+	assert.Contains(t, api.last(t).Data.Content, "letters, numbers or an emoji")
+	m.HandleModalSubmit(nil, modal("u3", "gf:ans:"+qid, answerInputID, "😂"))
+	assert.Contains(t, api.last(t).Data.Content, "Answer saved")
 	m.HandleModalSubmit(nil, modal("u2", "gf:ans:"+qid, answerInputID, "dog"))
 
 	id, _ := strconv.ParseInt(qid, 10, 64)
 	answers, err := db.FeudAnswers(id)
 	require.NoError(t, err)
-	require.Len(t, answers, 1)
+	require.Len(t, answers, 2)
 	assert.Equal(t, "The Dogs", answers[0].Label)
 	assert.Equal(t, 2, answers[0].Score())
 

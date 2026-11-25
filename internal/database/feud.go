@@ -79,6 +79,8 @@ const (
 var (
 	// ErrFeudDuplicateQuestion is returned when a guild already has the question.
 	ErrFeudDuplicateQuestion = errors.New("feud question already exists")
+	// ErrFeudTooManyPending is returned when a member has too many questions awaiting review.
+	ErrFeudTooManyPending = errors.New("too many pending feud questions")
 	// ErrFeudAlreadyAnswered is returned for a second answer from the same member.
 	ErrFeudAlreadyAnswered = errors.New("already answered this feud question")
 	// ErrFeudNotActive is returned when a question isn't collecting answers.
@@ -180,18 +182,39 @@ type FeudSeed struct {
 	Norm string
 }
 
-// SubmitFeudQuestion stores a member's question for mod review.
-func (db *DB) SubmitFeudQuestion(guildID, userID, text, norm string, now time.Time) (int64, error) {
-	res, err := db.conn.Exec(`INSERT INTO feud_questions (guild_id, text, norm, status, source, submitted_by, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (guild_id, norm) DO NOTHING`,
-		guildID, text, norm, FeudPending, FeudSourceUser, userID, now.Unix())
+// SubmitFeudQuestion stores a member's question for mod review. The pending
+// limit is enforced in the same statement as the insert, so concurrent
+// submissions cannot exceed it.
+func (db *DB) SubmitFeudQuestion(guildID, userID, text, norm string, maxPending int, now time.Time) (int64, error) {
+	tx, err := db.conn.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("submit feud question: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.Exec(`INSERT INTO feud_questions (guild_id, text, norm, status, source, submitted_by, created_at)
+		SELECT ?, ?, ?, ?, ?, ?, ?
+		WHERE (SELECT COUNT(*) FROM feud_questions WHERE guild_id = ? AND submitted_by = ? AND status = ?) < ?
+		ON CONFLICT (guild_id, norm) DO NOTHING`,
+		guildID, text, norm, FeudPending, FeudSourceUser, userID, now.Unix(),
+		guildID, userID, FeudPending, maxPending)
 	if err != nil {
 		return 0, fmt.Errorf("submit feud question: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return 0, ErrFeudDuplicateQuestion
+		var dup int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM feud_questions WHERE guild_id = ? AND norm = ?`, guildID, norm).Scan(&dup); err != nil {
+			return 0, fmt.Errorf("submit feud question: %w", err)
+		}
+		if dup > 0 {
+			return 0, ErrFeudDuplicateQuestion
+		}
+		return 0, ErrFeudTooManyPending
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
 }
 
 // CountFeudPendingBy returns how many of a member's questions await review.

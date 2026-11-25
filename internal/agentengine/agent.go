@@ -331,3 +331,46 @@ func memberHasRole(member *discordgo.Member, roleID string) bool {
 func rejectAllPermissions(_ copilot.PermissionRequest, _ copilot.PermissionInvocation) (rpc.PermissionDecision, error) {
 	return &rpc.PermissionDecisionReject{}, nil
 }
+
+// ErrAgentDisabled is returned by Complete when the Copilot CLI isn't running.
+var ErrAgentDisabled = fmt.Errorf("agent is not running")
+
+// Complete runs a one-shot task for a feature module: the given system
+// instructions, the prompt, and only the given tools (none when empty). It
+// carries no Discord caller, so tools must not rely on agentctx.
+func (a *Agent) Complete(ctx context.Context, system, prompt string, tools []copilot.Tool) (string, error) {
+	a.clientMu.Lock()
+	client := a.client
+	a.clientMu.Unlock()
+	if client == nil {
+		return "", ErrAgentDisabled
+	}
+	names := make([]string, len(tools))
+	for i, t := range tools {
+		names[i] = t.Name
+	}
+	sess, err := client.CreateSession(ctx, &copilot.SessionConfig{
+		ClientName:          "bestpal-task",
+		Model:               a.cfg.GetCopilotAgentModel(),
+		Tools:               tools,
+		AvailableTools:      names,
+		SystemMessage:       &copilot.SystemMessageConfig{Mode: "replace", Content: system},
+		OnPermissionRequest: rejectAllPermissions,
+	})
+	if err != nil {
+		return "", fmt.Errorf("create session: %w", err)
+	}
+	defer func() { _ = sess.Disconnect() }()
+	event, err := sess.SendAndWait(ctx, copilot.MessageOptions{Prompt: prompt})
+	if err != nil {
+		return "", fmt.Errorf("send and wait: %w", err)
+	}
+	if event == nil {
+		return "", fmt.Errorf("no assistant message received")
+	}
+	data, ok := event.Data.(*copilot.AssistantMessageData)
+	if !ok || data == nil {
+		return "", fmt.Errorf("unexpected event data type %T", event.Data)
+	}
+	return strings.TrimSpace(data.Content), nil
+}

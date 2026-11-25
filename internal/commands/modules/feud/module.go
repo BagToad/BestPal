@@ -4,6 +4,8 @@
 package feud
 
 import (
+	"context"
+	"errors"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -15,6 +17,7 @@ import (
 	"gamerpal/internal/utils"
 
 	"github.com/bwmarrin/discordgo"
+	copilot "github.com/github/copilot-sdk/go"
 )
 
 const (
@@ -32,7 +35,23 @@ type Module struct {
 	randN   func(n int) int
 
 	seeded sync.Map // guild ID -> struct{} once starter questions are in
+
+	agent     completer
+	afterFunc func(d time.Duration, f func()) (stop func())
+	spawn     func(f func())
+
+	mu     sync.Mutex
+	locks  map[string]*chanMutex
+	timers map[string]func()
 }
+
+// completer runs one-shot agent tasks (agentengine.Agent).
+type completer interface {
+	Complete(ctx context.Context, system, prompt string, tools []copilot.Tool) (string, error)
+}
+
+// SetAgent lets GP Feud ask the agent about close-call guesses.
+func (m *Module) SetAgent(a completer) { m.agent = a }
 
 // New creates the module.
 func New(deps *types.Dependencies) *Module {
@@ -42,17 +61,42 @@ func New(deps *types.Dependencies) *Module {
 		session: deps.Session,
 		now:     time.Now,
 		randN:   rand.IntN,
+		afterFunc: func(d time.Duration, f func()) func() {
+			t := time.AfterFunc(d, f)
+			return func() { t.Stop() }
+		},
+		spawn:  func(f func()) { go f() },
+		locks:  map[string]*chanMutex{},
+		timers: map[string]func(){},
 	}
 }
 
-// Service has nothing scheduled yet.
-func (m *Module) Service() types.ModuleService { return nil }
+// Service restores running games after a restart and sweeps for missed
+// timers.
+func (m *Module) Service() types.ModuleService { return service{m} }
+
+type service struct{ m *Module }
+
+func (s service) HydrateServiceDiscordSession(*discordgo.Session) error {
+	s.m.Recover()
+	return nil
+}
+
+func (s service) ScheduledFuncs() map[string]func() error {
+	if s.m.db == nil {
+		return nil
+	}
+	return map[string]func() error{"@every 1m": s.m.sweep}
+}
 
 // discordAPI is the slice of the Discord API the module uses.
 type discordAPI interface {
 	Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error
 	Send(channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 	Edit(msg *discordgo.MessageEdit) (*discordgo.Message, error)
+	CreateThread(parentID, name string) (*discordgo.Channel, error)
+	AddThreadMember(threadID, userID string) error
+	RemoveThreadMember(threadID, userID string) error
 }
 
 type sessionAPI struct{ s *discordgo.Session }
@@ -67,6 +111,38 @@ func (a sessionAPI) Send(channelID string, msg *discordgo.MessageSend) (*discord
 
 func (a sessionAPI) Edit(msg *discordgo.MessageEdit) (*discordgo.Message, error) {
 	return a.s.ChannelMessageEditComplex(msg)
+}
+
+// teamThreadArchive keeps quiet team threads open for a week, the most
+// Discord allows; posting reopens them.
+const teamThreadArchive = 10080
+
+func (a sessionAPI) CreateThread(parentID, name string) (*discordgo.Channel, error) {
+	return a.s.ThreadStartComplex(parentID, &discordgo.ThreadStart{
+		Name: name, AutoArchiveDuration: teamThreadArchive,
+		Type: discordgo.ChannelTypeGuildPrivateThread, Invitable: false,
+	})
+}
+
+func (a sessionAPI) AddThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberAdd(threadID, userID) })
+}
+
+func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
+}
+
+// onOpenThread retries op once after unarchiving the thread.
+func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
+	err := op()
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodePerformedOperationOnArchivedThread {
+		return err
+	}
+	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)}); err != nil {
+		return err
+	}
+	return op()
 }
 
 func (m *Module) dc(s *discordgo.Session) discordAPI {
@@ -107,6 +183,9 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Options: []*discordgo.ApplicationCommandOption{
 				sub("review", "Approve or reject submitted questions"),
 				sub("pool", "Show how many questions are ready, collecting answers, or awaiting review"),
+				sub("setup", "Post the game board and create the team threads in the GP Feud channel"),
+				sub("start", "Start a game"),
+				sub("end", "End the current game"),
 			},
 		},
 		HandlerFunc: m.handleAdmin,
@@ -143,6 +222,14 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 		m.handleReviewNext(s, i, "", false)
 	case "pool":
 		m.handlePool(s, i)
+	case "setup":
+		m.handleSetup(s, i)
+	case "start":
+		if m.open(s, i) {
+			m.handleStart(s, i)
+		}
+	case "end":
+		m.handleEnd(s, i)
 	}
 }
 
@@ -170,6 +257,16 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		}
 	case "approve", "reject":
 		m.handleReview(s, i, arg(1), parts[0] == "approve", arg(2) == "next")
+	case "join":
+		if m.open(s, i) {
+			m.handleJoin(s, i)
+		}
+	case "leave":
+		m.handleLeave(s, i)
+	case "suggest":
+		m.openSuggestModal(s, i, arg(1))
+	case "vote":
+		m.handleVote(s, i, arg(1), arg(2))
 	}
 }
 
@@ -190,6 +287,10 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 		}
 	case "sub":
 		m.handleSubmitQuestion(s, i)
+	case "sg":
+		if len(parts) > 1 {
+			m.handleSuggest(s, i, parts[1])
+		}
 	}
 }
 

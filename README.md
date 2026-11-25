@@ -44,7 +44,7 @@ environment (see `config.example.yaml`).
 | `/give` / `/take` | Give or take things from a user |
 | `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
 | `/squad-admin` | Squads: `status`, `dryrun`, `run-now`, `user`, `create`, `add`, `remove`, `delete`, `queue-remove`, `refresh-permissions`, `intro-backfill` |
-| `/feud-admin review` / `pool` | GP Feud: review submitted questions, or see how many are ready to play |
+| `/feud-admin` | GP Feud: `setup` (post the board and team threads in the GP Feud channel), `start`, `end`, `review` submitted questions, `pool` (how many questions are ready) |
 
 ### Administrator (Administrator Permission)
 | Command | Description |

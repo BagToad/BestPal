@@ -317,7 +317,8 @@ func (m *Module) handleEdit(s *discordgo.Session, i *discordgo.InteractionCreate
 	gid := i.GuildID
 	switch arg(0) {
 	case "list":
-		m.showEditList(s, i, int(min(max(id, 0), 1<<20)))
+		listPage, _ := strconv.ParseInt(arg(1), 10, 32)
+		m.showEditList(s, i, int(max(listPage, 0)))
 	case "pick":
 		m.showQuestion(s, i, picked, "")
 	case "q":

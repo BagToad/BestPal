@@ -16,6 +16,7 @@ import (
 	"gamerpal/internal/commands"
 	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/eventfeed"
+	"gamerpal/internal/commands/modules/feud"
 	"gamerpal/internal/commands/modules/intro"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
@@ -65,6 +66,9 @@ func New(cfg *config.Config) (*Bot, error) {
 	}
 	if bot.agent != nil {
 		bot.agent.AddTools(handler.CollectAgentTools()...)
+		if fm, ok := handler.GetModule("feud").(*feud.Module); ok {
+			fm.SetAgent(bot.agent)
+		}
 	}
 
 	// Collect module-declared config settings (plus the core provider) into a
@@ -145,6 +149,10 @@ func New(cfg *config.Config) (*Bot, error) {
 		session.AddHandler(mod.OnThreadDelete)
 		session.AddHandler(mod.OnThreadMembersUpdate)
 		session.AddHandler(mod.OnGuildMemberRemove)
+	}
+	// GP Feud - leaving a team thread leaves the game.
+	if mod, ok := handler.GetModule("feud").(*feud.Module); ok {
+		session.AddHandler(mod.OnThreadMembersUpdate)
 	}
 	// eventfeed module - new event posts; reminders run on the scheduler.
 	if mod, ok := handler.GetModule("eventfeed").(*eventfeed.Module); ok {

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"gamerpal/internal/commands/types"
 	"gamerpal/internal/config"
 	"gamerpal/internal/database"
 
@@ -20,6 +21,29 @@ type fakeAPI struct {
 	responses []*discordgo.InteractionResponse
 	sent      map[string][]*discordgo.MessageSend
 	edits     []*discordgo.MessageEdit
+	threads   int
+	members   map[string]map[string]bool // thread -> users
+}
+
+func (f *fakeAPI) CreateThread(_, name string) (*discordgo.Channel, error) {
+	f.threads++
+	return &discordgo.Channel{ID: "thread" + strconv.Itoa(f.threads), Name: name}, nil
+}
+
+func (f *fakeAPI) AddThreadMember(th, uid string) error {
+	if f.members == nil {
+		f.members = map[string]map[string]bool{}
+	}
+	if f.members[th] == nil {
+		f.members[th] = map[string]bool{}
+	}
+	f.members[th][uid] = true
+	return nil
+}
+
+func (f *fakeAPI) RemoveThreadMember(th, uid string) error {
+	delete(f.members[th], uid)
+	return nil
 }
 
 func (f *fakeAPI) Respond(_ *discordgo.Interaction, r *discordgo.InteractionResponse) error {
@@ -61,8 +85,12 @@ func newTestModule(t *testing.T, kv map[string]any) (*Module, *fakeAPI, *databas
 		base[k] = v
 	}
 	api := &fakeAPI{}
-	m := &Module{config: config.NewMockConfig(base), db: db, api: api,
-		now: func() time.Time { return time.Unix(1000, 0) }, randN: func(int) int { return 0 }}
+	m := New(&types.Dependencies{Config: config.NewMockConfig(base), DB: db})
+	m.api = api
+	m.now = func() time.Time { return time.Unix(1000, 0) }
+	m.randN = func(int) int { return 0 }
+	m.afterFunc = func(time.Duration, func()) func() { return func() {} }
+	m.spawn = func(f func()) { f() }
 	return m, api, db
 }
 

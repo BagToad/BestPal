@@ -9,10 +9,10 @@ import (
 	"gamerpal/internal/config"
 )
 
-// ConfigSettings declares the squad settings. They're split over several
-// panel categories to stay within Discord's per-message component limits.
+// ConfigSettings declares the squad settings. They all live under Squads,
+// grouped into sections; the panel pages through them as needed.
 func (m *Module) ConfigSettings() []config.Setting {
-	sq, timing := config.CategorySquads, config.CategorySquadTiming
+	sq := config.CategorySquads
 	out := []config.Setting{
 		{Key: config.KeySquadsEnabled, Category: sq, Label: "Squads enabled",
 			Description: "Lets people join with /squad join and runs the matcher.", Kind: config.KindBool, Default: false},
@@ -33,9 +33,6 @@ func (m *Module) ConfigSettings() []config.Setting {
 		{Key: config.KeySquadsBlockedRoleID, Category: sq, Label: "Blocked role",
 			Description: "Mods give this role to keep someone out of squads. They can't join, and they're removed from the queue at the next pairing run.",
 			Kind:        config.KindRole},
-		{Key: config.KeySquadsFeedbackChannelID, Category: config.CategorySquadFeedback, Label: "Feedback channel",
-			Description: "Private channel where exit survey answers from people leaving a squad are posted. Keep it to app developers.",
-			Kind:        config.KindChannel},
 		{Key: config.KeySquadsTargetSize, Category: sq, Label: "Squad size",
 			Description: "How many people the matcher aims for in a new squad.", Kind: config.KindInt, Default: 6, Validate: validateSize},
 		{Key: config.KeySquadsMinSize, Category: sq, Label: "Smallest squad",
@@ -45,21 +42,28 @@ func (m *Module) ConfigSettings() []config.Setting {
 		{Key: config.KeySquadsMatchInterval, Category: sq, Label: "Pairing interval",
 			Description: "How often the matcher runs (e.g. 1h).", Kind: config.KindDuration, Default: "1h", Validate: validateDuration},
 
-		{Key: config.KeySquadsFallbackAfter, Category: timing, Label: "Fallback after",
+		{Key: config.KeySquadsFallbackAfter, Category: sq, Section: "Timing", Label: "Fallback after",
 			Description: "How long someone waits for an ideal match before joining a young squad, a nearby region/age group, or a smaller squad.",
 			Kind:        config.KindDuration, Default: "48h", Validate: validateDuration},
-		{Key: config.KeySquadsUnmatchedAfter, Category: timing, Label: "Give up after",
+		{Key: config.KeySquadsUnmatchedAfter, Category: sq, Section: "Timing", Label: "Give up after",
 			Description: "How long someone can wait unmatched before they're taken out of the queue and DMed to pick games again.",
 			Kind:        config.KindDuration, Default: "168h", Validate: validateDuration},
-		{Key: config.KeySquadsYoungFor, Category: timing, Label: "Young squad window",
+		{Key: config.KeySquadsYoungFor, Category: sq, Section: "Timing", Label: "Young squad window",
 			Description: "How long a new squad keeps taking late joiners.", Kind: config.KindDuration, Default: "168h", Validate: validateDuration},
-		{Key: config.KeySquadsQuietWarnAfter, Category: timing, Label: "Quiet warning after",
+		{Key: config.KeySquadsQuietWarnAfter, Category: sq, Section: "Timing", Label: "Quiet warning after",
 			Description: "How long a squad can go without chat before it's warned it will be deleted.", Kind: config.KindDuration, Default: "168h", Validate: validateDuration},
-		{Key: config.KeySquadsQuietDeleteAfter, Category: timing, Label: "Delete after warning",
+		{Key: config.KeySquadsQuietDeleteAfter, Category: sq, Section: "Timing", Label: "Delete after warning",
 			Description: "How long after the warning a still-quiet squad is deleted.", Kind: config.KindDuration, Default: "72h", Validate: validateDuration},
+
+		{Key: config.KeySquadsThreadChannelID, Category: sq, Section: "Threads & feedback", Label: "Thread channel",
+			Description: "When set, new squads are private threads in this channel instead of their own channels. Existing squad channels keep working. The bot needs Create Private Threads and Manage Threads here.",
+			Kind:        config.KindChannel, TextChannelOnly: true},
+		{Key: config.KeySquadsFeedbackChannelID, Category: sq, Section: "Threads & feedback", Label: "Feedback channel",
+			Description: "Private channel where exit survey answers from people leaving a squad are posted. Keep it to app developers.",
+			Kind:        config.KindChannel},
 	}
 	for _, r := range regions {
-		out = append(out, config.Setting{Key: r.Key, Category: config.CategorySquadRegions, Label: r.Name + " role",
+		out = append(out, config.Setting{Key: r.Key, Category: sq, Section: "Regions", Label: r.Name + " role",
 			Description: "Onboarding role for " + r.Name + ". Falls back to " + r.Neighbour + ".", Kind: config.KindRole})
 	}
 	for n, k := range config.SquadAgeKeys {
@@ -67,11 +71,11 @@ func (m *Module) ConfigSettings() []config.Setting {
 		if n > 0 {
 			desc = "Next age group up. Neighbouring groups can be matched as a fallback."
 		}
-		out = append(out, config.Setting{Key: k, Category: config.CategorySquadAges, Label: fmt.Sprintf("Age group %d role", n+1),
+		out = append(out, config.Setting{Key: k, Category: sq, Section: "Age groups", Label: fmt.Sprintf("Age group %d role", n+1),
 			Description: desc, Kind: config.KindRole})
 	}
 	for _, p := range platforms {
-		out = append(out, config.Setting{Key: p.Key, Category: config.CategorySquadPlatforms, Label: p.Name + " role",
+		out = append(out, config.Setting{Key: p.Key, Category: sq, Section: "Platforms", Label: p.Name + " role",
 			Description: "Sharing a platform is a small bonus when matching.", Kind: config.KindRole})
 	}
 	return out

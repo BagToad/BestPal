@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS squad_preferences (
 	user_id       TEXT NOT NULL,
 	try_new_games INTEGER NOT NULL DEFAULT 0,
 	any_region    INTEGER NOT NULL DEFAULT 0,
+	late_join     INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (guild_id, user_id)
 );
 
@@ -113,6 +114,11 @@ CREATE TABLE IF NOT EXISTS squad_role_ops (
 CREATE TABLE IF NOT EXISTS squad_state (
 	guild_id      TEXT PRIMARY KEY,
 	last_match_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS squad_thread_checks (
+	guild_id   TEXT PRIMARY KEY,
+	checked_on TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS squad_exit_surveys (
@@ -258,13 +264,37 @@ func (db *DB) SetSquadAnyRegion(guildID, userID string, enabled bool) error {
 	return err
 }
 
+// SquadLateJoin reports whether a member opted into joining squads that
+// already formed. Missing preferences default to false, so only people who
+// opt in are late-joined.
+func (db *DB) SquadLateJoin(guildID, userID string) (bool, error) {
+	var enabled bool
+	err := db.conn.QueryRow(`SELECT late_join FROM squad_preferences WHERE guild_id = ? AND user_id = ?`,
+		guildID, userID).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// SetSquadLateJoin updates a member's late-join preference.
+func (db *DB) SetSquadLateJoin(guildID, userID string, enabled bool) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, late_join) VALUES (?, ?, ?)
+		ON CONFLICT (guild_id, user_id) DO UPDATE SET late_join = excluded.late_join`,
+		guildID, userID, enabled)
+	return err
+}
+
 // Squad is one squad and its channel/role.
 type Squad struct {
-	ID               int64
-	GuildID          string
-	Name             string
-	ChannelID        string
-	RoleID           string
+	ID        int64
+	GuildID   string
+	Name      string
+	ChannelID string
+	RoleID    string
+	// Thread marks a squad that lives in a private thread (ChannelID is the
+	// thread). Its members are thread members rather than role holders.
+	Thread           bool
 	WelcomeMessageID string
 	CreatedAt        time.Time
 	LastActivityAt   time.Time
@@ -441,8 +471,8 @@ func (db *DB) CreateSquad(sq Squad, members []string, now time.Time) (Squad, err
 		return sq, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`INSERT INTO squads (guild_id, name, channel_id, role_id, created_at, last_activity_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, sq.GuildID, sq.Name, sq.ChannelID, sq.RoleID, now.Unix(), now.Unix())
+	res, err := tx.Exec(`INSERT INTO squads (guild_id, name, channel_id, role_id, thread, created_at, last_activity_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, sq.GuildID, sq.Name, sq.ChannelID, sq.RoleID, sq.Thread, now.Unix(), now.Unix())
 	if err != nil {
 		return sq, err
 	}
@@ -654,6 +684,28 @@ func (db *DB) PreviousSquadPartners(guildID, userID string) (map[string]bool, er
 }
 
 // SquadMemberIDs returns a squad's members, earliest joiners first.
+// SquadMemberships maps each member of a squad to their active membership
+// history ID (0 if they have none), which changes if they leave and rejoin.
+func (db *DB) SquadMemberships(squadID int64) (map[string]int64, error) {
+	rows, err := db.conn.Query(`SELECT m.user_id, COALESCE(h.id, 0) FROM squad_members m
+		LEFT JOIN squad_membership_history h ON h.squad_id = m.squad_id AND h.user_id = m.user_id AND h.left_at = 0
+		WHERE m.squad_id = ?`, squadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var uid string
+		var id int64
+		if err := rows.Scan(&uid, &id); err != nil {
+			return nil, err
+		}
+		out[uid] = id
+	}
+	return out, rows.Err()
+}
+
 func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 	rows, err := db.conn.Query(`SELECT user_id FROM squad_members WHERE squad_id = ? ORDER BY joined_at, user_id`, squadID)
 	if err != nil {
@@ -671,7 +723,7 @@ func (db *DB) SquadMemberIDs(squadID int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-const squadCols = `s.id, s.guild_id, s.name, s.channel_id, s.role_id, s.welcome_message_id,
+const squadCols = `s.id, s.guild_id, s.name, s.channel_id, s.role_id, s.thread, s.welcome_message_id,
 	s.created_at, s.last_activity_at, s.warned_at, s.delete_reason,
 	(SELECT COUNT(*) FROM squad_members m WHERE m.squad_id = s.id)`
 
@@ -680,7 +732,7 @@ type rowScanner interface{ Scan(dest ...any) error }
 func scanSquad(r rowScanner) (Squad, error) {
 	var sq Squad
 	var created, active, warned int64
-	err := r.Scan(&sq.ID, &sq.GuildID, &sq.Name, &sq.ChannelID, &sq.RoleID, &sq.WelcomeMessageID,
+	err := r.Scan(&sq.ID, &sq.GuildID, &sq.Name, &sq.ChannelID, &sq.RoleID, &sq.Thread, &sq.WelcomeMessageID,
 		&created, &active, &warned, &sq.DeleteReason, &sq.Members)
 	sq.CreatedAt = time.Unix(created, 0)
 	sq.LastActivityAt = time.Unix(active, 0)
@@ -769,7 +821,9 @@ func (db *DB) DeleteSquad(id int64, now time.Time) error {
 	if _, err := tx.Exec(`DELETE FROM squad_members WHERE squad_id = ?`, id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM squad_role_ops WHERE role_id IN (SELECT role_id FROM squads WHERE id = ? AND role_id != '')`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM squad_role_ops WHERE role_id IN (
+		SELECT role_id FROM squads WHERE id = ? AND role_id != ''
+		UNION SELECT ? || channel_id FROM squads WHERE id = ? AND thread = 1 AND channel_id != '')`, id, ThreadAccessPrefix, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM squads WHERE id = ?`, id); err != nil {
@@ -789,6 +843,12 @@ func (db *DB) DeleteSquad(id int64, now time.Time) error {
 // SetSquadChannel records the channel and role created for a squad.
 func (db *DB) SetSquadChannel(id int64, channelID, roleID string) error {
 	_, err := db.conn.Exec(`UPDATE squads SET channel_id = ?, role_id = ? WHERE id = ?`, channelID, roleID, id)
+	return err
+}
+
+// RenameSquad changes a squad's name.
+func (db *DB) RenameSquad(id int64, name string) error {
+	_, err := db.conn.Exec(`UPDATE squads SET name = ? WHERE id = ?`, name, id)
 	return err
 }
 
@@ -937,6 +997,7 @@ func (db *DB) migrateSquads() error {
 		{"deletion_transcript_note", "TEXT NOT NULL DEFAULT ''"},
 		{"deletion_file_log_sent", "INTEGER NOT NULL DEFAULT 0"},
 		{"deletion_log_sent", "INTEGER NOT NULL DEFAULT 0"},
+		{"thread", "INTEGER NOT NULL DEFAULT 0"},
 	}
 	for _, column := range columns {
 		if have[column.name] {
@@ -1061,6 +1122,11 @@ func (db *DB) migrateSquadPreferences() error {
 			return fmt.Errorf("failed to add squad_preferences.any_region: %w", err)
 		}
 	}
+	if !have["late_join"] {
+		if _, err := db.conn.Exec(`ALTER TABLE squad_preferences ADD COLUMN late_join INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add squad_preferences.late_join: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1142,6 +1208,10 @@ func (db *DB) MarkSquadWarned(id int64, now time.Time) error {
 	return err
 }
 
+// ThreadAccessPrefix marks a squad_role_ops entry that adds or removes a
+// private-thread member instead of a role; the rest is the thread ID.
+const ThreadAccessPrefix = "thread:"
+
 // SquadRoleOp is a squad role grant (Add) or revocation that failed and
 // should be retried.
 type SquadRoleOp struct {
@@ -1211,6 +1281,24 @@ func (db *DB) SquadLastMatch(guildID string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	return time.Unix(at, 0), err
+}
+
+// SquadThreadCheck returns the UTC date (YYYY-MM-DD) of the guild's last
+// nightly thread check, or "" if it has never run.
+func (db *DB) SquadThreadCheck(guildID string) (string, error) {
+	var on string
+	err := db.conn.QueryRow(`SELECT checked_on FROM squad_thread_checks WHERE guild_id = ?`, guildID).Scan(&on)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return on, err
+}
+
+// SetSquadThreadCheck records the UTC date of the guild's nightly thread check.
+func (db *DB) SetSquadThreadCheck(guildID, on string) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_thread_checks (guild_id, checked_on) VALUES (?, ?)
+		ON CONFLICT (guild_id) DO UPDATE SET checked_on = excluded.checked_on`, guildID, on)
+	return err
 }
 
 // SetSquadLastMatch records when the matcher last ran for a guild.

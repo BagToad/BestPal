@@ -71,6 +71,7 @@ const (
 	KeySquadsModRoleID         = "squads_mod_role_id"
 	KeySquadsBlockedRoleID     = "squads_blocked_role_id"
 	KeySquadsFeedbackChannelID = "squads_feedback_channel_id"
+	KeySquadsThreadChannelID   = "squads_thread_channel_id"
 	KeySquadsTargetSize        = "squads_target_size"
 	KeySquadsMinSize           = "squads_min_size"
 	KeySquadsMaxSize           = "squads_max_size"
@@ -123,22 +124,17 @@ const (
 type Category string
 
 const (
-	CategoryChannels       Category = "Server Channels"
-	CategoryIntro          Category = "Introductions"
-	CategoryLFG            Category = "Looking for Game"
-	CategoryNewPals        Category = "New Pals"
-	CategoryScamGuard      Category = "ScamGuard"
-	CategoryAgent          Category = "Agent"
-	CategoryTrickOrTreat   Category = "Trick or Treat"
-	CategoryEvents         Category = "Events"
-	CategorySlidePuzzle    Category = "Slide Puzzle"
-	CategorySquads         Category = "Squads"
-	CategorySquadTiming    Category = "Squad Timing"
-	CategorySquadRegions   Category = "Squad Regions"
-	CategorySquadAges      Category = "Squad Age Groups"
-	CategorySquadPlatforms Category = "Squad Platforms"
-	CategorySquadFeedback  Category = "Squad Feedback"
-	CategoryMisc           Category = "Moderation & Misc"
+	CategoryChannels     Category = "Server Channels"
+	CategoryIntro        Category = "Introductions"
+	CategoryLFG          Category = "Looking for Game"
+	CategoryNewPals      Category = "New Pals"
+	CategoryScamGuard    Category = "ScamGuard"
+	CategoryAgent        Category = "Agent"
+	CategoryTrickOrTreat Category = "Trick or Treat"
+	CategoryEvents       Category = "Events"
+	CategorySlidePuzzle  Category = "Slide Puzzle"
+	CategorySquads       Category = "Squads"
+	CategoryMisc         Category = "Moderation & Misc"
 )
 
 // categoryOrder is the canonical display order of categories in the panel.
@@ -153,11 +149,6 @@ var categoryOrder = []Category{
 	CategoryEvents,
 	CategorySlidePuzzle,
 	CategorySquads,
-	CategorySquadTiming,
-	CategorySquadRegions,
-	CategorySquadAges,
-	CategorySquadPlatforms,
-	CategorySquadFeedback,
 	CategoryMisc,
 }
 
@@ -178,8 +169,13 @@ type Setting struct {
 	Description string
 	Kind        Kind
 	Default     any
-	EnumOptions []Option           // populated for KindEnum
-	Validate    func(string) error // optional; nil means validate by Kind
+	EnumOptions []Option // populated for KindEnum
+	// Section is an optional subheading that groups settings within a
+	// category's panel.
+	Section string
+	// TextChannelOnly limits a KindChannel setting to regular text channels.
+	TextChannelOnly bool
+	Validate        func(string) error // optional; nil means validate by Kind
 }
 
 // ConfigProvider is implemented by any component that owns config settings

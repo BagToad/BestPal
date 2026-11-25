@@ -121,6 +121,7 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeySquadsPlatformSwitchRoleID,
 		config.KeySquadsPlatformMobileRoleID,
 		config.KeySquadsFeedbackChannelID,
+		config.KeySquadsThreadChannelID,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

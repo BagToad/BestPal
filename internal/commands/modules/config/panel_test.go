@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/config"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -118,17 +121,21 @@ func TestCategoryLayoutWithinDiscordLimits(t *testing.T) {
 	}
 }
 
-// TestSquadCategoriesWithinDiscordLimits renders the real squad settings,
-// which are spread over several categories to fit: at most 40 components per
-// panel and at most 5 modal-entered values per category (a modal's limit).
-func TestSquadCategoriesWithinDiscordLimits(t *testing.T) {
+// TestSquadSettingsPaginateWithinDiscordLimits renders the real squad
+// settings, which all live under one Squads button and page as needed: at most
+// 40 components per page and at most 5 modal-entered values per page.
+func TestSquadSettingsPaginateWithinDiscordLimits(t *testing.T) {
 	cfg := config.NewMockConfig(map[string]any{"gamerpals_server_id": "guild1"})
 	cfg.ApplyRegistry(config.NewRegistry((&squads.Module{}).ConfigSettings()))
 	m := &Module{config: cfg}
-	cats := cfg.Registry().Categories()
-	require.Len(t, cats, 6)
-	for _, cat := range cats {
-		inner := categoryInner(t, m.renderCategory("guild1", cat, ""))
+	require.Equal(t, []config.Category{config.CategorySquads}, cfg.Registry().Categories())
+
+	pages := m.categoryPages(config.CategorySquads)
+	require.Greater(t, len(pages), 1)
+	seen := 0
+	for n, page := range pages {
+		seen += len(page)
+		inner := categoryInner(t, m.renderCategoryPage("guild1", config.CategorySquads, n, "✅ a note"))
 		total := 1
 		for _, c := range inner {
 			total++
@@ -136,15 +143,58 @@ func TestSquadCategoriesWithinDiscordLimits(t *testing.T) {
 				total += len(ar.Components)
 			}
 		}
-		assert.LessOrEqualf(t, total, 40, "category %q has %d components", cat, total)
+		assert.LessOrEqualf(t, total, 40, "page %d has %d components", n+1, total)
 		modal := 0
-		for _, st := range cfg.Registry().ByCategory(cat) {
-			if !isSelectKind(st.Kind) && st.Kind != config.KindBool {
+		for _, st := range page {
+			if !hasControl(st) {
 				modal++
 			}
 		}
-		assert.LessOrEqualf(t, modal, 5, "category %q has %d modal fields", cat, modal)
+		assert.LessOrEqualf(t, modal, 5, "page %d has %d modal fields", n+1, modal)
+		assert.Contains(t, inner[0].(discordgo.TextDisplay).Content, fmt.Sprintf("Page %d of %d", n+1, len(pages)))
+
+		var nav []string
+		for _, c := range inner[len(inner)-1].(discordgo.ActionsRow).Components {
+			nav = append(nav, c.(discordgo.Button).CustomID)
+		}
+		if n > 0 {
+			assert.Contains(t, nav, categoryID(pageRef(config.CategorySquads, n-1)))
+		}
+		if n < len(pages)-1 {
+			assert.Contains(t, nav, categoryID(pageRef(config.CategorySquads, n+1)))
+		}
 	}
+	assert.Equal(t, len(cfg.Registry().ByCategory(config.CategorySquads)), seen, "every setting is on a page")
+	last := len(pages) - 1
+	assert.Equal(t, last, m.pageOf(config.CategorySquads, config.KeySquadsPlatformMobileRoleID))
+	assert.Equal(t, 0, m.pageOf(config.CategorySquads, config.KeySquadsEnabled))
+}
+
+func TestPageRefs(t *testing.T) {
+	assert.Equal(t, "Squads", pageRef(config.CategorySquads, 0))
+	cat, page := parsePageRef(pageRef(config.CategorySquads, 2))
+	assert.Equal(t, config.CategorySquads, cat)
+	assert.Equal(t, 2, page)
+	cat, page = parsePageRef("Moderation & Misc")
+	assert.Equal(t, config.CategoryMisc, cat)
+	assert.Zero(t, page)
+}
+
+func TestSectionHeadings(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]any{"gamerpals_server_id": "guild1"})
+	cfg.ApplyRegistry(config.NewRegistry([]config.Setting{
+		{Key: "a", Category: config.CategoryMisc, Label: "A", Kind: config.KindBool},
+		{Key: "b", Category: config.CategoryMisc, Section: "Timing", Label: "B", Kind: config.KindBool},
+		{Key: "c", Category: config.CategoryMisc, Section: "Timing", Label: "C", Kind: config.KindBool},
+	}))
+	m := &Module{config: cfg}
+	var heads []string
+	for _, c := range categoryInner(t, m.renderCategory("guild1", config.CategoryMisc, "")) {
+		if td, ok := c.(discordgo.TextDisplay); ok && strings.HasPrefix(td.Content, "### ") {
+			heads = append(heads, td.Content)
+		}
+	}
+	assert.Equal(t, []string{"### Timing"}, heads)
 }
 
 // TestEachSelectHasLabel guards the UX requirement that motivated Components V2:
@@ -376,4 +426,33 @@ func TestCategoryActionButtons(t *testing.T) {
 	if cats := reg.Categories(); len(cats) != 1 || cats[0] != config.CategorySlidePuzzle {
 		t.Fatalf("categories = %v", cats)
 	}
+}
+
+func TestTextChannelOnlySetting(t *testing.T) {
+	st := config.Setting{Label: "Thread channel", Kind: config.KindChannel, TextChannelOnly: true}
+	assert.Equal(t, []discordgo.ChannelType{discordgo.ChannelTypeGuildText}, channelTypesFor(st))
+	assert.Len(t, channelTypesFor(config.Setting{Kind: config.KindChannel}), 4)
+
+	pick := func(typ discordgo.ChannelType) discordgo.MessageComponentInteractionData {
+		return discordgo.MessageComponentInteractionData{Values: []string{"c1"},
+			Resolved: discordgo.ComponentInteractionDataResolved{Channels: map[string]*discordgo.Channel{"c1": {ID: "c1", Type: typ}}}}
+	}
+	assert.Empty(t, pickProblem(st, pick(discordgo.ChannelTypeGuildText)))
+	assert.Contains(t, pickProblem(st, pick(discordgo.ChannelTypeGuildForum)), "regular text channel")
+	assert.Contains(t, pickProblem(st, discordgo.MessageComponentInteractionData{Values: []string{"c1"}}), "regular text channel")
+	assert.Empty(t, pickProblem(config.Setting{Kind: config.KindChannel}, pick(discordgo.ChannelTypeGuildForum)))
+}
+
+func TestOldSquadCategoryButtonsOpenTheirSection(t *testing.T) {
+	cfg := config.NewMockConfig(map[string]any{"gamerpals_server_id": "guild1"})
+	cfg.ApplyRegistry(config.NewRegistry((&squads.Module{}).ConfigSettings()))
+	m := &Module{config: cfg}
+	for old, section := range legacySections {
+		cat, page := m.resolvePageRef(string(old))
+		require.Equal(t, config.CategorySquads, cat)
+		assert.True(t, slices.ContainsFunc(m.categoryPages(cat)[page], func(st config.Setting) bool { return st.Section == section }), old)
+	}
+	cat, page := m.resolvePageRef(pageRef(config.CategorySquads, 1))
+	assert.Equal(t, config.CategorySquads, cat)
+	assert.Equal(t, 1, page)
 }

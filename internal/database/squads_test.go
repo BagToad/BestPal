@@ -124,6 +124,34 @@ func TestMigrateSquadsAddsAnyRegion(t *testing.T) {
 	assert.True(t, tryNew)
 }
 
+func TestMigrateSquadsAddsLateJoinOff(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := NewDB(path)
+	require.NoError(t, err)
+	require.NoError(t, db.SetSquadAnyRegion("g", "u", true))
+	_, err = db.conn.Exec(`ALTER TABLE squad_preferences DROP COLUMN late_join`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = NewDB(path)
+	require.NoError(t, err)
+	defer db.Close()
+	enabled, err := db.SquadLateJoin("g", "u")
+	require.NoError(t, err)
+	assert.False(t, enabled, "existing members don't late-join unless they opt in")
+	anyRegion, err := db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.True(t, anyRegion)
+
+	require.NoError(t, db.SetSquadLateJoin("g", "u", true))
+	enabled, err = db.SquadLateJoin("g", "u")
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	anyRegion, err = db.SquadAnyRegion("g", "u")
+	require.NoError(t, err)
+	assert.True(t, anyRegion, "setting late join keeps other preferences")
+}
+
 func TestCreateSquadMembership(t *testing.T) {
 	db := newSquadDB(t)
 	now := time.Unix(1000, 0)

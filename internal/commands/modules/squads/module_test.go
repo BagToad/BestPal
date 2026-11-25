@@ -31,37 +31,53 @@ type sentMsg struct {
 }
 
 type fakeAPI struct {
-	mu          sync.Mutex
-	nextID      int
-	responses   []*discordgo.InteractionResponse
-	edits       []*discordgo.WebhookEdit
-	sent        []sentMsg
-	dms         []sentMsg
-	pins        []string
-	members     map[string]*discordgo.Member
-	roles       map[string]string // role ID -> name
-	channels    map[string]discordgo.GuildChannelCreateData
-	roleAdds    []string // "user:role"
-	roleRems    []string
-	delCh       []string
-	delRoles    []string
-	permEdits   map[string][]*discordgo.PermissionOverwrite
-	permErr     error
-	dmErr       error
-	sendErr     map[string]error
-	sendErrOnce map[string]error
-	addErr      error
-	removeErr   error
-	deleteErr   error
-	deleteHook  func()
-	roleDelErr  error
-	memberErr   map[string]error
-	catPerms    []*discordgo.PermissionOverwrite
-	lastHuman   map[string]time.Time
-	humanByUser map[string]map[string]time.Time
-	messages    map[string][]*discordgo.Message
-	historyErr  error
-	prompted    map[string]bool // thread ID -> already has a join button
+	mu              sync.Mutex
+	nextID          int
+	responses       []*discordgo.InteractionResponse
+	edits           []*discordgo.WebhookEdit
+	sent            []sentMsg
+	dms             []sentMsg
+	pins            []string
+	members         map[string]*discordgo.Member
+	roles           map[string]string // role ID -> name
+	channels        map[string]discordgo.GuildChannelCreateData
+	roleAdds        []string // "user:role"
+	roleRems        []string
+	delCh           []string
+	delRoles        []string
+	permEdits       map[string][]*discordgo.PermissionOverwrite
+	permErr         error
+	dmErr           error
+	sendErr         map[string]error
+	sendErrOnce     map[string]error
+	addErr          error
+	removeErr       error
+	deleteErr       error
+	deleteHook      func()
+	roleDelErr      error
+	memberErr       map[string]error
+	catPerms        []*discordgo.PermissionOverwrite
+	lastHuman       map[string]time.Time
+	humanByUser     map[string]map[string]time.Time
+	messages        map[string][]*discordgo.Message
+	historyErr      error
+	prompted        map[string]bool   // thread ID -> already has a join button
+	threads         map[string]string // thread ID -> parent channel
+	threadMems      []string          // "+user:thread" / "-user:thread"
+	threadErr       error
+	threadListNoBot bool // ThreadMemberIDs leaves out the bot
+	threadListErr   error
+	onThreadList    func() // runs after ThreadMemberIDs reads the members
+	locked          []string
+	renamed         map[string]string // thread ID -> new name
+	renameErr       error
+	renameArchived  bool // the thread is archived when renamed
+	onRename        func()
+	reopened        []string // thread IDs RenameThread's guard reopened
+
+	extraInCategory, extraChannels, extraRoles int // pre-existing server channels/roles
+	countsErr                                  error
+	channelCap                                 int // CreateChannel fails once this many exist
 }
 
 func newFakeAPI() *fakeAPI {
@@ -108,6 +124,9 @@ func (f *fakeAPI) Member(_, uid string) (*discordgo.Member, error) {
 	}
 	return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
 }
+func (f *fakeAPI) FetchMember(guildID, uid string) (*discordgo.Member, error) {
+	return f.Member(guildID, uid)
+}
 func (f *fakeAPI) CreateRole(_ string, p *discordgo.RoleParams) (*discordgo.Role, error) {
 	id := f.id()
 	f.roles[id] = p.Name
@@ -135,6 +154,9 @@ func (f *fakeAPI) RemoveRole(_, uid, rid string) error {
 	return nil
 }
 func (f *fakeAPI) CreateChannel(_ string, d discordgo.GuildChannelCreateData) (*discordgo.Channel, error) {
+	if f.channelCap > 0 && len(f.channels) >= f.channelCap {
+		return nil, errors.New("maximum number of channels reached")
+	}
 	id := f.id()
 	f.channels[id] = d
 	return &discordgo.Channel{ID: id, Name: d.Name}, nil
@@ -146,15 +168,127 @@ func (f *fakeAPI) EditChannelPerms(id string, o []*discordgo.PermissionOverwrite
 	f.permEdits[id] = o
 	return nil
 }
+func (f *fakeAPI) CreateThread(parent, name string) (*discordgo.Channel, error) {
+	if f.threadErr != nil {
+		return nil, f.threadErr
+	}
+	if f.threads == nil {
+		f.threads = map[string]string{}
+	}
+	id := f.id()
+	f.threads[id] = parent
+	return &discordgo.Channel{ID: id, Name: name, ParentID: parent, Type: discordgo.ChannelTypeGuildPrivateThread}, nil
+}
+
+// threadMembers is who's in a fake thread now, in the order they joined.
+func (f *fakeAPI) threadMembers(thread string) []string {
+	var in []string
+	for _, op := range f.threadMems {
+		uid, th, _ := strings.Cut(op[1:], ":")
+		if th != thread {
+			continue
+		}
+		in = slices.DeleteFunc(in, func(u string) bool { return u == uid })
+		if op[0] == '+' {
+			in = append(in, uid)
+		}
+	}
+	return in
+}
+func (f *fakeAPI) ThreadMemberIDs(thread string) ([]string, error) {
+	if _, ok := f.threads[thread]; !ok {
+		return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}}
+	}
+	if f.threadListErr != nil {
+		return nil, f.threadListErr
+	}
+	in := f.threadMembers(thread)
+	if !f.threadListNoBot {
+		in = append(in, f.BotID())
+	}
+	if f.onThreadList != nil {
+		f.onThreadList()
+	}
+	return in, nil
+}
+func (f *fakeAPI) RenameThread(thread, name string, guard func(func() error) error) error {
+	if f.renameErr != nil {
+		return f.renameErr
+	}
+	if f.onRename != nil {
+		f.onRename()
+	}
+	if f.renameArchived {
+		if err := guard(func() error { f.reopened = append(f.reopened, thread); return nil }); err != nil {
+			return err
+		}
+	}
+	if f.renamed == nil {
+		f.renamed = map[string]string{}
+	}
+	f.renamed[thread] = name
+	return nil
+}
+func (f *fakeAPI) AddThreadMember(thread, uid string) error {
+	if f.addErr != nil {
+		return f.addErr
+	}
+	f.threadMems = append(f.threadMems, "+"+uid+":"+thread)
+	return nil
+}
+func (f *fakeAPI) RemoveThreadMember(thread, uid string) error {
+	if f.removeErr != nil {
+		return f.removeErr
+	}
+	f.threadMems = append(f.threadMems, "-"+uid+":"+thread)
+	return nil
+}
 func (f *fakeAPI) FreezeChannel(id string) error {
 	if f.permErr != nil {
 		return f.permErr
+	}
+	if _, ok := f.threads[id]; ok {
+		for _, uid := range f.threadMembers(id) {
+			f.threadMems = append(f.threadMems, "-"+uid+":"+id)
+		}
+		f.locked = append(f.locked, id)
+		return nil
 	}
 	channel, err := f.Channel(id)
 	if err != nil {
 		return err
 	}
 	return f.EditChannelPerms(id, frozenOverwrites(channel.PermissionOverwrites, f.BotID()))
+}
+func (f *fakeAPI) GuildCounts(_, categoryID string) (int, int, int, error) {
+	if f.countsErr != nil {
+		return 0, 0, 0, f.countsErr
+	}
+	deleted := map[string]bool{}
+	for _, id := range f.delCh {
+		deleted[id] = true
+	}
+	inCat, total := f.extraInCategory, f.extraInCategory+f.extraChannels
+	for id, ch := range f.channels {
+		if deleted[id] {
+			continue
+		}
+		total++
+		if ch.ParentID == categoryID {
+			inCat++
+		}
+	}
+	gone := map[string]bool{}
+	for _, id := range f.delRoles {
+		gone[id] = true
+	}
+	roles := f.extraRoles
+	for id := range f.roles {
+		if !gone[id] {
+			roles++
+		}
+	}
+	return inCat, total, roles, nil
 }
 func (f *fakeAPI) DeleteChannel(id string) error {
 	if f.deleteErr != nil {
@@ -375,6 +509,16 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, anyRegion)
 
+	m.HandleComponent(nil, component("alice", ctx.id("latejoinon")))
+	assert.Contains(t, editContent(api.lastEdit()), "open to joining an existing squad")
+	lateJoin, err := db.SquadLateJoin(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, lateJoin)
+	m.HandleComponent(nil, component("alice", ctx.id("latejoinoff")))
+	lateJoin, err = db.SquadLateJoin(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, lateJoin)
+
 	m.HandleComponent(nil, component("alice", ctx.id("done")))
 	assert.Contains(t, editContent(api.lastEdit()), "You're in the squad queue")
 	e, ok, err := db.SquadQueueEntryFor(guild, "alice")
@@ -568,6 +712,14 @@ func TestAdminUserShowsTryNewGames(t *testing.T) {
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** on")
 }
 
+func TestAdminUserShowsLateJoin(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	assert.Contains(t, m.userText(guild, "a"), "**Late join:** off")
+	require.NoError(t, db.SetSquadLateJoin(guild, "a", true))
+	assert.Contains(t, m.userText(guild, "a"), "**Late join:** on")
+}
+
 func TestAdminUserShowsAnyRegion(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	member(api, "a", "role-eu", "role-25")
@@ -632,6 +784,7 @@ func TestRunMatchRejectsLateJoinAvoidedByExistingMember(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.DeleteSquad(newer.ID, now.Add(-time.Hour)))
 	require.NoError(t, db.EnqueueSquadUser(guild, "late", "intro-late", now.Add(-49*time.Hour)))
+	require.NoError(t, db.SetSquadLateJoin(guild, "late", true))
 
 	require.NoError(t, m.tick())
 	members, err := db.SquadMemberIDs(current.ID)
@@ -650,12 +803,30 @@ func TestPrivateVisibilityHidesChannel(t *testing.T) {
 	assert.Equal(t, discordgo.PermissionOverwriteTypeMember, o[3].Type)
 }
 
+func TestQueuedMemberIsNotLateJoinedWithoutOptIn(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	queue(t, m, api, db, now.Add(-time.Hour), []string{"u1", "u2", "u3", "u4", "u5", "u6"}, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, m.tick())
+
+	queue(t, m, api, db, *now, []string{"late"}, []int64{1}, "role-eu", "role-25")
+	*now = now.Add(49 * time.Hour)
+	require.NoError(t, m.tick())
+
+	_, ok, err := db.SquadForUser(guild, "late")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	_, queued, err := db.SquadQueueEntryFor(guild, "late")
+	require.NoError(t, err)
+	assert.True(t, queued, "they keep waiting for a new squad")
+}
+
 func TestLateJoinerFillsYoungSquad(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	queue(t, m, api, db, now.Add(-time.Hour), []string{"u1", "u2", "u3", "u4", "u5", "u6"}, []int64{1}, "role-eu", "role-25")
 	require.NoError(t, m.tick())
 
 	queue(t, m, api, db, *now, []string{"late"}, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, db.SetSquadLateJoin(guild, "late", true))
 	*now = now.Add(49 * time.Hour)
 	require.NoError(t, m.tick())
 
@@ -1508,6 +1679,8 @@ func TestOpenSquadSkippedWhenAMemberCantBeLoaded(t *testing.T) {
 	sq := makeSquad(t, m, api, db, "a", "b", "c", "d", "e", "f", "g")
 	api.memberErr["a"] = errors.New("discord hiccup")
 	queue(t, m, api, db, now.Add(-49*time.Hour), []string{"x", "y"}, []int64{1}, "role-eu")
+	require.NoError(t, db.SetSquadLateJoin(guild, "x", true))
+	require.NoError(t, db.SetSquadLateJoin(guild, "y", true))
 	require.NoError(t, m.tick())
 	got, _, _ := db.GetSquad(sq.ID)
 	assert.Equal(t, 7, got.Members, "nobody joins a squad whose roster couldn't be checked")

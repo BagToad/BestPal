@@ -54,7 +54,7 @@ func helpCommandsEmbed() *discordgo.MessageEmbed {
 			},
 			{
 				Name:   "/squad",
-				Value:  "Get matched into a small squad channel with people who play the same games\n• `/squad join` - pick your games and join the queue\n• `/squad leave` - leave the queue or your squad",
+				Value:  "Get matched into a small squad with people who play the same games\n• `/squad join` - pick your games and join the queue\n• `/squad leave` - leave the queue or your squad\n• `/squad rename` - rename your squad's thread",
 				Inline: false,
 			},
 			{

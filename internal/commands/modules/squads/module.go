@@ -41,9 +41,12 @@ type Module struct {
 	now     func() time.Time
 	randN   func(n int) int
 
-	mu         sync.Mutex
-	locks      map[string]*sync.Mutex
-	reconciled map[string]time.Time // last departure check per guild
+	mu          sync.Mutex
+	threadRetry map[string]map[int64]bool // guild -> squads whose nightly thread check failed today
+	renames     map[int64][]time.Time     // squad ID -> recent thread renames
+	renaming    map[int64]bool            // squad ID -> rename in flight
+	locks       map[string]*sync.Mutex
+	reconciled  map[string]time.Time // last departure check per guild
 
 	chMu     sync.Mutex
 	channels map[string]int64    // squad channel ID -> squad ID
@@ -134,6 +137,9 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Options: []*discordgo.ApplicationCommandOption{
 				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "join", Description: "Pick your games and join the squad queue"},
 				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "leave", Description: "Leave your squad (or the queue)"},
+				{Type: discordgo.ApplicationCommandOptionSubCommand, Name: "rename", Description: "Rename your squad's thread",
+					Options: []*discordgo.ApplicationCommandOption{{Type: discordgo.ApplicationCommandOptionString, Name: "name",
+						Description: "The new name", Required: true, MinLength: new(1), MaxLength: maxSquadName}}},
 			},
 		},
 		HandlerFunc: m.handleSquad,
@@ -327,6 +333,10 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		m.handleAnyRegion(s, i, parsePickerCtx(parts), true)
 	case "anyregionoff":
 		m.handleAnyRegion(s, i, parsePickerCtx(parts), false)
+	case "latejoinon":
+		m.handleLateJoin(s, i, parsePickerCtx(parts), true)
+	case "latejoinoff":
+		m.handleLateJoin(s, i, parsePickerCtx(parts), false)
 	case "pageprev", "pagenext":
 		m.handleBack(s, i, parsePickerCtx(parts))
 	case "done":

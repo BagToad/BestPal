@@ -293,7 +293,8 @@ func (m *Module) refreshPermissions(guildID string) string {
 		return "❌ Could not load squads."
 	}
 	failed := 0
-	squads = slices.DeleteFunc(squads, database.Squad.Deleting)
+	// Thread squads are private by design and have no permissions of their own.
+	squads = slices.DeleteFunc(squads, func(sq database.Squad) bool { return sq.Deleting() || sq.Thread })
 	for _, sq := range squads {
 		perms, err := m.squadOverwrites(guildID, sq.RoleID)
 		if err != nil {
@@ -349,6 +350,13 @@ func reportText(r matchReport, dry bool) string {
 		b.WriteString("✅ **Pairing ran.**\n")
 	}
 	fmt.Fprintf(&b, "Queue: %d · open young squads: %d\n", r.Queued, r.Open)
+	// Problems go first so long member lists can't truncate them away.
+	if len(r.Failures) > 0 {
+		b.WriteString("\n⚠️ **Problems**\n")
+		for _, f := range r.Failures {
+			b.WriteString("• " + f + "\n")
+		}
+	}
 	if len(r.Plan.NewSquads) > 0 {
 		b.WriteString("\n**New squads**\n")
 		for _, g := range r.Plan.NewSquads {
@@ -375,12 +383,6 @@ func reportText(r matchReport, dry bool) string {
 	if len(r.Plan.Waiting) > 0 {
 		fmt.Fprintf(&b, "\n**Still waiting:** %s\n", names(r.Plan.Waiting))
 	}
-	if len(r.Failures) > 0 {
-		b.WriteString("\n⚠️ **Problems**\n")
-		for _, f := range r.Failures {
-			b.WriteString("• " + f + "\n")
-		}
-	}
 	if len(r.Plan.NewSquads)+len(r.Plan.Joins)+len(r.Plan.Unmatched)+len(r.Plan.Waiting) == 0 {
 		b.WriteString("\nNobody to match.")
 	}
@@ -399,8 +401,8 @@ func (m *Module) statusText(guildID string) string {
 	} else if !gc.GetSquadsIntroButton() {
 		problems = append(problems, "Intro posts don't get a Join button (Post on intros is off), so only /squad join works.")
 	}
-	if gc.GetSquadsCategoryID() == "" {
-		problems = append(problems, "No squads category set, so squads can't be created.")
+	if gc.GetSquadsThreadChannelID() == "" && gc.GetSquadsCategoryID() == "" {
+		problems = append(problems, "No thread channel or squads category set, so squads can't be created.")
 	}
 	if len(gc.GetSquadRoles(config.SquadRegionKeys)) == 0 {
 		problems = append(problems, "No region roles set, so everyone counts as the same region.")
@@ -524,6 +526,13 @@ func (m *Module) userSummary(guildID, uid string, withCompatibility bool) string
 			answer = "on"
 		}
 		fmt.Fprintf(&b, "**Any region:** %s\n", answer)
+	}
+	if lateJoin, err := m.db.SquadLateJoin(guildID, uid); err == nil {
+		answer := "off"
+		if lateJoin {
+			answer = "on"
+		}
+		fmt.Fprintf(&b, "**Late join:** %s\n", answer)
 	}
 	picks, err := m.db.SquadPicks(guildID, uid)
 	if err != nil {
@@ -760,7 +769,7 @@ func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.Interacti
 				continue
 			}
 			choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-				Name:  fmt.Sprintf("%s (%s)", sq.Name, plural(sq.Members, "member", "members")),
+				Name:  choiceLabel(sq.Name, " ("+plural(sq.Members, "member", "members")+")"),
 				Value: fmt.Sprint(sq.ID),
 			})
 			if len(choices) == 25 {
@@ -772,4 +781,14 @@ func (m *Module) HandleAutocomplete(s *discordgo.Session, i *discordgo.Interacti
 		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
 		Data: &discordgo.InteractionResponseData{Choices: choices},
 	})
+}
+
+// choiceLabel joins name and suffix, shortening name so the label fits
+// Discord's 100-character limit on choice names.
+func choiceLabel(name, suffix string) string {
+	room := 100 - len([]rune(suffix))
+	if n := []rune(name); len(n) > room {
+		name = string(n[:room-1]) + "…"
+	}
+	return name + suffix
 }

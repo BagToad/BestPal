@@ -25,15 +25,35 @@ type discordAPI interface {
 	Send(channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 	Pin(channelID, messageID string) error
 	Member(guildID, userID string) (*discordgo.Member, error)
+	// FetchMember is Member without the cache, for checking someone is
+	// still in the server.
+	FetchMember(guildID, userID string) (*discordgo.Member, error)
 	CreateRole(guildID string, params *discordgo.RoleParams) (*discordgo.Role, error)
 	DeleteRole(guildID, roleID string) error
 	AddRole(guildID, userID, roleID string) error
 	RemoveRole(guildID, userID, roleID string) error
 	CreateChannel(guildID string, data discordgo.GuildChannelCreateData) (*discordgo.Channel, error)
 	EditChannelPerms(channelID string, overwrites []*discordgo.PermissionOverwrite) error
+	// CreateThread starts a private, member-only thread in a channel.
+	CreateThread(parentID, name string) (*discordgo.Channel, error)
+	AddThreadMember(threadID, userID string) error
+	RemoveThreadMember(threadID, userID string) error
+	// ThreadMemberIDs lists everyone in a thread, the bot included.
+	ThreadMemberIDs(threadID string) ([]string, error)
+	// RenameThread renames a squad thread. It fails rather than waits when
+	// Discord's rename rate limit is hit. If the thread is archived, reopening
+	// it runs inside guard, which may refuse with an error, so a rename can't
+	// reopen a thread that is being closed.
+	RenameThread(threadID, name string, guard func(reopen func() error) error) error
+	// FreezeChannel stops members posting: a channel loses its chat
+	// permissions, and a thread is closed: every member but the bot is
+	// removed and it's archived and locked, leaving a mod-only archive.
 	FreezeChannel(channelID string) error
 	DeleteChannel(channelID string) error
 	DM(userID string, msg *discordgo.MessageSend) error
+	// GuildCounts reports how many channels are in a category and the
+	// server, and how many roles the server has.
+	GuildCounts(guildID, categoryID string) (inCategory, channels, roles int, err error)
 	BotID() string
 	Channel(channelID string) (*discordgo.Channel, error)
 	ChannelMessages(channelID string) ([]*discordgo.Message, error)
@@ -74,6 +94,10 @@ func (a sessionAPI) Member(guildID, userID string) (*discordgo.Member, error) {
 	return a.s.GuildMember(guildID, userID)
 }
 
+func (a sessionAPI) FetchMember(guildID, userID string) (*discordgo.Member, error) {
+	return a.s.GuildMember(guildID, userID)
+}
+
 func (a sessionAPI) CreateRole(guildID string, params *discordgo.RoleParams) (*discordgo.Role, error) {
 	return a.s.GuildRoleCreate(guildID, params)
 }
@@ -99,12 +123,184 @@ func (a sessionAPI) EditChannelPerms(channelID string, overwrites []*discordgo.P
 	return err
 }
 
+// squadThreadArchive is how long a quiet squad thread stays open (7 days, the
+// most Discord allows). Posting in an archived thread reopens it.
+const squadThreadArchive = 10080
+
+func (a sessionAPI) CreateThread(parentID, name string) (*discordgo.Channel, error) {
+	return a.s.ThreadStartComplex(parentID, &discordgo.ThreadStart{
+		Name:                name,
+		AutoArchiveDuration: squadThreadArchive,
+		Type:                discordgo.ChannelTypeGuildPrivateThread,
+		Invitable:           false,
+	})
+}
+
+func (a sessionAPI) AddThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberAdd(threadID, userID) })
+}
+
+func (a sessionAPI) RemoveThreadMember(threadID, userID string) error {
+	return a.onOpenThread(threadID, func() error { return a.s.ThreadMemberRemove(threadID, userID) })
+}
+
+func (a sessionAPI) RenameThread(threadID, name string, guard func(reopen func() error) error) error {
+	rename := func() error {
+		// Renames get their own rate-limit bucket. Discord's rename limit
+		// (2 per 10 minutes) would otherwise empty the thread's bucket, and
+		// discordgo would hold every later edit of it, closing included,
+		// until it refills. Waiting on the rename bucket is refused too.
+		uri := discordgo.EndpointChannel(threadID)
+		bucket := uri + "#rename"
+		rl := a.s.Ratelimiter
+		b := rl.GetBucket(bucket)
+		b.Lock()
+		wait, global := rl.GetWaitTime(b, 1), rl.GetWaitTime(b, 0)
+		b.Unlock()
+		switch {
+		case global > 0:
+			// The whole bot is briefly limited; that says nothing about renames.
+			return errBotRateLimited
+		case wait > 0:
+			return &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
+				TooManyRequests: &discordgo.TooManyRequests{RetryAfter: wait}, URL: uri}}
+		}
+		_, err := a.s.RequestWithBucketID("PATCH", uri, &discordgo.ChannelEdit{Name: name}, bucket, discordgo.WithRetryOnRatelimit(false))
+		return err
+	}
+	err := rename()
+	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
+		return err
+	}
+	if err := guard(func() error { return a.reopenThread(threadID) }); err != nil {
+		return err
+	}
+	return rename()
+}
+
+var errBotRateLimited = errors.New("the bot is rate limited")
+
+var errThreadLocked = errors.New("the squad thread is locked for deletion")
+
+// onOpenThread runs op, reopening the thread and trying once more if Discord
+// refuses because it was archived. A locked thread is being deleted, so it
+// stays closed.
+func (a sessionAPI) onOpenThread(threadID string, op func() error) error {
+	err := op()
+	if discordCode(err) != discordgo.ErrCodePerformedOperationOnArchivedThread {
+		return err
+	}
+	if err := a.reopenThread(threadID); err != nil {
+		return err
+	}
+	return op()
+}
+
+// reopenThread unarchives a thread unless it is locked for deletion.
+func (a sessionAPI) reopenThread(threadID string) error {
+	th, err := a.s.Channel(threadID)
+	if err != nil {
+		return err
+	}
+	if !reopenable(th) {
+		return errThreadLocked
+	}
+	_, err = a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false)})
+	return err
+}
+
+// reopenable reports whether an archived squad thread may be unarchived.
+func reopenable(th *discordgo.Channel) bool {
+	return th.ThreadMetadata == nil || !th.ThreadMetadata.Locked
+}
+
 func (a sessionAPI) FreezeChannel(channelID string) error {
 	channel, err := a.Channel(channelID)
 	if err != nil {
 		return err
 	}
+	if channel.IsThread() {
+		return a.closeThread(channelID)
+	}
 	return a.EditChannelPerms(channelID, frozenOverwrites(channel.PermissionOverwrites, a.BotID()))
+}
+
+// closeThread removes everyone but the bot from a thread, then archives and
+// locks it. Members can't be removed from an archived thread, so it's
+// reopened (locked, so nobody else can reopen it) first. Safe to repeat.
+func (a sessionAPI) closeThread(threadID string) error {
+	if _, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(false), Locked: new(true)}); err != nil {
+		return err
+	}
+	removeErr := a.removeThreadMembers(threadID)
+	// Locking alone doesn't stop posting in an open thread; archiving does,
+	// and the lock keeps members from reopening it. Archive even if removing
+	// members failed, so nobody can post until the retry.
+	_, err := a.s.ChannelEdit(threadID, &discordgo.ChannelEdit{Archived: new(true), Locked: new(true)})
+	return errors.Join(removeErr, err)
+}
+
+func (a sessionAPI) ThreadMemberIDs(threadID string) ([]string, error) {
+	var ids []string
+	err := a.eachThreadMember(threadID, func(uid string) error {
+		ids = append(ids, uid)
+		return nil
+	})
+	return ids, err
+}
+
+// removeThreadMembers removes everyone but the bot from a thread.
+func (a sessionAPI) removeThreadMembers(threadID string) error {
+	var ids []string
+	if err := a.eachThreadMember(threadID, func(uid string) error {
+		ids = append(ids, uid)
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, uid := range ids {
+		if uid == a.BotID() {
+			continue
+		}
+		if err := a.s.ThreadMemberRemove(threadID, uid); err != nil && discordCode(err) != discordgo.ErrCodeUnknownMember {
+			return err
+		}
+	}
+	return nil
+}
+
+// eachThreadMember calls fn for every member of a thread. Before API v11,
+// Discord only pages thread members when with_member is set; without it
+// every request returns the whole list from the start.
+func (a sessionAPI) eachThreadMember(threadID string, fn func(uid string) error) error {
+	after := ""
+	for {
+		members, err := a.s.ThreadMembers(threadID, 100, true, after)
+		if err != nil {
+			return err
+		}
+		for _, tm := range members {
+			if err := fn(tm.UserID); err != nil {
+				return err
+			}
+		}
+		if len(members) < 100 {
+			return nil
+		}
+		last := members[len(members)-1].UserID
+		if !snowflakeAfter(last, after) {
+			return fmt.Errorf("thread %s member list didn't advance past %s", threadID, after)
+		}
+		after = last
+	}
+}
+
+// snowflakeAfter reports whether Discord ID a sorts after b ("" sorts first).
+func snowflakeAfter(a, b string) bool {
+	if len(a) != len(b) {
+		return len(a) > len(b)
+	}
+	return a > b
 }
 
 func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []*discordgo.PermissionOverwrite {
@@ -124,6 +320,45 @@ func frozenOverwrites(current []*discordgo.PermissionOverwrite, botID string) []
 		overwrites = append(overwrites, &copy)
 	}
 	return overwrites
+}
+
+func (a sessionAPI) GuildCounts(guildID, categoryID string) (int, int, int, error) {
+	if st := a.s.State; st != nil {
+		if g, err := st.Guild(guildID); err == nil {
+			// The cached guild is shared with gateway updates.
+			st.RLock()
+			ok := len(g.Channels) > 0 && len(g.Roles) > 0
+			inCategory, total := countChannels(g.Channels, categoryID)
+			roles := len(g.Roles)
+			st.RUnlock()
+			if ok {
+				return inCategory, total, roles, nil
+			}
+		}
+	}
+	channels, err := a.s.GuildChannels(guildID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	roles, err := a.s.GuildRoles(guildID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	inCategory, total := countChannels(channels, categoryID)
+	return inCategory, total, len(roles), nil
+}
+
+func countChannels(channels []*discordgo.Channel, categoryID string) (inCategory, total int) {
+	for _, ch := range channels {
+		if ch == nil || ch.IsThread() {
+			continue
+		}
+		total++
+		if categoryID != "" && ch.ParentID == categoryID {
+			inCategory++
+		}
+	}
+	return inCategory, total
 }
 
 func (a sessionAPI) DeleteChannel(channelID string) error {

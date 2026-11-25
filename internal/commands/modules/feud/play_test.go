@@ -2,7 +2,7 @@ package feud
 
 import (
 	"context"
-	"strconv"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -39,14 +39,20 @@ func adminCmd(uid, sub string) *discordgo.InteractionCreate {
 // readyQuestion seeds a question with enough answers to play.
 func readyQuestion(t *testing.T, db *database.DB, text string, answers map[string]string) {
 	t.Helper()
-	_, err := db.SubmitFeudQuestion(guild, "u", text, normalize(text), time.Unix(1, 0))
+	_, err := db.SubmitFeudQuestion(guild, "u", text, normalize(text), 3, time.Unix(1, 0))
 	require.NoError(t, err)
 	q, ok, err := db.OldestPendingFeudQuestion(guild)
 	require.NoError(t, err)
 	require.True(t, ok)
 	_, err = db.ReviewFeudQuestion(guild, q.ID, true, "mod", time.Unix(1, 0))
 	require.NoError(t, err)
-	for uid, a := range answers {
+	uids := make([]string, 0, len(answers))
+	for uid := range answers {
+		uids = append(uids, uid)
+	}
+	sort.Strings(uids)
+	for _, uid := range uids {
+		a := answers[uid]
 		_, err := db.AddFeudResponse(guild, q.ID, uid, a, normalize(a), time.Unix(1, 0))
 		require.NoError(t, err)
 	}
@@ -116,7 +122,7 @@ func TestGameFlow(t *testing.T) {
 	q, _, _ := db.FeudQuestion(guild, g.QuestionID)
 	assert.Equal(t, 1, q.TimesPlayed)
 
-	seq := strconv.Itoa(g.TurnSeq)
+	seq := turnKey(g)
 	m.HandleComponent(nil, component("x", "gf:suggest:"+seq, 0))
 	assert.Contains(t, api.last(t).Data.Content, "other team's turn")
 	m.HandleComponent(nil, component("a", "gf:suggest:"+seq, 0))
@@ -126,9 +132,12 @@ func TestGameFlow(t *testing.T) {
 	// agent judges it.
 	agent.reply = "1"
 	m.HandleModalSubmit(nil, modal("a", "gf:sg:"+seq, suggestInputID, "doggo"))
-	r := api.last(t)
-	assert.Equal(t, discordgo.InteractionResponseUpdateMessage, r.Type)
-	assert.Contains(t, r.Data.Content, "locked in")
+	assert.Equal(t, discordgo.InteractionResponseDeferredMessageUpdate, api.last(t).Type)
+	var lockedNote bool
+	for _, e := range api.edits {
+		lockedNote = lockedNote || (e.Content != nil && strings.Contains(*e.Content, "locked in"))
+	}
+	assert.True(t, lockedNote, "the panel shows the locked guess")
 	require.Len(t, agent.prompts, 1)
 	assert.Contains(t, agent.prompts[0], "1. Dogs\n2. Cat")
 	g = liveGame(t, m)
@@ -137,7 +146,7 @@ func TestGameFlow(t *testing.T) {
 	assert.True(t, g.Slots[0].Shown)
 
 	// Blue's "The cats" matches exactly, so no agent call.
-	seq = strconv.Itoa(g.TurnSeq)
+	seq = turnKey(g)
 	m.HandleModalSubmit(nil, modal("x", "gf:sg:"+seq, suggestInputID, "The cats"))
 	assert.Len(t, agent.prompts, 1)
 	row, ok, err := db.LastFeudGame(guild)
@@ -241,7 +250,7 @@ func TestTimerTurnoverAndRecovery(t *testing.T) {
 	g := liveGame(t, m)
 	require.True(t, now.Add(30*time.Second).Equal(g.Deadline))
 	assert.Equal(t, 30*time.Second+100*time.Millisecond, armed[len(armed)-1])
-	seq := strconv.Itoa(g.TurnSeq)
+	seq := turnKey(g)
 	panelID := g.PanelMessage
 
 	// Red's two players split; time runs out and the earlier pick goes in.
@@ -249,7 +258,12 @@ func TestTimerTurnoverAndRecovery(t *testing.T) {
 	m.HandleModalSubmit(nil, modal("b", "gf:sg:"+seq, suggestInputID, "Cat"))
 	g = liveGame(t, m)
 	require.Equal(t, phaseTurn, g.Phase, "1 of 2 isn't a majority")
-	comps := api.last(t).Data.Components
+	var comps []discordgo.MessageComponent
+	for _, e := range api.edits {
+		if e.ID == panelID && e.Components != nil {
+			comps = *e.Components
+		}
+	}
 	require.Len(t, comps, 2, "suggest row and a row of vote buttons")
 
 	// A restart while the turn runs keeps the deadline.
@@ -270,4 +284,28 @@ func TestTimerTurnoverAndRecovery(t *testing.T) {
 		closed = closed || (e.ID == panelID && strings.Contains(*e.Content, "Hamster"))
 	}
 	assert.True(t, closed, "the old panel shows what happened")
+}
+
+func TestStaleJoinDoesNotRestoreLeaver(t *testing.T) {
+	m, api, _ := newTestModule(t, map[string]any{config.KeyFeudChannelID: "feudch"})
+	threads := [2]string{"thread1", "thread2"}
+	empty := &Game{GuildID: guild, Phase: phaseLobby}
+	joined := &Game{GuildID: guild, Phase: phaseLobby, Players: []Player{{UserID: "a", Team: red, Active: true}}}
+	left := &Game{GuildID: guild, Phase: phaseLobby, Players: []Player{{UserID: "a", Team: red}}}
+
+	// The Join's side effects arrive after the Leave has been saved.
+	m.syncThreads(empty, joined, left, threads)
+	assert.False(t, api.members["thread1"]["a"])
+	assert.Empty(t, api.sent["thread1"], "no welcome for someone who already left")
+}
+
+func TestGameOverBoardKeepsAnswers(t *testing.T) {
+	g := &Game{Phase: phaseEnded, Result: "It's a tie!", Question: "Name a pet", Slots: testSlots("Dog", "Cat")}
+	for n := range g.Slots {
+		g.Slots[n].Shown = true
+	}
+	e := boardEmbed(g, database.FeudBoard{})
+	assert.Contains(t, e.Description, "Name a pet")
+	require.NotEmpty(t, e.Fields)
+	assert.Contains(t, e.Fields[0].Value, "Dog")
 }

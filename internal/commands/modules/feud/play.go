@@ -105,7 +105,9 @@ func (m *Module) change(guildID string, fn func(g *Game) error) (*Game, *Game, e
 }
 
 // sync updates Discord after a change: thread membership, the turn panel,
-// the board and the timer.
+// the board and the timer. It runs under its own lock and works from the
+// newest saved state, so changes finishing out of order can't leave Discord
+// showing an older one.
 func (m *Module) sync(before, g *Game) {
 	unlock := m.guildLock(g.GuildID + ":sync")
 	defer unlock()
@@ -116,27 +118,33 @@ func (m *Module) sync(before, g *Game) {
 		}
 		return
 	}
+	latest := func() *Game {
+		if row, ok, err := m.db.LastFeudGame(g.GuildID); err == nil && ok {
+			if cur, err := decodeGame(row); err == nil {
+				return cur
+			}
+		}
+		return g
+	}
 	threads := [2]string{board.RedThreadID, board.BlueThreadID}
-	m.syncThreads(before, g, threads)
+	m.syncThreads(before, g, latest(), threads)
 	switch {
 	case before.TurnSeq != g.TurnSeq || (g.Phase != phaseTurn && g.Phase != phaseJudging):
 		m.closePanel(before, g)
 	case g.Phase == phaseJudging && before.Phase == phaseTurn:
-		m.editPanel(before, lockedContent(g.Locked))
+		m.editPanel(panelRef(before, latest()), lockedContent(g.Locked))
 	}
 	if g.Phase == phaseTurn && (before.TurnSeq != g.TurnSeq || before.Phase != phaseTurn) && g.PanelMessage == "" {
 		m.postPanel(g, threads[g.Turn])
 	}
-	// Render the newest state: another change may have landed meanwhile.
-	if row, ok, err := m.db.LastFeudGame(g.GuildID); err == nil && ok {
-		if cur, err := decodeGame(row); err == nil {
-			g = cur
-		}
+	cur := latest()
+	if g.Phase == phaseTurn && before.Phase == phaseTurn && before.TurnSeq == g.TurnSeq && !samePanel(before, g) {
+		m.refreshPanel(cur, g.TurnSeq)
 	}
-	if !sameBoard(before, g, board) {
-		m.refreshBoard(board, g)
+	if !sameBoard(before, cur, board) {
+		m.refreshBoard(board, cur)
 	}
-	m.arm(g.GuildID, g.Deadline)
+	m.arm(cur.GuildID, cur.Deadline)
 }
 
 // sameBoard reports whether a change left the board looking the same, as
@@ -147,38 +155,59 @@ func sameBoard(before, g *Game, board database.FeudBoard) bool {
 	return errA == nil && errB == nil && string(a) == string(b)
 }
 
-// syncThreads adds new players to their team thread and removes leavers.
-// At the end of a game everyone is removed, ready for the next one.
-func (m *Module) syncThreads(before, g *Game, threads [2]string) {
+// samePanel reports whether a change left the turn panel looking the same.
+func samePanel(before, g *Game) bool {
+	a, errA := json.Marshal(panelComponents(before))
+	b, errB := json.Marshal(panelComponents(g))
+	return errA == nil && errB == nil && string(a) == string(b)
+}
+
+// syncThreads brings the team threads in line with the players a change
+// touched. What each thread should hold comes from cur, the newest saved
+// state, not from the change itself: a Join finishing after a later Leave
+// must not put the leaver back. At the end of a game everyone is removed,
+// ready for the next one.
+func (m *Module) syncThreads(before, g, cur *Game, threads [2]string) {
 	was := map[string]Player{}
 	for _, p := range before.Players {
 		if p.Active {
 			was[p.UserID] = p
 		}
 	}
+	over := g.Phase == phaseEnded && before.Phase != phaseEnded
 	api := m.dc(nil)
 	for _, p := range g.Players {
 		old, wasIn := was[p.UserID]
-		delete(was, p.UserID)
-		stay := p.Active && g.Phase != phaseEnded
+		if !over && wasIn == p.Active && (!wasIn || old.Team == p.Team) {
+			continue
+		}
+		want := cur.player(p.UserID)
+		stay := want != nil && want.Active && cur.Phase != phaseEnded
 		switch {
-		case stay && (!wasIn || old.Team != p.Team):
-			if err := api.AddThreadMember(threads[p.Team], p.UserID); err != nil {
+		case stay:
+			if wasIn && old.Team == want.Team {
+				continue
+			}
+			if err := api.AddThreadMember(threads[want.Team], p.UserID); err != nil {
 				m.config.Logger.Warnf("feud: add %s to thread: %v", p.UserID, err)
 			}
-			if _, err := api.Send(threads[p.Team], &discordgo.MessageSend{
-				Content:         fmt.Sprintf("%s <@%s> joined **%s**! Plan your answers here with your team.", teamEmoji(p.Team), p.UserID, teamNames[p.Team]),
+			if _, err := api.Send(threads[want.Team], &discordgo.MessageSend{
+				Content:         fmt.Sprintf("%s <@%s> joined **%s**! Plan your answers here with your team.", teamEmoji(want.Team), p.UserID, teamNames[want.Team]),
 				AllowedMentions: &discordgo.MessageAllowedMentions{Users: []string{p.UserID}},
 			}); err != nil {
 				m.config.Logger.Warnf("feud: welcome %s: %v", p.UserID, err)
 			}
-		case !stay && wasIn:
-			if err := api.RemoveThreadMember(threads[old.Team], p.UserID); err != nil {
+		default:
+			team := p.Team
+			if wasIn {
+				team = old.Team
+			}
+			if err := api.RemoveThreadMember(threads[team], p.UserID); err != nil {
 				m.config.Logger.Warnf("feud: remove %s from thread: %v", p.UserID, err)
 			}
 		}
 	}
-	if g.Phase == phaseEnded && before.Phase != phaseEnded {
+	if over {
 		for team, th := range threads {
 			if _, err := api.Send(th, &discordgo.MessageSend{Content: "🏁 **Game over.** " + g.Result + fmt.Sprintf(" (🔴 %d · 🔵 %d)", g.Score[red], g.Score[blue]), AllowedMentions: &discordgo.MessageAllowedMentions{}}); err != nil {
 				m.config.Logger.Warnf("feud: game over in %s thread: %v", teamNames[team], err)
@@ -216,7 +245,35 @@ func (m *Module) closePanel(before, g *Game) {
 	if g.Last != "" {
 		content = "Turn over: " + g.Last
 	}
-	m.editPanel(before, content)
+	m.editPanel(panelRef(before, nil), content)
+}
+
+// panelMessage is a turn panel's place in a thread.
+type panelMessage struct{ channel, id string }
+
+// panelRef finds the panel of before's turn. If it hadn't been saved when
+// before was loaded, the newest state may have it.
+func panelRef(before, latest *Game) panelMessage {
+	if before.PanelMessage == "" && latest != nil && latest.TurnSeq == before.TurnSeq {
+		return panelMessage{latest.PanelChannel, latest.PanelMessage}
+	}
+	return panelMessage{before.PanelChannel, before.PanelMessage}
+}
+
+// refreshPanel redraws the turn panel from the newest state, if it is still
+// the same turn.
+func (m *Module) refreshPanel(cur *Game, seq int) {
+	if cur.TurnSeq != seq || cur.Phase != phaseTurn || cur.PanelMessage == "" {
+		return
+	}
+	content := panelContent(cur)
+	comps := panelComponents(cur)
+	if _, err := m.dc(nil).Edit(&discordgo.MessageEdit{
+		Channel: cur.PanelChannel, ID: cur.PanelMessage, Content: &content, Components: &comps,
+		AllowedMentions: &discordgo.MessageAllowedMentions{},
+	}); err != nil {
+		m.config.Logger.Warnf("feud: update turn panel: %v", err)
+	}
 }
 
 func lockedContent(guess string) string {
@@ -224,13 +281,13 @@ func lockedContent(guess string) string {
 }
 
 // editPanel replaces a turn panel with a closing note.
-func (m *Module) editPanel(before *Game, content string) {
-	if before.PanelMessage == "" {
+func (m *Module) editPanel(ref panelMessage, content string) {
+	if ref.id == "" {
 		return
 	}
 	comps := []discordgo.MessageComponent{}
 	if _, err := m.dc(nil).Edit(&discordgo.MessageEdit{
-		Channel: before.PanelChannel, ID: before.PanelMessage, Content: &content, Components: &comps,
+		Channel: ref.channel, ID: ref.id, Content: &content, Components: &comps,
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}); err != nil {
 		m.config.Logger.Warnf("feud: close turn panel: %v", err)
@@ -279,10 +336,6 @@ func (m *Module) tick(guildID string) {
 		case phaseTurn:
 			judge, seq = g.timeUp(now), g.TurnSeq
 		case phaseJudging:
-			if now.Before(g.Deadline.Add(judgeWait)) {
-				g.Deadline = g.Deadline.Add(judgeWait)
-				return nil
-			}
 			g.applyGuess(g.Locked, -1, now)
 		case phasePaused:
 			g.finish(now, "Game ended: a team was empty for too long.")
@@ -429,12 +482,52 @@ func (m *Module) Recover() {
 			m.config.Logger.Warnf("feud: %v", err)
 			continue
 		}
-		if g.Phase == phaseJudging {
-			// The check died with the old process; run it again.
-			m.spawn(func() { m.judge(g.GuildID, g.TurnSeq, g.Locked) })
+		switch {
+		case g.Phase == phaseJudging:
+			// The check died with the old process; run it again with a
+			// fresh expiry.
+			if cur, _, err := m.change(g.GuildID, func(cur *Game) error {
+				if cur.Phase != phaseJudging || cur.TurnSeq != g.TurnSeq {
+					return errStale
+				}
+				cur.Deadline = m.now().Add(judgeWait)
+				return nil
+			}); err == nil {
+				g = cur
+				m.spawn(func() { m.judge(g.GuildID, g.TurnSeq, g.Locked) })
+			}
+		case g.Phase == phaseTurn && g.PanelMessage == "":
+			// The restart came between saving the turn and posting its panel.
+			g = m.repostPanel(g)
 		}
 		m.arm(g.GuildID, g.Deadline)
 	}
+}
+
+// repostPanel posts a turn's missing panel and restarts the turn's clock, so
+// the team isn't struck for a panel they never saw. It returns the newest
+// state.
+func (m *Module) repostPanel(g *Game) *Game {
+	cur, _, err := m.change(g.GuildID, func(cur *Game) error {
+		if cur.Phase != phaseTurn || cur.TurnSeq != g.TurnSeq || cur.PanelMessage != "" {
+			return errStale
+		}
+		cur.Deadline = m.now().Add(cur.turnLength())
+		return nil
+	})
+	if err != nil {
+		return g
+	}
+	board, ok, err := m.db.FeudBoard(cur.GuildID)
+	if err != nil || !ok {
+		return cur
+	}
+	m.postPanel(cur, [2]string{board.RedThreadID, board.BlueThreadID}[cur.Turn])
+	m.refreshBoard(board, cur)
+	if latest, err := m.loadGame(cur.GuildID); err == nil && latest != nil {
+		return latest
+	}
+	return cur
 }
 
 // sweep is the safety net for missed timers.
@@ -461,6 +554,9 @@ func (m *Module) handleSetup(s *discordgo.Session, i *discordgo.InteractionCreat
 		m.respondText(s, i, "❌ Set the GP Feud channel in `/config` first.")
 		return
 	}
+	// Held through the whole setup so a game can't start while the threads
+	// it would use are being replaced.
+	defer m.guildLock(i.GuildID)()
 	if g, err := m.loadGame(i.GuildID); err != nil || g != nil {
 		m.respondText(s, i, "❌ End the current game first.")
 		return
@@ -488,6 +584,9 @@ func (m *Module) handleSetup(s *discordgo.Session, i *discordgo.InteractionCreat
 }
 
 func (m *Module) handleStart(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	// Held until the new game is saved, so a Join or End can't land between
+	// creating the game and its first save and then be overwritten.
+	defer m.guildLock(i.GuildID)()
 	board, ok, err := m.db.FeudBoard(i.GuildID)
 	if err != nil || !ok {
 		m.respondText(s, i, "❌ Run `/feud-admin setup` first.")
@@ -575,8 +674,12 @@ func (m *Module) handleLeave(s *discordgo.Session, i *discordgo.InteractionCreat
 }
 
 func (m *Module) leaveGame(guildID, uid string, reply func(string)) {
+	var locked string
+	var seq int
 	m.mutate(guildID, func(g *Game) error {
-		_, err := g.leave(uid, m.now())
+		var err error
+		locked, err = g.leave(uid, m.now())
+		seq = g.TurnSeq
 		return err
 	}, func(_ *Game, err error) {
 		switch {
@@ -589,6 +692,9 @@ func (m *Module) leaveGame(guildID, uid string, reply func(string)) {
 			reply("You left the game. You can rejoin after this round.")
 		}
 	})
+	if locked != "" {
+		m.spawn(func() { m.judge(guildID, seq, locked) })
+	}
 }
 
 // OnThreadMembersUpdate treats leaving a team thread as leaving the game.
@@ -605,19 +711,26 @@ func (m *Module) OnThreadMembersUpdate(_ *discordgo.Session, u *discordgo.Thread
 		team = blue
 	}
 	for _, uid := range u.RemovedMembers {
+		var locked string
+		var seq int
 		m.mutate(u.GuildID, func(g *Game) error {
 			// Only someone still on this team; removals the bot made are
 			// already done.
 			if p := g.player(uid); p == nil || !p.Active || p.Team != team {
 				return errNotInGame
 			}
-			_, err := g.leave(uid, m.now())
+			var err error
+			locked, err = g.leave(uid, m.now())
+			seq = g.TurnSeq
 			return err
 		}, func(_ *Game, err error) {
 			if err != nil && !errors.Is(err, errNotInGame) && !errors.Is(err, errNoGame) {
 				m.config.Logger.Warnf("feud: thread leave: %v", err)
 			}
 		})
+		if locked != "" {
+			m.spawn(func() { m.judge(u.GuildID, seq, locked) })
+		}
 	}
 }
 
@@ -638,13 +751,17 @@ func turnError(err error) string {
 	return "❌ Something went wrong. Try again in a moment."
 }
 
-func (m *Module) openSuggestModal(s *discordgo.Session, i *discordgo.InteractionCreate, seqStr string) {
-	seq, _ := strconv.Atoi(seqStr)
+func (m *Module) openSuggestModal(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
+	gameID, seq, ok := parseTurnKey(key)
 	g, err := m.loadGame(i.GuildID)
-	if err == nil && g == nil {
+	switch {
+	case !ok:
+		err = errStale
+	case err == nil && g == nil:
 		err = errNoGame
-	}
-	if err == nil {
+	case err == nil && g.ID != gameID:
+		err = errStale
+	case err == nil:
 		err = g.canVote(userID(i), seq)
 	}
 	if err != nil {
@@ -652,7 +769,7 @@ func (m *Module) openSuggestModal(s *discordgo.Session, i *discordgo.Interaction
 		return
 	}
 	m.respond(s, i, discordgo.InteractionResponseModal, &discordgo.InteractionResponseData{
-		CustomID: prefix + "sg:" + seqStr,
+		CustomID: prefix + "sg:" + key,
 		Title:    "Suggest an answer",
 		Components: []discordgo.MessageComponent{
 			discordgo.TextDisplay{Content: "### " + g.Question},
@@ -663,8 +780,12 @@ func (m *Module) openSuggestModal(s *discordgo.Session, i *discordgo.Interaction
 	})
 }
 
-func (m *Module) handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate, seqStr string) {
-	seq, _ := strconv.Atoi(seqStr)
+func (m *Module) handleSuggest(s *discordgo.Session, i *discordgo.InteractionCreate, key string) {
+	gameID, seq, ok := parseTurnKey(key)
+	if !ok {
+		m.respondText(s, i, turnError(errStale))
+		return
+	}
 	text := truncate(cleanText(modalValue(i, suggestInputID)), maxGuessLen)
 	norm := normalize(text)
 	if !hasWord(text) || norm == "" {
@@ -673,47 +794,50 @@ func (m *Module) handleSuggest(s *discordgo.Session, i *discordgo.InteractionCre
 	}
 	var locked string
 	m.mutate(i.GuildID, func(g *Game) error {
+		if g.ID != gameID {
+			return errStale
+		}
 		var err error
-		locked, err = g.suggest(userID(i), text, norm, seq)
+		locked, err = g.suggest(userID(i), text, norm, seq, m.now())
 		if errors.Is(err, errDuplicateIdea) {
 			return nil
 		}
 		return err
-	}, func(g *Game, err error) { m.afterVote(s, i, g, err, locked) })
+	}, func(_ *Game, err error) { m.afterVote(s, i, err) })
 	if locked != "" {
 		m.spawn(func() { m.judge(i.GuildID, seq, locked) })
 	}
 }
 
-func (m *Module) handleVote(s *discordgo.Session, i *discordgo.InteractionCreate, seqStr, idStr string) {
-	seq, _ := strconv.Atoi(seqStr)
-	id, _ := strconv.Atoi(idStr)
+func (m *Module) handleVote(s *discordgo.Session, i *discordgo.InteractionCreate, key, idStr string) {
+	gameID, seq, ok := parseTurnKey(key)
+	id, idErr := strconv.Atoi(idStr)
+	if !ok || idErr != nil {
+		m.respondText(s, i, turnError(errStale))
+		return
+	}
 	var locked string
 	m.mutate(i.GuildID, func(g *Game) error {
+		if g.ID != gameID {
+			return errStale
+		}
 		var err error
-		locked, err = g.vote(userID(i), id, seq)
+		locked, err = g.vote(userID(i), id, seq, m.now())
 		return err
-	}, func(g *Game, err error) { m.afterVote(s, i, g, err, locked) })
+	}, func(_ *Game, err error) { m.afterVote(s, i, err) })
 	if locked != "" {
 		m.spawn(func() { m.judge(i.GuildID, seq, locked) })
 	}
 }
 
-// afterVote refreshes the panel.
-func (m *Module) afterVote(s *discordgo.Session, i *discordgo.InteractionCreate, g *Game, err error, locked string) {
+// afterVote acknowledges the click. The panel itself is redrawn by sync
+// from the newest state, so simultaneous votes can't overwrite each other.
+func (m *Module) afterVote(s *discordgo.Session, i *discordgo.InteractionCreate, err error) {
 	if err != nil {
 		m.respondText(s, i, turnError(err))
 		return
 	}
-	content := panelContent(g)
-	comps := panelComponents(g)
-	if locked != "" {
-		content = lockedContent(locked)
-		comps = []discordgo.MessageComponent{}
-	}
-	m.respond(s, i, discordgo.InteractionResponseUpdateMessage, &discordgo.InteractionResponseData{
-		Content: content, Components: comps, AllowedMentions: &discordgo.MessageAllowedMentions{},
-	})
+	m.respond(s, i, discordgo.InteractionResponseDeferredMessageUpdate, nil)
 }
 
 func teamEmoji(team int) string {

@@ -189,16 +189,18 @@ func (g *Game) join(uid string, now time.Time, coin func(n int) int) (int, error
 	return team, nil
 }
 
-// leave takes a player out of the game for the rest of the round.
-func (g *Game) leave(uid string, now time.Time) (int, error) {
+// leave takes a player out of the game for the rest of the round. A smaller
+// team can turn existing votes into a majority, so it reports the guess
+// locked in by that, if any.
+func (g *Game) leave(uid string, now time.Time) (locked string, err error) {
 	p := g.player(uid)
 	if p == nil || !p.Active {
-		return 0, errNotInGame
+		return "", errNotInGame
 	}
 	p.Active, p.LeftRound = false, g.Round
 	delete(g.Votes, uid)
 	g.teamsChanged(now)
-	return p.Team, nil
+	return g.checkMajority(now), nil
 }
 
 // teamsChanged starts the lobby countdown, pauses or resumes as teams fill
@@ -262,14 +264,14 @@ func (g *Game) turnLength() time.Duration {
 // suggest adds a possible guess and moves the suggester's vote to it (or to
 // the same idea someone already had). It reports what was locked in, if the
 // vote made a majority.
-func (g *Game) suggest(uid, text, norm string, seq int) (locked string, err error) {
+func (g *Game) suggest(uid, text, norm string, seq int, now time.Time) (locked string, err error) {
 	if err := g.canVote(uid, seq); err != nil {
 		return "", err
 	}
 	for _, s := range g.Suggestions {
 		if s.Norm == norm {
 			g.Votes[uid] = s.ID
-			return g.checkMajority(), errDuplicateIdea
+			return g.checkMajority(now), errDuplicateIdea
 		}
 	}
 	if len(g.Suggestions) >= maxSuggests {
@@ -278,11 +280,11 @@ func (g *Game) suggest(uid, text, norm string, seq int) (locked string, err erro
 	g.NextSuggest++
 	g.Suggestions = append(g.Suggestions, Suggestion{ID: g.NextSuggest, UserID: uid, Text: text, Norm: norm})
 	g.Votes[uid] = g.NextSuggest
-	return g.checkMajority(), nil
+	return g.checkMajority(now), nil
 }
 
 // vote moves a player's vote.
-func (g *Game) vote(uid string, id, seq int) (locked string, err error) {
+func (g *Game) vote(uid string, id, seq int, now time.Time) (locked string, err error) {
 	if err := g.canVote(uid, seq); err != nil {
 		return "", err
 	}
@@ -290,7 +292,7 @@ func (g *Game) vote(uid string, id, seq int) (locked string, err error) {
 		return "", errNoSuggestion
 	}
 	g.Votes[uid] = id
-	return g.checkMajority(), nil
+	return g.checkMajority(now), nil
 }
 
 func (g *Game) canVote(uid string, seq int) error {
@@ -322,11 +324,14 @@ func (g *Game) tally() map[int]int {
 }
 
 // checkMajority locks in a suggestion more than half the team backs.
-func (g *Game) checkMajority() string {
+func (g *Game) checkMajority(now time.Time) string {
+	if g.Phase != phaseTurn {
+		return ""
+	}
 	team := len(g.members(g.Turn))
 	for id, n := range g.tally() {
 		if n*2 > team {
-			return g.lock(id)
+			return g.lock(id, now)
 		}
 	}
 	return ""
@@ -344,10 +349,12 @@ func (g *Game) topSuggestion() (Suggestion, bool) {
 	return best, found
 }
 
-func (g *Game) lock(id int) string {
+// lock puts a suggestion up for judging. The deadline then becomes a fixed
+// expiry for the check, after which the guess counts as a miss.
+func (g *Game) lock(id int, now time.Time) string {
 	for _, s := range g.Suggestions {
 		if s.ID == id {
-			g.Phase, g.Locked = phaseJudging, s.Text
+			g.Phase, g.Locked, g.Deadline = phaseJudging, s.Text, now.Add(judgeWait)
 			return s.Text
 		}
 	}
@@ -358,7 +365,7 @@ func (g *Game) lock(id int) string {
 // team takes a strike. It reports the locked guess, if any.
 func (g *Game) timeUp(now time.Time) string {
 	if s, ok := g.topSuggestion(); ok {
-		return g.lock(s.ID)
+		return g.lock(s.ID, now)
 	}
 	g.Last = teamNames[g.Turn] + " ran out of time ✖"
 	g.miss(now)

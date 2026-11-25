@@ -21,6 +21,10 @@ func boardEmbed(g *Game, _ database.FeudBoard) *discordgo.MessageEmbed {
 			e.Title = "GP Feud · Game over"
 			e.Description = fmt.Sprintf("## %s\n🔴 Red **%d** · 🔵 Blue **%d**\n\n%s",
 				g.Result, g.Score[red], g.Score[blue], e.Description)
+			if g.Question != "" {
+				e.Description = fmt.Sprintf("**Final question:** %s\n\n%s", g.Question, e.Description)
+				e.Fields = slotFields(g.Slots)
+			}
 		}
 		return e
 	}
@@ -139,9 +143,9 @@ func panelContent(g *Game) string {
 // panelComponents are the Suggest button and one vote button per
 // suggestion, most votes first.
 func panelComponents(g *Game) []discordgo.MessageComponent {
-	seq := strconv.Itoa(g.TurnSeq)
+	key := turnKey(g)
 	rows := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		button("Suggest an answer", "💡", discordgo.PrimaryButton, prefix+"suggest:"+seq),
+		button("Suggest an answer", "💡", discordgo.PrimaryButton, prefix+"suggest:"+key),
 	}}}
 	votes := g.tally()
 	sugs := append([]Suggestion(nil), g.Suggestions...)
@@ -153,7 +157,7 @@ func panelComponents(g *Game) []discordgo.MessageComponent {
 			style = discordgo.SuccessButton
 		}
 		label := truncate(s.Text, 70) + " · " + strconv.Itoa(votes[s.ID])
-		row = append(row, discordgo.Button{Label: label, Style: style, CustomID: prefix + "vote:" + seq + ":" + strconv.Itoa(s.ID)})
+		row = append(row, discordgo.Button{Label: label, Style: style, CustomID: prefix + "vote:" + key + ":" + strconv.Itoa(s.ID)})
 		if len(row) == 5 {
 			rows = append(rows, discordgo.ActionsRow{Components: row})
 			row = nil
@@ -163,4 +167,20 @@ func panelComponents(g *Game) []discordgo.MessageComponent {
 		rows = append(rows, discordgo.ActionsRow{Components: row})
 	}
 	return rows
+}
+
+// turnKey names a turn in button and modal IDs. The turn number restarts
+// with each game, so the game ID keeps old controls from matching a new one.
+func turnKey(g *Game) string {
+	return strconv.FormatInt(g.ID, 10) + "." + strconv.Itoa(g.TurnSeq)
+}
+
+func parseTurnKey(s string) (gameID int64, seq int, ok bool) {
+	id, n, found := strings.Cut(s, ".")
+	if !found {
+		return 0, 0, false
+	}
+	gameID, err1 := strconv.ParseInt(id, 10, 64)
+	seq, err2 := strconv.Atoi(n)
+	return gameID, seq, err1 == nil && err2 == nil
 }

@@ -91,30 +91,30 @@ func TestEmptyTeamPausesAndResumes(t *testing.T) {
 func TestMajorityLocksIn(t *testing.T) {
 	g := playingGame(t)
 	seq := g.TurnSeq
-	locked, err := g.suggest("a", "Doggo", "doggo", seq)
+	locked, err := g.suggest("a", "Doggo", "doggo", seq, t0)
 	require.NoError(t, err)
 	assert.Empty(t, locked, "1 of 3 isn't a majority")
-	_, err = g.suggest("x", "Cat", "cat", seq)
+	_, err = g.suggest("x", "Cat", "cat", seq, t0)
 	assert.ErrorIs(t, err, errNotYourTurn)
-	_, err = g.suggest("b", "Cat", "cat", seq)
+	_, err = g.suggest("b", "Cat", "cat", seq, t0)
 	require.NoError(t, err)
-	locked, err = g.suggest("c", "cats", "cat", seq)
+	locked, err = g.suggest("c", "cats", "cat", seq, t0)
 	assert.ErrorIs(t, err, errDuplicateIdea, "the same idea joins the existing suggestion")
 	assert.Equal(t, "Cat", locked)
 	assert.Equal(t, phaseJudging, g.Phase)
-	_, err = g.vote("a", 1, seq)
+	_, err = g.vote("a", 1, seq, t0)
 	assert.ErrorIs(t, err, errNoTurn, "no more votes once locked")
 }
 
 func TestVoteSwitchingAndStaleTurns(t *testing.T) {
 	g := playingGame(t)
 	seq := g.TurnSeq
-	_, _ = g.suggest("a", "Dog", "dog", seq)
-	_, _ = g.suggest("b", "Cat", "cat", seq)
-	locked, err := g.vote("a", 2, seq)
+	_, _ = g.suggest("a", "Dog", "dog", seq, t0)
+	_, _ = g.suggest("b", "Cat", "cat", seq, t0)
+	locked, err := g.vote("a", 2, seq, t0)
 	require.NoError(t, err)
 	assert.Equal(t, "Cat", locked, "a switched vote makes 2 of 3")
-	_, err = g.vote("c", 1, seq-1)
+	_, err = g.vote("c", 1, seq-1, t0)
 	assert.ErrorIs(t, err, errNoTurn)
 }
 
@@ -123,7 +123,7 @@ func TestSoloPlayerLocksImmediately(t *testing.T) {
 	_, _ = g.join("a", t0, func(int) int { return red })
 	_, _ = g.join("x", t0, heads)
 	g.startRound(1, "Q", testSlots("Dog"), t0, heads)
-	locked, err := g.suggest("a", "Dog", "dog", g.TurnSeq)
+	locked, err := g.suggest("a", "Dog", "dog", g.TurnSeq, t0)
 	require.NoError(t, err)
 	assert.Equal(t, "Dog", locked)
 }
@@ -135,8 +135,8 @@ func TestTimeUpPicksTopSuggestionOrStrikes(t *testing.T) {
 	assert.Equal(t, blue, g.Turn, "then the other team goes")
 
 	seq := g.TurnSeq
-	_, _ = g.suggest("x", "Fish", "fish", seq)
-	_, _ = g.suggest("y", "Cat", "cat", seq)
+	_, _ = g.suggest("x", "Fish", "fish", seq, t0)
+	_, _ = g.suggest("y", "Cat", "cat", seq, t0)
 	assert.Equal(t, "Fish", g.timeUp(t0), "ties go to the earliest suggestion")
 }
 
@@ -201,4 +201,30 @@ func TestParseSlot(t *testing.T) {
 	assert.Equal(t, -1, parseSlot("0", 3))
 	assert.Equal(t, -1, parseSlot("4", 3))
 	assert.Equal(t, -1, parseSlot("none", 3))
+}
+
+func TestLeavingRechecksMajority(t *testing.T) {
+	g := playingGame(t)
+	seq := g.TurnSeq
+	_, _ = g.suggest("a", "Dog", "dog", seq, t0)
+	_, _ = g.suggest("b", "Cat", "cat", seq, t0)
+	require.Equal(t, phaseTurn, g.Phase, "1 of 3 each")
+	locked, err := g.leave("c", t0)
+	require.NoError(t, err)
+	assert.Empty(t, locked, "1 of 2 is no majority")
+	locked, err = g.leave("b", t0)
+	require.NoError(t, err)
+	assert.Equal(t, "Dog", locked, "a's vote is now all of the team")
+	assert.Equal(t, phaseJudging, g.Phase)
+}
+
+func TestJudgingExpiryIsFixed(t *testing.T) {
+	g := newGame("g", "mod", 1, time.Minute)
+	_, _ = g.join("a", t0, func(int) int { return red })
+	_, _ = g.join("x", t0, heads)
+	g.startRound(1, "Q", testSlots("Dog"), t0, heads)
+	later := t0.Add(10 * time.Second)
+	locked, _ := g.suggest("a", "Cat", "cat", g.TurnSeq, later)
+	require.Equal(t, "Cat", locked)
+	assert.True(t, later.Add(judgeWait).Equal(g.Deadline), "the turn's own deadline no longer applies")
 }

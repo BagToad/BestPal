@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,6 +44,8 @@ type Module struct {
 	mu     sync.Mutex
 	locks  map[string]*chanMutex
 	timers map[string]func()
+
+	tidying map[string]bool // running agent tidy-ups, guarded by mu
 }
 
 // completer runs one-shot agent tasks (agentengine.Agent).
@@ -97,12 +100,18 @@ type discordAPI interface {
 	CreateThread(parentID, name string) (*discordgo.Channel, error)
 	AddThreadMember(threadID, userID string) error
 	RemoveThreadMember(threadID, userID string) error
+	EditResponse(i *discordgo.Interaction, e *discordgo.WebhookEdit) error
 }
 
 type sessionAPI struct{ s *discordgo.Session }
 
 func (a sessionAPI) Respond(i *discordgo.Interaction, r *discordgo.InteractionResponse) error {
 	return a.s.InteractionRespond(i, r)
+}
+
+func (a sessionAPI) EditResponse(i *discordgo.Interaction, e *discordgo.WebhookEdit) error {
+	_, err := a.s.InteractionResponseEdit(i, e)
+	return err
 }
 
 func (a sessionAPI) Send(channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error) {
@@ -182,6 +191,8 @@ func (m *Module) Register(cmds map[string]*types.Command, deps *types.Dependenci
 			Contexts:                 guildOnly,
 			Options: []*discordgo.ApplicationCommandOption{
 				sub("review", "Approve or reject submitted questions"),
+				sub("edit", "Edit questions and their answers"),
+				sub("dedupe", "Have the agent merge duplicate answers and hide junk on the ready questions"),
 				sub("pool", "Show how many questions are ready, collecting answers, or awaiting review"),
 				sub("setup", "Post the game board and create the team threads in the GP Feud channel"),
 				sub("start", "Start a game"),
@@ -220,6 +231,10 @@ func (m *Module) handleAdmin(s *discordgo.Session, i *discordgo.InteractionCreat
 	switch subcommand(i) {
 	case "review":
 		m.handleReviewNext(s, i, "", false)
+	case "edit":
+		m.handleEditCommand(s, i)
+	case "dedupe":
+		m.handleDedupe(s, i)
 	case "pool":
 		m.handlePool(s, i)
 	case "setup":
@@ -255,6 +270,8 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		if m.open(s, i) {
 			m.openSubmitModal(s, i)
 		}
+	case "ed":
+		m.handleEdit(s, i, parts[1:])
 	case "approve", "reject":
 		m.handleReview(s, i, arg(1), parts[0] == "approve", arg(2) == "next")
 	case "join":
@@ -290,6 +307,10 @@ func (m *Module) HandleModalSubmit(s *discordgo.Session, i *discordgo.Interactio
 	case "sg":
 		if len(parts) > 1 {
 			m.handleSuggest(s, i, parts[1])
+		}
+	case "edq", "eda", "edr", "edb":
+		if id, err := strconv.ParseInt(strings.Join(parts[1:], ""), 10, 64); err == nil {
+			m.handleEditModal(s, i, parts[0], id)
 		}
 	}
 }

@@ -247,6 +247,9 @@ func (db *DB) initTables() error {
 	if _, err := db.conn.Exec(feudSchema); err != nil {
 		return fmt.Errorf("failed to create feud tables: %w", err)
 	}
+	if err := db.migrateFeudAnswers(); err != nil {
+		return err
+	}
 	if _, err := db.conn.Exec(feudGameSchema); err != nil {
 		return fmt.Errorf("failed to create feud game tables: %w", err)
 	}

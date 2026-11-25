@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS feud_answers (
 	label       TEXT NOT NULL,
 	norm        TEXT NOT NULL,
 	extra       INTEGER NOT NULL DEFAULT 0,
+	hidden      INTEGER NOT NULL DEFAULT 0,
 	created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_feud_answers_question ON feud_answers(question_id);
@@ -115,8 +116,9 @@ type FeudAnswer struct {
 	QuestionID int64
 	Label      string
 	Norm       string
-	Count      int // responses that weren't rejected
-	Extra      int // points a mod added by hand
+	Count      int  // responses that weren't rejected
+	Extra      int  // points a mod added by hand
+	Hidden     bool // kept out of the board; its responses stay on record
 }
 
 // Score is the answer's value on the board.
@@ -390,20 +392,37 @@ type queryRower interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+const feudAnswerCols = `id, question_id, label, norm, extra, hidden,
+	(SELECT COUNT(*) FROM feud_responses r WHERE r.answer_id = a.id AND r.rejected = 0)`
+
 func feudAnswerTx(q queryRower, id int64) (FeudAnswer, error) {
 	var a FeudAnswer
-	err := q.QueryRow(`SELECT id, question_id, label, norm, extra,
-		(SELECT COUNT(*) FROM feud_responses r WHERE r.answer_id = a.id AND r.rejected = 0)
-		FROM feud_answers a WHERE id = ?`, id).Scan(&a.ID, &a.QuestionID, &a.Label, &a.Norm, &a.Extra, &a.Count)
+	err := q.QueryRow(`SELECT `+feudAnswerCols+` FROM feud_answers a WHERE id = ?`, id).
+		Scan(&a.ID, &a.QuestionID, &a.Label, &a.Norm, &a.Extra, &a.Hidden, &a.Count)
 	return a, err
 }
 
-// FeudAnswers lists a question's answer groups that score at least one point,
-// highest score first (oldest first on ties).
+// FeudAnswers lists a question's answer groups that can appear on the board:
+// not hidden and scoring at least one point, highest score first (oldest
+// first on ties).
 func (db *DB) FeudAnswers(questionID int64) ([]FeudAnswer, error) {
-	rows, err := db.conn.Query(`SELECT id, question_id, label, norm, extra,
-		(SELECT COUNT(*) FROM feud_responses r WHERE r.answer_id = a.id AND r.rejected = 0)
-		FROM feud_answers a WHERE question_id = ?`, questionID)
+	all, err := db.AllFeudAnswers(questionID)
+	if err != nil {
+		return nil, err
+	}
+	var out []FeudAnswer
+	for _, a := range all {
+		if !a.Hidden && a.Score() > 0 {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+// AllFeudAnswers lists every answer group of a question, hidden ones
+// included, in the same order as FeudAnswers.
+func (db *DB) AllFeudAnswers(questionID int64) ([]FeudAnswer, error) {
+	rows, err := db.conn.Query(`SELECT `+feudAnswerCols+` FROM feud_answers a WHERE question_id = ?`, questionID)
 	if err != nil {
 		return nil, err
 	}
@@ -411,12 +430,10 @@ func (db *DB) FeudAnswers(questionID int64) ([]FeudAnswer, error) {
 	var out []FeudAnswer
 	for rows.Next() {
 		var a FeudAnswer
-		if err := rows.Scan(&a.ID, &a.QuestionID, &a.Label, &a.Norm, &a.Extra, &a.Count); err != nil {
+		if err := rows.Scan(&a.ID, &a.QuestionID, &a.Label, &a.Norm, &a.Extra, &a.Hidden, &a.Count); err != nil {
 			return nil, err
 		}
-		if a.Score() > 0 {
-			out = append(out, a)
-		}
+		out = append(out, a)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

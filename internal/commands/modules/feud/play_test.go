@@ -50,7 +50,7 @@ func readyQuestion(t *testing.T, db *database.DB, text string, answers map[strin
 	for uid := range answers {
 		uids = append(uids, uid)
 	}
-	sort.Strings(uids)
+	sort.Strings(uids) // the first wording labels a group, so keep the order stable
 	for _, uid := range uids {
 		a := answers[uid]
 		_, err := db.AddFeudResponse(guild, q.ID, uid, a, normalize(a), time.Unix(1, 0))

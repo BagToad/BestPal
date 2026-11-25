@@ -18,11 +18,12 @@ import (
 const guild = "g1"
 
 type fakeAPI struct {
-	responses []*discordgo.InteractionResponse
-	sent      map[string][]*discordgo.MessageSend
-	edits     []*discordgo.MessageEdit
-	threads   int
-	members   map[string]map[string]bool // thread -> users
+	responses    []*discordgo.InteractionResponse
+	sent         map[string][]*discordgo.MessageSend
+	edits        []*discordgo.MessageEdit
+	webhookEdits []*discordgo.WebhookEdit
+	threads      int
+	members      map[string]map[string]bool // thread -> users
 }
 
 func (f *fakeAPI) CreateThread(_, name string) (*discordgo.Channel, error) {
@@ -43,6 +44,11 @@ func (f *fakeAPI) AddThreadMember(th, uid string) error {
 
 func (f *fakeAPI) RemoveThreadMember(th, uid string) error {
 	delete(f.members[th], uid)
+	return nil
+}
+
+func (f *fakeAPI) EditResponse(_ *discordgo.Interaction, e *discordgo.WebhookEdit) error {
+	f.webhookEdits = append(f.webhookEdits, e)
 	return nil
 }
 

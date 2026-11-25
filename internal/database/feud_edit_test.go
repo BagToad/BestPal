@@ -96,7 +96,7 @@ func TestFeudAddAnswerAndQuestionEdits(t *testing.T) {
 	_, err = db.AddFeudAnswer(qid, "Dog", "dog", 1, time.Unix(1000, 0))
 	assert.ErrorIs(t, err, ErrFeudAnswerExists)
 
-	_, err = db.SubmitFeudQuestion("g", "u", "Name a drink.", "name drink", time.Unix(1000, 0))
+	_, err = db.SubmitFeudQuestion("g", "u", "Name a drink.", "name drink", 3, time.Unix(1000, 0))
 	require.NoError(t, err)
 	assert.ErrorIs(t, db.UpdateFeudQuestionText("g", qid, "Name a drink!", "name drink"), ErrFeudDuplicateQuestion)
 	require.NoError(t, db.UpdateFeudQuestionText("g", qid, "Name a pet people keep.", "name pet people keep"))

@@ -142,9 +142,9 @@ func (db *DB) LiveFeudGames() ([]FeudGameRow, error) {
 // longest ago is used. pick chooses among the fresh ones by index.
 func (db *DB) PickFeudQuestion(guildID string, minRespondents int, cooldown, gameNo int64, exclude []int64, pick func(n int) int) (FeudQuestion, bool, error) {
 	rows, err := db.conn.Query(`SELECT `+feudQuestionCols+`, n FROM (
-		SELECT q.*, (SELECT COUNT(*) FROM feud_responses r WHERE r.question_id = q.id AND r.rejected = 0) AS n
+		SELECT q.*, `+feudRespondents+` AS n
 		FROM feud_questions q WHERE guild_id = ? AND status = ?) q
-		WHERE n >= ? ORDER BY last_played_game, id`, guildID, FeudActive, minRespondents)
+		WHERE n >= ? AND `+feudHasBoard+` ORDER BY last_played_game, id`, guildID, FeudActive, minRespondents)
 	if err != nil {
 		return FeudQuestion{}, false, err
 	}
@@ -191,7 +191,8 @@ func (db *DB) MarkFeudQuestionPlayed(id, gameNo int64) error {
 // its own and those of every accepted response in the group.
 func (db *DB) FeudAnswerAliases(questionID int64) (map[int64][]string, error) {
 	rows, err := db.conn.Query(`SELECT id, norm FROM feud_answers WHERE question_id = ?
-		UNION SELECT answer_id, norm FROM feud_responses WHERE question_id = ? AND rejected = 0`, questionID, questionID)
+		UNION SELECT answer_id, norm FROM feud_answer_aliases WHERE question_id = ?
+		UNION SELECT answer_id, norm FROM feud_responses WHERE question_id = ? AND rejected = 0`, questionID, questionID, questionID)
 	if err != nil {
 		return nil, err
 	}

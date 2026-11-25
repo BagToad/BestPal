@@ -153,7 +153,15 @@ func (a sessionAPI) RenameThread(threadID, name string, guard func(reopen func()
 		uri := discordgo.EndpointChannel(threadID)
 		bucket := uri + "#rename"
 		rl := a.s.Ratelimiter
-		if wait := rl.GetWaitTime(rl.GetBucket(bucket), 1); wait > 0 {
+		b := rl.GetBucket(bucket)
+		b.Lock()
+		wait, global := rl.GetWaitTime(b, 1), rl.GetWaitTime(b, 0)
+		b.Unlock()
+		switch {
+		case global > 0:
+			// The whole bot is briefly limited; that says nothing about renames.
+			return errBotRateLimited
+		case wait > 0:
 			return &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{
 				TooManyRequests: &discordgo.TooManyRequests{RetryAfter: wait}, URL: uri}}
 		}
@@ -169,6 +177,8 @@ func (a sessionAPI) RenameThread(threadID, name string, guard func(reopen func()
 	}
 	return rename()
 }
+
+var errBotRateLimited = errors.New("the bot is rate limited")
 
 var errThreadLocked = errors.New("the squad thread is locked for deletion")
 

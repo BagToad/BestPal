@@ -67,3 +67,19 @@ func readBody(r *http.Request) string {
 	b, _ := io.ReadAll(r.Body)
 	return string(b)
 }
+
+// A bot-wide rate limit is refused without counting against the renames.
+func TestGlobalRateLimitIsNotARenameLimit(t *testing.T) {
+	s, err := discordgo.New("Bot x")
+	require.NoError(t, err)
+	s.Client = &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		t.Fatal("unexpected request")
+		return nil, nil
+	})}
+	// Make discordgo record a global limit.
+	resp := &http.Response{Header: http.Header{"X-Ratelimit-Global": {"true"}, "X-Ratelimit-Reset-After": {"60"}}}
+	b := s.Ratelimiter.LockBucket("x")
+	require.NoError(t, b.Release(resp.Header))
+	err = sessionAPI{s}.RenameThread("101", "One", nil)
+	assert.ErrorIs(t, err, errBotRateLimited)
+}

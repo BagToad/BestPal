@@ -55,12 +55,16 @@ func (m *Module) reserveRename(squadID int64) (busy, limited bool) {
 // finishRename releases a claim from reserveRename, counting uses renames
 // toward the limit.
 func (m *Module) finishRename(squadID int64, uses int) {
-	now := m.now()
+	m.finishRenameAt(squadID, uses, m.now())
+}
+
+// finishRenameAt is finishRename, counting the renames as made at at.
+func (m *Module) finishRenameAt(squadID int64, uses int, at time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.renaming, squadID)
 	for range uses {
-		m.renames[squadID] = append(m.renames[squadID], now)
+		m.renames[squadID] = append(m.renames[squadID], at)
 	}
 }
 
@@ -115,8 +119,13 @@ func (m *Module) renameSquad(guildID, uid, name string) string {
 	var rl *discordgo.RateLimitError
 	switch {
 	case errors.As(err, &rl):
-		// Discord says the renames are used up, whatever was counted here.
-		m.finishRename(sq.ID, renameLimit)
+		// Discord says the renames are used up, whatever was counted here,
+		// until its window resets.
+		wait := rl.RetryAfter
+		if wait <= 0 || wait > renameWindow {
+			wait = renameWindow
+		}
+		m.finishRenameAt(sq.ID, renameLimit, m.now().Add(wait-renameWindow))
 		return "⏳ Discord only allows a couple of renames every 10 minutes. Try again in a bit."
 	case errors.Is(err, errThreadLocked):
 		m.finishRename(sq.ID, 0)
@@ -134,7 +143,12 @@ func (m *Module) renameSquad(guildID, uid, name string) string {
 		err = m.db.RenameSquad(sq.ID, name)
 	}
 	lock.Unlock()
-	m.finishRename(sq.ID, 1)
+	if found && !cur.Deleting() {
+		m.finishRename(sq.ID, 1)
+	} else {
+		// A closed squad's renames are no longer tracked.
+		m.finishRename(sq.ID, 0)
+	}
 	switch {
 	case err != nil:
 		m.config.Logger.Warnf("squads: save new name of %s: %v", sq.Name, err)

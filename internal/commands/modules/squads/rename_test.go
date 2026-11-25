@@ -3,6 +3,7 @@ package squads
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/stretchr/testify/assert"
@@ -130,4 +131,30 @@ func TestRenameDoesNotReopenAClosingSquad(t *testing.T) {
 	m.handleSquad(nil, renameCmd("a", "Moon Base"))
 	assert.Empty(t, api.reopened)
 	assert.Empty(t, api.renamed)
+}
+
+func TestDiscordRateLimitOnlyBlocksRenamesUntilDiscordSays(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.renameErr = &discordgo.RateLimitError{RateLimit: &discordgo.RateLimit{TooManyRequests: &discordgo.TooManyRequests{RetryAfter: time.Minute}}}
+	m.handleSquad(nil, renameCmd("a", "One"))
+	api.renameErr = nil
+
+	*now = now.Add(30 * time.Second)
+	m.handleSquad(nil, renameCmd("a", "Two"))
+	assert.Empty(t, api.renamed)
+
+	*now = now.Add(31 * time.Second)
+	m.handleSquad(nil, renameCmd("a", "Two"))
+	assert.Equal(t, "Two", api.renamed[sq.ChannelID])
+}
+
+func TestRenameOfClosedSquadIsNotTracked(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b")
+	api.onRename = func() { require.NoError(t, db.MarkSquadDeleting(sq.ID, "mod")) }
+	m.handleSquad(nil, renameCmd("a", "Moon Base"))
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	assert.NotContains(t, m.renames, sq.ID)
 }

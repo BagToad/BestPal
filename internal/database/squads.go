@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS squad_preferences (
 	user_id       TEXT NOT NULL,
 	try_new_games INTEGER NOT NULL DEFAULT 0,
 	any_region    INTEGER NOT NULL DEFAULT 0,
+	late_join     INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (guild_id, user_id)
 );
 
@@ -259,6 +260,27 @@ func (db *DB) SquadAnyRegion(guildID, userID string) (bool, error) {
 func (db *DB) SetSquadAnyRegion(guildID, userID string, enabled bool) error {
 	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, any_region) VALUES (?, ?, ?)
 		ON CONFLICT (guild_id, user_id) DO UPDATE SET any_region = excluded.any_region`,
+		guildID, userID, enabled)
+	return err
+}
+
+// SquadLateJoin reports whether a member opted into joining squads that
+// already formed. Missing preferences default to false, so only people who
+// opt in are late-joined.
+func (db *DB) SquadLateJoin(guildID, userID string) (bool, error) {
+	var enabled bool
+	err := db.conn.QueryRow(`SELECT late_join FROM squad_preferences WHERE guild_id = ? AND user_id = ?`,
+		guildID, userID).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return enabled, err
+}
+
+// SetSquadLateJoin updates a member's late-join preference.
+func (db *DB) SetSquadLateJoin(guildID, userID string, enabled bool) error {
+	_, err := db.conn.Exec(`INSERT INTO squad_preferences (guild_id, user_id, late_join) VALUES (?, ?, ?)
+		ON CONFLICT (guild_id, user_id) DO UPDATE SET late_join = excluded.late_join`,
 		guildID, userID, enabled)
 	return err
 }
@@ -1098,6 +1120,11 @@ func (db *DB) migrateSquadPreferences() error {
 	if !have["any_region"] {
 		if _, err := db.conn.Exec(`ALTER TABLE squad_preferences ADD COLUMN any_region INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return fmt.Errorf("failed to add squad_preferences.any_region: %w", err)
+		}
+	}
+	if !have["late_join"] {
+		if _, err := db.conn.Exec(`ALTER TABLE squad_preferences ADD COLUMN late_join INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("failed to add squad_preferences.late_join: %w", err)
 		}
 	}
 	return nil

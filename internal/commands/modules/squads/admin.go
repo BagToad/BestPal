@@ -527,6 +527,13 @@ func (m *Module) userSummary(guildID, uid string, withCompatibility bool) string
 		}
 		fmt.Fprintf(&b, "**Any region:** %s\n", answer)
 	}
+	if lateJoin, err := m.db.SquadLateJoin(guildID, uid); err == nil {
+		answer := "off"
+		if lateJoin {
+			answer = "on"
+		}
+		fmt.Fprintf(&b, "**Late join:** %s\n", answer)
+	}
 	picks, err := m.db.SquadPicks(guildID, uid)
 	if err != nil {
 		return "❌ Could not load their games."

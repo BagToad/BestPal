@@ -509,6 +509,16 @@ func TestPickerFlowQueuesPerson(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, anyRegion)
 
+	m.HandleComponent(nil, component("alice", ctx.id("latejoinon")))
+	assert.Contains(t, editContent(api.lastEdit()), "open to joining an existing squad")
+	lateJoin, err := db.SquadLateJoin(guild, "alice")
+	require.NoError(t, err)
+	assert.True(t, lateJoin)
+	m.HandleComponent(nil, component("alice", ctx.id("latejoinoff")))
+	lateJoin, err = db.SquadLateJoin(guild, "alice")
+	require.NoError(t, err)
+	assert.False(t, lateJoin)
+
 	m.HandleComponent(nil, component("alice", ctx.id("done")))
 	assert.Contains(t, editContent(api.lastEdit()), "You're in the squad queue")
 	e, ok, err := db.SquadQueueEntryFor(guild, "alice")
@@ -702,6 +712,14 @@ func TestAdminUserShowsTryNewGames(t *testing.T) {
 	assert.Contains(t, m.userText(guild, "a"), "**Try new games:** on")
 }
 
+func TestAdminUserShowsLateJoin(t *testing.T) {
+	m, api, db, _ := newTestModule(t, nil)
+	member(api, "a", "role-eu", "role-25")
+	assert.Contains(t, m.userText(guild, "a"), "**Late join:** off")
+	require.NoError(t, db.SetSquadLateJoin(guild, "a", true))
+	assert.Contains(t, m.userText(guild, "a"), "**Late join:** on")
+}
+
 func TestAdminUserShowsAnyRegion(t *testing.T) {
 	m, api, db, _ := newTestModule(t, nil)
 	member(api, "a", "role-eu", "role-25")
@@ -784,12 +802,30 @@ func TestPrivateVisibilityHidesChannel(t *testing.T) {
 	assert.Equal(t, discordgo.PermissionOverwriteTypeMember, o[3].Type)
 }
 
+func TestQueuedMemberIsNotLateJoinedWithoutOptIn(t *testing.T) {
+	m, api, db, now := newTestModule(t, nil)
+	queue(t, m, api, db, now.Add(-time.Hour), []string{"u1", "u2", "u3", "u4", "u5", "u6"}, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, m.tick())
+
+	queue(t, m, api, db, *now, []string{"late"}, []int64{1}, "role-eu", "role-25")
+	*now = now.Add(49 * time.Hour)
+	require.NoError(t, m.tick())
+
+	_, ok, err := db.SquadForUser(guild, "late")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	_, queued, err := db.SquadQueueEntryFor(guild, "late")
+	require.NoError(t, err)
+	assert.True(t, queued, "they keep waiting for a new squad")
+}
+
 func TestLateJoinerFillsYoungSquad(t *testing.T) {
 	m, api, db, now := newTestModule(t, nil)
 	queue(t, m, api, db, now.Add(-time.Hour), []string{"u1", "u2", "u3", "u4", "u5", "u6"}, []int64{1}, "role-eu", "role-25")
 	require.NoError(t, m.tick())
 
 	queue(t, m, api, db, *now, []string{"late"}, []int64{1}, "role-eu", "role-25")
+	require.NoError(t, db.SetSquadLateJoin(guild, "late", true))
 	*now = now.Add(49 * time.Hour)
 	require.NoError(t, m.tick())
 

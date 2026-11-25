@@ -75,6 +75,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		m.config.Logger.Errorf("squads: load any-region preference: %v", err)
 		return ephemeral("❌ Could not load your squad preferences. Try again in a moment.")
 	}
+	lateJoin, err := m.db.SquadLateJoin(ctx.GuildID, uid)
+	if err != nil {
+		m.config.Logger.Errorf("squads: load late-join preference: %v", err)
+		return ephemeral("❌ Could not load your squad preferences. Try again in a moment.")
+	}
 	var b strings.Builder
 	if note != "" {
 		b.WriteString(truncate(note, 200) + "\n\n")
@@ -102,6 +107,11 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		b.WriteString("\n✅ **Any region:** You may join squads in other regions.")
 	} else {
 		b.WriteString("\n**Any region?** Opt in to match outside your region.")
+	}
+	if lateJoin {
+		b.WriteString("\n✅ **Join existing squads:** If no new squad forms in time, you may join one that already started.")
+	} else {
+		b.WriteString("\n**Join existing squads?** Opt in to join a squad that already started if no new one forms in time.")
 	}
 
 	finish := "Finish"
@@ -133,6 +143,16 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 		regionLabel = "Disable any-region matching"
 		regionAction = "anyregionoff"
 	}
+	lateStyle := discordgo.SecondaryButton
+	lateEmoji := "🚪"
+	lateLabel := "I'll join an existing squad"
+	lateAction := "latejoinon"
+	if lateJoin {
+		lateStyle = discordgo.SuccessButton
+		lateEmoji = "✅"
+		lateLabel = "Disable joining existing squads"
+		lateAction = "latejoinoff"
+	}
 	rows := []discordgo.MessageComponent{discordgo.ActionsRow{Components: []discordgo.MessageComponent{
 		discordgo.Button{Label: "Add a game", Emoji: &discordgo.ComponentEmoji{Name: "➕"}, Style: discordgo.PrimaryButton,
 			CustomID: ctx.id("add"), Disabled: len(picks) >= maxPicks},
@@ -155,6 +175,8 @@ func (m *Module) pickerView(ctx pickerCtx, uid, note string) *discordgo.Interact
 			Style: tryStyle, CustomID: ctx.id(tryAction)},
 		discordgo.Button{Label: regionLabel, Emoji: &discordgo.ComponentEmoji{Name: regionEmoji},
 			Style: regionStyle, CustomID: ctx.id(regionAction)},
+		discordgo.Button{Label: lateLabel, Emoji: &discordgo.ComponentEmoji{Name: lateEmoji},
+			Style: lateStyle, CustomID: ctx.id(lateAction)},
 	}})
 	if len(picks) > 0 {
 		var opts []discordgo.SelectMenuOption
@@ -455,6 +477,27 @@ func (m *Module) handleAnyRegion(s *discordgo.Session, i *discordgo.InteractionC
 	note := "Any-region matching is off. We'll match you in your region, or a nearby one if it's quiet."
 	if enabled {
 		note = "✅ You're open to any region. We may match you with people from other regions (expect some lag)."
+	}
+	m.edit(s, i, m.pickerView(ctx, uid, note))
+}
+
+func (m *Module) handleLateJoin(s *discordgo.Session, i *discordgo.InteractionCreate, ctx pickerCtx, enabled bool) {
+	if !m.deferUpdate(s, i) {
+		return
+	}
+	uid := userID(i)
+	lock := m.guildLock(ctx.GuildID)
+	lock.Lock()
+	err := m.db.SetSquadLateJoin(ctx.GuildID, uid, enabled)
+	lock.Unlock()
+	if err != nil {
+		m.config.Logger.Errorf("squads: update late-join preference: %v", err)
+		m.edit(s, i, m.pickerView(ctx, uid, "❌ Could not save that preference. Try again in a moment."))
+		return
+	}
+	note := "Joining existing squads is off. We'll only put you in a brand-new squad."
+	if enabled {
+		note = "✅ You're open to joining an existing squad if no new one forms in time."
 	}
 	m.edit(s, i, m.pickerView(ctx, uid, note))
 }

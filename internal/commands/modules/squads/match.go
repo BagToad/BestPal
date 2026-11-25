@@ -22,6 +22,7 @@ type candidate struct {
 	Tags      map[string]bool  // IGDB genre and theme names
 	TryNew    bool             // opted into genre/theme matching
 	AnyRegion bool             // opted into matching with any region
+	LateJoin  bool             // opted into joining squads that already formed
 	Avoid     map[string]bool  // partners from the most recent completed squad
 	Blocked   bool             // has the squads blocked role
 }
@@ -206,9 +207,10 @@ func grow(group, pool []*candidate, limit int, relaxed, crossRegion bool) []*can
 //     who share an exact game, or a genre/theme when everyone opted in,
 //     seeded by whoever has waited longest. Then the same again, letting
 //     any-region people join other regions.
-//  2. People past the fallback wait join the best open squad (same region and
-//     age first, then neighbours, then any region for those who opted in), or
-//     seed a smaller squad of at least the minimum size the same way.
+//  2. People past the fallback wait who opted into late joins join the best
+//     open squad (same region and age first, then neighbours, then any region
+//     for those who opted in). Anyone still waiting may seed a smaller squad
+//     of at least the minimum size the same way.
 //  3. People past the unmatched wait are given up on.
 func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Time) plan {
 	remaining := slices.Clone(queue)
@@ -235,10 +237,10 @@ func buildPlan(queue []*candidate, open []openSquad, p matchParams, now time.Tim
 
 	overdue := func(c *candidate) bool { return now.Sub(c.QueuedAt) >= p.FallbackAfter }
 
-	// 2a. Overdue people fill open squads.
+	// 2a. Overdue people who opted in fill open squads.
 	open = slices.Clone(open)
 	for _, c := range slices.Clone(remaining) {
-		if !overdue(c) {
+		if !overdue(c) || !c.LateJoin {
 			continue
 		}
 		if idx := bestOpenSquad(c, open, p.Max); idx >= 0 {

@@ -333,6 +333,10 @@ func (m *Module) HandleComponent(s *discordgo.Session, i *discordgo.InteractionC
 		m.handleAnyRegion(s, i, parsePickerCtx(parts), true)
 	case "anyregionoff":
 		m.handleAnyRegion(s, i, parsePickerCtx(parts), false)
+	case "latejoinon":
+		m.handleLateJoin(s, i, parsePickerCtx(parts), true)
+	case "latejoinoff":
+		m.handleLateJoin(s, i, parsePickerCtx(parts), false)
 	case "pageprev", "pagenext":
 		m.handleBack(s, i, parsePickerCtx(parts))
 	case "done":

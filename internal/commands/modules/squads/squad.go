@@ -992,11 +992,16 @@ func (m *Module) loadCandidate(guildID, uid string, picks []database.SquadPick, 
 	if err != nil {
 		return nil, false, err
 	}
+	lateJoin, err := m.db.SquadLateJoin(guildID, uid)
+	if err != nil {
+		return nil, false, err
+	}
 	avoid, err := m.db.PreviousSquadPartners(guildID, uid)
 	if err != nil {
 		return nil, false, err
 	}
-	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{}, TryNew: tryNew, AnyRegion: anyRegion, Avoid: avoid}
+	c := &candidate{UserID: uid, Name: memberName(mem), Games: map[int64]string{}, Tags: map[string]bool{},
+		TryNew: tryNew, AnyRegion: anyRegion, LateJoin: lateJoin, Avoid: avoid}
 	for _, p := range picks {
 		c.Games[p.GameID] = p.Name
 		for _, t := range p.Tags {

@@ -27,6 +27,11 @@ func withTags(c *candidate, tags ...string) *candidate {
 	return c
 }
 
+func lateJoiner(c *candidate) *candidate {
+	c.LateJoin = true
+	return c
+}
+
 func willing(c *candidate) *candidate {
 	c.TryNew = true
 	return c
@@ -214,8 +219,8 @@ func TestGenreLateJoinRequiresWholeSquadOptIn(t *testing.T) {
 		willing(withTags(person("m2", "eu", 1, 0, 2), "RPG")),
 	}}}
 	queue := []*candidate{
-		willing(withTags(person("genre-late", "eu", 1, 50*time.Hour, 3), "RPG")),
-		withTags(person("not-opted-in", "eu", 1, 50*time.Hour, 4), "RPG"),
+		lateJoiner(willing(withTags(person("genre-late", "eu", 1, 50*time.Hour, 3), "RPG"))),
+		withTags(lateJoiner(person("not-opted-in", "eu", 1, 50*time.Hour, 4)), "RPG"),
 	}
 
 	p := buildPlan(queue, open, params, t0)
@@ -282,8 +287,8 @@ func TestLateJoinMustShareOneGameWithWholeSquad(t *testing.T) {
 		person("m2", "eu", 2, 0, 1, 3),
 	}
 	queue := []*candidate{
-		person("shares-with-one", "eu", 2, 50*time.Hour, 2),
-		person("shares-common", "eu", 2, 50*time.Hour, 1),
+		lateJoiner(person("shares-with-one", "eu", 2, 50*time.Hour, 2)),
+		lateJoiner(person("shares-common", "eu", 2, 50*time.Hour, 1)),
 	}
 
 	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
@@ -298,9 +303,9 @@ func TestMultipleLateJoinsPreserveGroupwideSharedGame(t *testing.T) {
 		person("m2", "eu", 2, 0, 1, 2),
 	}
 	queue := []*candidate{
-		person("first", "eu", 2, 50*time.Hour, 1, 4),
-		person("second", "eu", 2, 50*time.Hour, 1, 5),
-		person("breaks-common", "eu", 2, 50*time.Hour, 2, 4),
+		lateJoiner(person("first", "eu", 2, 50*time.Hour, 1, 4)),
+		lateJoiner(person("second", "eu", 2, 50*time.Hour, 1, 5)),
+		lateJoiner(person("breaks-common", "eu", 2, 50*time.Hour, 2, 4)),
 	}
 
 	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
@@ -339,9 +344,9 @@ func TestFallbackFillsOpenSquadStrictFirst(t *testing.T) {
 	euSquad := openSquad{ID: 1, Members: []*candidate{person("m1", "eu", 2, 0, 5), person("m2", "eu", 2, 0, 5)}}
 	afSquad := openSquad{ID: 2, Members: []*candidate{person("m3", "af", 2, 0, 5), person("m4", "af", 2, 0, 5)}}
 	queue := []*candidate{
-		person("eu-late", "eu", 2, 50*time.Hour, 5),
-		person("eu-fresh", "eu", 2, time.Hour, 5),
-		person("sa-late", "sa", 2, 50*time.Hour, 5),
+		lateJoiner(person("eu-late", "eu", 2, 50*time.Hour, 5)),
+		lateJoiner(person("eu-fresh", "eu", 2, time.Hour, 5)),
+		lateJoiner(person("sa-late", "sa", 2, 50*time.Hour, 5)),
 	}
 	p := buildPlan(queue, []openSquad{afSquad, euSquad}, params, t0)
 	require.Len(t, p.Joins, 1)
@@ -352,7 +357,7 @@ func TestFallbackFillsOpenSquadStrictFirst(t *testing.T) {
 
 func TestFallbackUsesNeighbouringRegion(t *testing.T) {
 	naSquad := openSquad{ID: 7, Members: []*candidate{person("m1", "na", 3, 0, 5), person("m2", "na", 3, 0, 5)}}
-	queue := []*candidate{person("sa-late", "sa", 4, 50*time.Hour, 5), person("as-late", "as", 3, 50*time.Hour, 5)}
+	queue := []*candidate{lateJoiner(person("sa-late", "sa", 4, 50*time.Hour, 5)), lateJoiner(person("as-late", "as", 3, 50*time.Hour, 5))}
 	p := buildPlan(queue, []openSquad{naSquad}, params, t0)
 	require.Len(t, p.Joins, 1)
 	assert.Equal(t, "sa-late", p.Joins[0].User.UserID, "SA neighbours NA and age 4 neighbours 3")
@@ -415,4 +420,29 @@ func TestSensitiveTagsAreExcluded(t *testing.T) {
 	assert.False(t, allowedSquadTag("Kids"))
 	assert.False(t, allowedSquadTag(" kids "))
 	assert.True(t, allowedSquadTag("RPG"))
+}
+
+func TestLateJoinNeedsOptIn(t *testing.T) {
+	open := []openSquad{{ID: 1, Members: []*candidate{person("m1", "eu", 2, 0, 5), person("m2", "eu", 2, 0, 5)}}}
+	queue := []*candidate{
+		person("not-opted-in", "eu", 2, 50*time.Hour, 5),
+		lateJoiner(person("opted-in", "eu", 2, 50*time.Hour, 5)),
+	}
+	p := buildPlan(queue, open, params, t0)
+	require.Len(t, p.Joins, 1)
+	assert.Equal(t, "opted-in", p.Joins[0].User.UserID)
+	assert.Equal(t, []string{"not-opted-in"}, ids(p.Waiting))
+}
+
+func TestOverdueWithoutLateJoinStillSeedsSmallerSquad(t *testing.T) {
+	open := []openSquad{{ID: 1, Members: []*candidate{person("m1", "eu", 2, 0, 5), person("m2", "eu", 2, 0, 5)}}}
+	queue := []*candidate{
+		person("a", "eu", 2, 50*time.Hour, 5),
+		person("b", "eu", 2, 50*time.Hour, 5),
+		person("c", "eu", 2, 50*time.Hour, 5),
+	}
+	p := buildPlan(queue, open, params, t0)
+	assert.Empty(t, p.Joins)
+	require.Len(t, p.NewSquads, 1)
+	assert.ElementsMatch(t, []string{"a", "b", "c"}, ids(p.NewSquads[0]))
 }

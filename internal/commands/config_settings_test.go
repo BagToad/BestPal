@@ -5,6 +5,7 @@ import (
 
 	"gamerpal/internal/commands/modules/agentadapter"
 	"gamerpal/internal/commands/modules/eventfeed"
+	"gamerpal/internal/commands/modules/feud"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/intro"
 	"gamerpal/internal/commands/modules/lfg"
@@ -36,6 +37,7 @@ func realProviderHandler() *ModuleHandler {
 			"trickortreat": &trickortreat.Module{},
 			"eventfeed":    &eventfeed.Module{},
 			"squads":       &squads.Module{},
+			"feud":         &feud.Module{},
 		},
 	}
 }
@@ -118,6 +120,13 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeySquadsPlatformMobileRoleID,
 		config.KeySquadsFeedbackChannelID,
 		config.KeySquadsThreadChannelID,
+		config.KeyFeudEnabled,
+		config.KeyFeudChannelID,
+		config.KeyFeudReviewChannelID,
+		config.KeyFeudMinRespondents,
+		config.KeyFeudTurnTimer,
+		config.KeyFeudRounds,
+		config.KeyFeudQuestionCooldown,
 	}
 
 	require.Len(t, reg.All(), len(expected), "registry size should equal the number of declared keys (no dupes, none missing)")

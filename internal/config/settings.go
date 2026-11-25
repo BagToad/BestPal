@@ -69,15 +69,23 @@ const (
 	KeySquadsBlockedRoleID     = "squads_blocked_role_id"
 	KeySquadsFeedbackChannelID = "squads_feedback_channel_id"
 	KeySquadsThreadChannelID   = "squads_thread_channel_id"
-	KeySquadsTargetSize        = "squads_target_size"
-	KeySquadsMinSize           = "squads_min_size"
-	KeySquadsMaxSize           = "squads_max_size"
-	KeySquadsMatchInterval     = "squads_match_interval"
-	KeySquadsFallbackAfter     = "squads_fallback_after"
-	KeySquadsUnmatchedAfter    = "squads_unmatched_after"
-	KeySquadsYoungFor          = "squads_young_for"
-	KeySquadsQuietWarnAfter    = "squads_quiet_warn_after"
-	KeySquadsQuietDeleteAfter  = "squads_quiet_delete_after"
+
+	KeyFeudEnabled            = "feud_enabled"
+	KeyFeudChannelID          = "feud_channel_id"
+	KeyFeudReviewChannelID    = "feud_review_channel_id"
+	KeyFeudMinRespondents     = "feud_min_respondents"
+	KeyFeudTurnTimer          = "feud_turn_timer"
+	KeyFeudRounds             = "feud_rounds"
+	KeyFeudQuestionCooldown   = "feud_question_cooldown"
+	KeySquadsTargetSize       = "squads_target_size"
+	KeySquadsMinSize          = "squads_min_size"
+	KeySquadsMaxSize          = "squads_max_size"
+	KeySquadsMatchInterval    = "squads_match_interval"
+	KeySquadsFallbackAfter    = "squads_fallback_after"
+	KeySquadsUnmatchedAfter   = "squads_unmatched_after"
+	KeySquadsYoungFor         = "squads_young_for"
+	KeySquadsQuietWarnAfter   = "squads_quiet_warn_after"
+	KeySquadsQuietDeleteAfter = "squads_quiet_delete_after"
 
 	KeySquadsRegionNARoleID = "squads_region_na_role_id"
 	KeySquadsRegionSARoleID = "squads_region_sa_role_id"
@@ -130,6 +138,7 @@ const (
 	CategoryTrickOrTreat Category = "Trick or Treat"
 	CategoryEvents       Category = "Events"
 	CategorySquads       Category = "Squads"
+	CategoryFeud         Category = "GP Feud"
 	CategoryMisc         Category = "Moderation & Misc"
 )
 
@@ -144,6 +153,7 @@ var categoryOrder = []Category{
 	CategoryTrickOrTreat,
 	CategoryEvents,
 	CategorySquads,
+	CategoryFeud,
 	CategoryMisc,
 }
 

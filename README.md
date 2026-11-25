@@ -25,6 +25,7 @@ environment (see `config.example.yaml`).
 | `/candy-leaderboard` | See who has the most candy and souvenirs |
 | `/coinflip` | Flip a coin: 🫃 or 🫄 |
 | `/squad join` / `leave` | Pick your games and join the squad queue, or leave your squad |
+| `/feud answer` / `submit` | Answer GP Feud survey questions, or submit your own question |
 
 ### Moderator (Ban Members Permission)
 | Command | Description |
@@ -43,6 +44,7 @@ environment (see `config.example.yaml`).
 | `/give` / `/take` | Give or take things from a user |
 | `/managethings rename` / `wipe` | Rename or wipe a thing for everyone |
 | `/squad-admin` | Squads: `status`, `dryrun`, `run-now`, `user`, `create`, `add`, `remove`, `delete`, `queue-remove`, `refresh-permissions`, `intro-backfill` |
+| `/feud-admin review` / `pool` | GP Feud: review submitted questions, or see how many are ready to play |
 
 ### Administrator (Administrator Permission)
 | Command | Description |

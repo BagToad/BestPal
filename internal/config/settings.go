@@ -61,9 +61,6 @@ const (
 	KeyTrickOrTreatSpawnInterval = "trick_or_treat_spawn_interval"
 	KeyTrickOrTreatCandyPerClaim = "trick_or_treat_candy_per_claim"
 
-	KeySlidePuzzleGridSize      = "slide_puzzle_grid_size"
-	KeySlidePuzzleRoundDuration = "slide_puzzle_round_duration"
-
 	KeySquadsEnabled           = "squads_enabled"
 	KeySquadsIntroButton       = "squads_intro_button"
 	KeySquadsCategoryID        = "squads_category_id"
@@ -132,7 +129,6 @@ const (
 	CategoryAgent        Category = "Agent"
 	CategoryTrickOrTreat Category = "Trick or Treat"
 	CategoryEvents       Category = "Events"
-	CategorySlidePuzzle  Category = "Slide Puzzle"
 	CategorySquads       Category = "Squads"
 	CategoryMisc         Category = "Moderation & Misc"
 )
@@ -147,7 +143,6 @@ var categoryOrder = []Category{
 	CategoryAgent,
 	CategoryTrickOrTreat,
 	CategoryEvents,
-	CategorySlidePuzzle,
 	CategorySquads,
 	CategoryMisc,
 }
@@ -187,7 +182,7 @@ type ConfigProvider interface {
 }
 
 // Action is a UI-agnostic descriptor for a one-shot button in a category panel
-// (e.g. "Reset puzzle"). The panel renders it as a button with CustomID; the
+// (e.g. "Reset"). The panel renders it as a button with CustomID; the
 // owning module routes and handles the click (and must check permissions).
 type Action struct {
 	Category Category

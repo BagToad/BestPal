@@ -233,10 +233,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("squads_intro_button", true)
 	v.SetDefault("event_feed_notification_1", "1h")
 	v.SetDefault("event_feed_notification_2", "24h")
-
-	// slide puzzle defaults: 5x5 grid, one community move every 8 hours
-	v.SetDefault("slide_puzzle_grid_size", 5)
-	v.SetDefault("slide_puzzle_round_duration", "8h")
 }
 
 // validateConfig validates that all required configuration fields are present

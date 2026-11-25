@@ -171,7 +171,7 @@ setting, so a module cannot add a setting without it appearing in the panel,
 being persisted per-guild, and being validated. The descriptor is UI-agnostic (a
 `Kind` enum, not discordgo types), keeping `internal/config` free of a discordgo
 dependency. Modules may also implement `config.ActionProvider` to add one-shot
-buttons (e.g. "Reset puzzle") to their category panel; the click is routed to
+buttons (e.g. "Reset") to their category panel; the click is routed to
 the owning module by its customID prefix.
 
 The `config.GuildStore` interface lets `internal/config` persist overrides

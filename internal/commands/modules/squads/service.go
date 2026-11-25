@@ -514,7 +514,9 @@ func (m *Module) OnThreadMembersUpdate(_ *discordgo.Session, u *discordgo.Thread
 	// removal event, so only act on people still missing from the thread.
 	inThread, err := m.dc(nil).ThreadMemberIDs(u.ID)
 	if err != nil {
+		// The nightly check catches the leave if it was real.
 		m.config.Logger.Warnf("squads: list the %s thread after members left: %v", sq.Name, err)
+		return
 	}
 	var reasons []threadLeave
 	for _, uid := range left {

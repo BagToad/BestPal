@@ -469,3 +469,12 @@ func TestNightlyThreadCheckClosesSquadWhoseThreadWasDeleted(t *testing.T) {
 	_, inSquad, _ := db.SquadForUser(guild, "a")
 	assert.False(t, inSquad, "its members can join another squad")
 }
+
+func TestThreadLeaveEventWaitsForNightlyCheckIfThreadCantBeListed(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.threadListErr = errors.New("discord is down")
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad)
+}

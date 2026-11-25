@@ -291,11 +291,7 @@ func (m *Module) reconcileThreadLeaves(sq database.Squad, roster map[string]int6
 		return false
 	}
 	key := accessKey(sq)
-	owed := func(ops []database.SquadRoleOp, uid string) bool {
-		return slices.ContainsFunc(ops, func(op database.SquadRoleOp) bool {
-			return op.Add && op.UserID == uid && op.RoleID == key
-		})
-	}
+	owed := func(ops []database.SquadRoleOp, uid string) bool { return addOwed(ops, key, uid) }
 	var gone []string
 	for uid := range roster {
 		if !slices.Contains(inThread, uid) && !owed(ops, uid) {
@@ -327,15 +323,24 @@ func (m *Module) reconcileThreadLeaves(sq database.Squad, roster map[string]int6
 		m.config.Logger.Warnf("squads: reload %s for thread check: %v", sq.Name, err)
 		return false
 	}
+	ok := true
 	for i, uid := range gone {
-		if id, ok := now[uid]; !ok || id != roster[uid] || owed(ops, uid) {
+		if id, in := now[uid]; !in || id != roster[uid] || owed(ops, uid) {
 			continue
 		}
 		if _, err := m.removeMember(sq.GuildID, uid, sq.ID, reasons[i].reason, reasons[i].verb); err != nil && !errors.Is(err, errNotMember) {
 			m.config.Logger.Warnf("squads: %s left the %s thread: %v", uid, sq.Name, err)
+			ok = false
 		}
 	}
-	return true
+	return ok
+}
+
+// addOwed reports whether giving uid access to key is still queued.
+func addOwed(ops []database.SquadRoleOp, key, uid string) bool {
+	return slices.ContainsFunc(ops, func(op database.SquadRoleOp) bool {
+		return op.Add && op.UserID == uid && op.RoleID == key
+	})
 }
 
 type threadLeave struct {
@@ -478,21 +483,60 @@ func (m *Module) OnThreadMembersUpdate(_ *discordgo.Session, u *discordgo.Thread
 		return
 	}
 	var left []string
-	var reasons []threadLeave
 	for _, uid := range u.RemovedMembers {
 		if uid != m.dc(nil).BotID() {
 			left = append(left, uid)
-			reasons = append(reasons, m.threadLeaveReason(u.GuildID, uid))
 		}
 	}
+	if len(left) == 0 {
+		return
+	}
 	lock := m.guildLock(u.GuildID)
+	// Note who's in the squad now, so a membership made while Discord is
+	// checked below is left alone.
 	lock.Lock()
-	defer lock.Unlock()
 	sq, found, err := m.db.SquadByChannel(u.ID)
+	var before map[string]int64
+	if err == nil && found && sq.Thread && !sq.Deleting() {
+		before, err = m.db.SquadMemberships(sq.ID)
+	}
+	lock.Unlock()
 	if err != nil || !found || !sq.Thread || sq.Deleting() {
 		return
 	}
+	left = slices.DeleteFunc(left, func(uid string) bool { _, in := before[uid]; return !in })
+	if len(left) == 0 {
+		return
+	}
+	// Events can arrive late: someone removed and added back has a stale
+	// removal event, so only act on people still missing from the thread.
+	inThread, err := m.dc(nil).ThreadMemberIDs(u.ID)
+	if err != nil {
+		m.config.Logger.Warnf("squads: list the %s thread after members left: %v", sq.Name, err)
+	}
+	var reasons []threadLeave
+	for _, uid := range left {
+		reasons = append(reasons, m.threadLeaveReason(u.GuildID, uid))
+	}
+	lock.Lock()
+	defer lock.Unlock()
+	cur, found, err := m.db.SquadByChannel(u.ID)
+	if err != nil || !found || cur.ID != sq.ID || cur.Deleting() {
+		return
+	}
+	now, err := m.db.SquadMemberships(sq.ID)
+	var ops []database.SquadRoleOp
+	if err == nil {
+		ops, err = m.db.SquadRoleOps(sq.GuildID)
+	}
+	if err != nil {
+		m.config.Logger.Warnf("squads: reload %s after members left its thread: %v", sq.Name, err)
+		return
+	}
 	for i, uid := range left {
+		if slices.Contains(inThread, uid) || now[uid] != before[uid] || addOwed(ops, accessKey(cur), uid) {
+			continue
+		}
 		if _, err := m.removeMember(u.GuildID, uid, sq.ID, reasons[i].reason, reasons[i].verb); err != nil && !errors.Is(err, errNotMember) {
 			m.config.Logger.Warnf("squads: %s left the %s thread: %v", uid, sq.Name, err)
 		}

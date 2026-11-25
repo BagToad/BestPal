@@ -213,6 +213,7 @@ func TestLeavingSquadThreadLeavesTheSquad(t *testing.T) {
 	sq := makeSquad(t, m, api, db, "a", "b", "c")
 	api.sent = nil
 
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
 	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a", "bot"}})
 	_, inSquad, err := db.SquadForUser(guild, "a")
 	require.NoError(t, err)
@@ -230,6 +231,7 @@ func TestLeavingSquadThreadLeavesTheSquad(t *testing.T) {
 	got, _, _ = db.GetSquad(sq.ID)
 	assert.Equal(t, 2, got.Members)
 
+	api.threadMems = append(api.threadMems, "-b:"+sq.ChannelID)
 	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"b"}})
 	_, ok, _ := db.GetSquad(sq.ID)
 	assert.False(t, ok, "dropping below 2 closes the squad")
@@ -363,6 +365,7 @@ func TestThreadLeaveFromLeavingServerCountsAsServerLeave(t *testing.T) {
 	delete(api.members, "a")
 	api.sent = nil
 
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
 	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
 	_, inSquad, _ := db.SquadForUser(guild, "a")
 	assert.False(t, inSquad)
@@ -419,4 +422,37 @@ func TestLockedThreadAccessChangeIsNotRetried(t *testing.T) {
 	ops, err := db.SquadRoleOps(guild)
 	require.NoError(t, err)
 	assert.Empty(t, ops)
+}
+
+func TestStaleThreadLeaveEventSparesMemberAddedBack(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	// a was removed and added back; the removal event arrives afterwards.
+	_, err := m.removeMember(guild, "a", sq.ID, database.SquadLeaveVoluntary, "left")
+	require.NoError(t, err)
+	cur, _, _ := db.GetSquad(sq.ID)
+	member(api, "a", "role-eu")
+	require.NoError(t, m.addMember(guild, cur, &candidate{UserID: "a"}))
+
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad)
+	assert.Contains(t, api.threadMembers(sq.ChannelID), "a")
+}
+
+func TestThreadLeaveEventSparesMemberAddedBackMidCheck(t *testing.T) {
+	m, api, db, _ := threadModule(t)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	api.threadMems = append(api.threadMems, "-a:"+sq.ChannelID)
+	api.onThreadList = func() {
+		api.onThreadList = nil
+		_, err := m.removeMember(guild, "a", sq.ID, database.SquadLeaveVoluntary, "left")
+		require.NoError(t, err)
+		cur, _, _ := db.GetSquad(sq.ID)
+		member(api, "a", "role-eu")
+		require.NoError(t, m.addMember(guild, cur, &candidate{UserID: "a"}))
+	}
+	m.OnThreadMembersUpdate(nil, &discordgo.ThreadMembersUpdate{ID: sq.ChannelID, GuildID: guild, RemovedMembers: []string{"a"}})
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.True(t, inSquad, "the new membership is kept")
 }

@@ -21,6 +21,7 @@ import (
 const (
 	editPageSize = 20
 	maxBonus     = 1000
+	selectMax    = 25 // options in a Discord select menu
 )
 
 func editID(parts ...string) string { return prefix + "ed:" + strings.Join(parts, ":") }
@@ -103,7 +104,11 @@ func (m *Module) editListView(guildID string, page int) (*discordgo.InteractionR
 }
 
 func (m *Module) showQuestion(s *discordgo.Session, i *discordgo.InteractionCreate, qid int64, note string) {
-	data, err := m.questionView(i.GuildID, qid, note)
+	m.showQuestionPage(s, i, qid, 0, note)
+}
+
+func (m *Module) showQuestionPage(s *discordgo.Session, i *discordgo.InteractionCreate, qid int64, page int, note string) {
+	data, err := m.questionView(i.GuildID, qid, page, note)
 	if errors.Is(err, database.ErrFeudQuestionNotFound) {
 		m.showEditList(s, i, 0)
 		return
@@ -116,7 +121,7 @@ func (m *Module) showQuestion(s *discordgo.Session, i *discordgo.InteractionCrea
 	m.show(s, i, data)
 }
 
-func (m *Module) questionView(guildID string, qid int64, note string) (*discordgo.InteractionResponseData, error) {
+func (m *Module) questionView(guildID string, qid int64, page int, note string) (*discordgo.InteractionResponseData, error) {
 	q, ok, err := m.db.FeudQuestion(guildID, qid)
 	if err != nil {
 		return nil, err
@@ -129,23 +134,19 @@ func (m *Module) questionView(guildID string, qid int64, note string) (*discordg
 		return nil, err
 	}
 	var b strings.Builder
-	shown := answers
-	if len(shown) > 25 {
-		shown = shown[:25]
-	}
+	lo, hi, pages, page := pageBounds(len(answers), page)
+	shown := answers[lo:hi]
 	for _, a := range shown {
 		b.WriteString(answerLine(a) + "\n")
 	}
 	if b.Len() == 0 {
 		b.WriteString("No answers yet.")
 	}
-	if len(answers) > len(shown) {
-		fmt.Fprintf(&b, "…and %d more", len(answers)-len(shown))
-	}
 	embed := &discordgo.MessageEmbed{
 		Title: statusEmoji(q) + " " + q.Text, Color: feudColor,
 		Description: truncate(b.String(), 4000),
-		Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Question #%d · %d respondents · played %d times", q.ID, q.Respondents, q.TimesPlayed)},
+		Footer: &discordgo.MessageEmbedFooter{Text: fmt.Sprintf("Question #%d · %d respondents · played %d times · answers page %d of %d",
+			q.ID, q.Respondents, q.TimesPlayed, page+1, pages)},
 	}
 	data := &discordgo.InteractionResponseData{Content: note, Embeds: []*discordgo.MessageEmbed{embed}}
 	var rows []discordgo.MessageComponent
@@ -172,12 +173,23 @@ func (m *Module) questionView(guildID string, qid int64, note string) (*discordg
 	case database.FeudRejected:
 		buttons = append(buttons, button("Restore", "♻️", discordgo.SuccessButton, editID("ret", qid64)))
 	}
-	rows = append(rows,
-		discordgo.ActionsRow{Components: buttons},
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			button("Back to questions", "⬅️", discordgo.SecondaryButton, editID("list", "0"))}})
+	nav := []discordgo.MessageComponent{button("Back to questions", "⬅️", discordgo.SecondaryButton, editID("list", "0"))}
+	if pages > 1 {
+		nav = append(nav,
+			discordgo.Button{Label: "Earlier answers", Style: discordgo.SecondaryButton, CustomID: editID("q", qid64, strconv.Itoa(page-1)), Disabled: page == 0},
+			discordgo.Button{Label: "More answers", Style: discordgo.SecondaryButton, CustomID: editID("q", qid64, strconv.Itoa(page+1)), Disabled: page+1 >= pages})
+	}
+	rows = append(rows, discordgo.ActionsRow{Components: buttons}, discordgo.ActionsRow{Components: nav})
 	data.Components = rows
 	return data, nil
+}
+
+// pageBounds clamps a page of select-menu sized answer lists.
+func pageBounds(n, page int) (lo, hi, pages, clamped int) {
+	pages = max((n+selectMax-1)/selectMax, 1)
+	clamped = min(max(page, 0), pages-1)
+	lo = clamped * selectMax
+	return lo, min(lo+selectMax, n), pages, clamped
 }
 
 func answerLine(a database.FeudAnswer) string {
@@ -232,7 +244,7 @@ func (m *Module) showAnswer(s *discordgo.Session, i *discordgo.InteractionCreate
 	})
 }
 
-func (m *Module) showMergeTargets(s *discordgo.Session, i *discordgo.InteractionCreate, aid int64) {
+func (m *Module) showMergeTargets(s *discordgo.Session, i *discordgo.InteractionCreate, aid int64, page int) {
 	a, err := m.db.FeudAnswerIn(i.GuildID, aid)
 	if err != nil {
 		m.respondText(s, i, "That answer no longer exists.")
@@ -243,27 +255,36 @@ func (m *Module) showMergeTargets(s *discordgo.Session, i *discordgo.Interaction
 		m.respondText(s, i, "❌ Couldn't load the answers.")
 		return
 	}
-	var opts []discordgo.SelectMenuOption
+	var others []database.FeudAnswer
 	for _, o := range all {
-		if o.ID == a.ID || len(opts) == 25 {
-			continue
+		if o.ID != a.ID {
+			others = append(others, o)
 		}
-		opts = append(opts, discordgo.SelectMenuOption{Label: truncate(o.Label, 100), Value: itoa(o.ID), Description: fmt.Sprintf("%d points", o.Score())})
 	}
-	back := discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-		button("Cancel", "⬅️", discordgo.SecondaryButton, editID("a", itoa(a.ID)))}}
-	if len(opts) == 0 {
+	aid64 := itoa(a.ID)
+	nav := []discordgo.MessageComponent{button("Cancel", "⬅️", discordgo.SecondaryButton, editID("a", aid64))}
+	if len(others) == 0 {
 		m.show(s, i, &discordgo.InteractionResponseData{Content: "There's nothing to merge into.", Embeds: []*discordgo.MessageEmbed{},
-			Components: []discordgo.MessageComponent{back}})
+			Components: []discordgo.MessageComponent{discordgo.ActionsRow{Components: nav}}})
 		return
 	}
+	lo, hi, pages, page := pageBounds(len(others), page)
+	opts := make([]discordgo.SelectMenuOption, 0, hi-lo)
+	for _, o := range others[lo:hi] {
+		opts = append(opts, discordgo.SelectMenuOption{Label: truncate(o.Label, 100), Value: itoa(o.ID), Description: fmt.Sprintf("%d points", o.Score())})
+	}
+	if pages > 1 {
+		nav = append(nav,
+			discordgo.Button{Label: "Earlier", Style: discordgo.SecondaryButton, CustomID: editID("mg", aid64, strconv.Itoa(page-1)), Disabled: page == 0},
+			discordgo.Button{Label: "More", Style: discordgo.SecondaryButton, CustomID: editID("mg", aid64, strconv.Itoa(page+1)), Disabled: page+1 >= pages})
+	}
 	m.show(s, i, &discordgo.InteractionResponseData{
-		Content: fmt.Sprintf("Merge **%s** into which answer? Its responses and bonus move over.", a.Label),
+		Content: fmt.Sprintf("Merge **%s** into which answer? Its responses and bonus move over. (page %d of %d)", a.Label, page+1, pages),
 		Embeds:  []*discordgo.MessageEmbed{},
 		Components: []discordgo.MessageComponent{
 			discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-				discordgo.SelectMenu{CustomID: editID("mgto", itoa(a.ID)), Placeholder: "Merge into…", Options: opts}}},
-			back,
+				discordgo.SelectMenu{CustomID: editID("mgto", aid64), Placeholder: "Merge into…", Options: opts}}},
+			discordgo.ActionsRow{Components: nav},
 		},
 	})
 }
@@ -300,7 +321,8 @@ func (m *Module) handleEdit(s *discordgo.Session, i *discordgo.InteractionCreate
 	case "pick":
 		m.showQuestion(s, i, picked, "")
 	case "q":
-		m.showQuestion(s, i, id, "")
+		page, _ := strconv.Atoi(arg(2))
+		m.showQuestionPage(s, i, id, page, "")
 	case "ans":
 		m.showAnswer(s, i, picked, "")
 	case "a":
@@ -346,7 +368,8 @@ func (m *Module) handleEdit(s *discordgo.Session, i *discordgo.InteractionCreate
 		}
 		m.showAnswer(s, i, a.ID, "✅ Saved.")
 	case "mg":
-		m.showMergeTargets(s, i, id)
+		page, _ := strconv.Atoi(arg(2))
+		m.showMergeTargets(s, i, id, page)
 	case "mgto":
 		a, err := m.db.FeudAnswerIn(gid, id)
 		if err != nil {
@@ -512,12 +535,12 @@ func (m *Module) handleDedupeButton(s *discordgo.Session, i *discordgo.Interacti
 			m.config.Logger.Warnf("feud: tidy question %d: %v", qid, err)
 			note = "❌ The agent couldn't finish."
 			if len(actions) > 0 {
-				note += " Changes made so far:\n• " + strings.Join(actions, "\n• ")
+				note += " Changes made so far:\n• " + truncate(strings.Join(actions, "\n• "), 1200)
 			}
 		case len(actions) > 0:
 			note = "✅ Tidied:\n• " + truncate(strings.Join(actions, "\n• "), 1500)
 		}
-		data, verr := m.questionView(gid, qid, note)
+		data, verr := m.questionView(gid, qid, 0, note)
 		if verr != nil {
 			m.editResponse(i, &discordgo.WebhookEdit{Content: &note})
 			return

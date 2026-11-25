@@ -26,31 +26,42 @@ var (
 // migrateFeudAnswers adds columns missing from databases created before they
 // existed.
 func (db *DB) migrateFeudAnswers() error {
-	rows, err := db.conn.Query(`PRAGMA table_info(feud_answers)`)
-	if err != nil {
-		return fmt.Errorf("failed to check feud_answers schema: %w", err)
+	for _, c := range []struct{ table, column, def string }{
+		{"feud_answers", "hidden", "INTEGER NOT NULL DEFAULT 0"},
+		{"feud_questions", "tidied_n", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		have, err := db.hasColumn(c.table, c.column)
+		if err != nil {
+			return err
+		}
+		if have {
+			continue
+		}
+		if _, err := db.conn.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.def); err != nil {
+			return fmt.Errorf("failed to add %s.%s: %w", c.table, c.column, err)
+		}
 	}
-	have := map[string]bool{}
+	return nil
+}
+
+func (db *DB) hasColumn(table, column string) (bool, error) {
+	rows, err := db.conn.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return false, fmt.Errorf("failed to check %s schema: %w", table, err)
+	}
+	defer rows.Close()
 	for rows.Next() {
 		var cid, notnull, pk int
 		var name, ctype string
 		var dflt *string
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
-			rows.Close()
-			return fmt.Errorf("failed to scan feud_answers schema: %w", err)
+			return false, fmt.Errorf("failed to scan %s schema: %w", table, err)
 		}
-		have[name] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to read feud_answers schema: %w", err)
-	}
-	if !have["hidden"] {
-		if _, err := db.conn.Exec(`ALTER TABLE feud_answers ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0`); err != nil {
-			return fmt.Errorf("failed to add feud_answers.hidden: %w", err)
+		if name == column {
+			return true, nil
 		}
 	}
-	return nil
+	return false, rows.Err()
 }
 
 // FeudQuestionsPage lists a guild's questions for the mod editor: active
@@ -61,7 +72,7 @@ func (db *DB) FeudQuestionsPage(guildID string, offset, limit int) ([]FeudQuesti
 		return nil, 0, err
 	}
 	rows, err := db.conn.Query(`SELECT `+feudQuestionCols+`,
-		(SELECT COUNT(*) FROM feud_responses r WHERE r.question_id = q.id AND r.rejected = 0)
+		`+feudRespondents+`
 		FROM feud_questions q WHERE guild_id = ?
 		ORDER BY CASE status WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END, id
 		LIMIT ? OFFSET ?`, guildID, FeudActive, FeudPending, limit, offset)
@@ -82,12 +93,13 @@ func (db *DB) FeudQuestionsPage(guildID string, offset, limit int) ([]FeudQuesti
 	return out, total, rows.Err()
 }
 
-// FeudActiveQuestionIDs lists a guild's active questions that have at least
-// minAnswers answer groups, oldest first.
-func (db *DB) FeudActiveQuestionIDs(guildID string, minAnswers int) ([]int64, error) {
-	rows, err := db.conn.Query(`SELECT id FROM feud_questions q WHERE guild_id = ? AND status = ?
-		AND (SELECT COUNT(*) FROM feud_answers a WHERE a.question_id = q.id AND a.hidden = 0) >= ?
-		ORDER BY id`, guildID, FeudActive, minAnswers)
+// FeudQuestionsToTidy lists the playable questions the agent hasn't looked at
+// since they last gained answers, oldest first.
+func (db *DB) FeudQuestionsToTidy(guildID string, minRespondents int) ([]int64, error) {
+	rows, err := db.conn.Query(`SELECT id FROM (SELECT q.id, q.tidied_n, `+feudRespondents+` AS n
+		FROM feud_questions q WHERE guild_id = ? AND status = ?
+		AND (SELECT COUNT(*) FROM feud_answers a WHERE a.question_id = q.id AND a.hidden = 0) >= 2)
+		WHERE n >= ? AND n > tidied_n ORDER BY id`, guildID, FeudActive, minRespondents)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +113,14 @@ func (db *DB) FeudActiveQuestionIDs(guildID string, minAnswers int) ([]int64, er
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// MarkFeudQuestionTidied records that the agent has gone over a question as
+// it stands.
+func (db *DB) MarkFeudQuestionTidied(id int64) error {
+	_, err := db.conn.Exec(`UPDATE feud_questions SET tidied_n = (SELECT COUNT(*) FROM feud_responses r
+		WHERE r.question_id = feud_questions.id AND r.rejected = 0) WHERE id = ?`, id)
+	return err
 }
 
 // UpdateFeudQuestionText rewrites a question's wording.
@@ -160,25 +180,50 @@ func (db *DB) FeudAnswerIn(guildID string, id int64) (FeudAnswer, error) {
 	return a, nil
 }
 
-// RenameFeudAnswer changes a group's label and the text new answers are
-// matched against. Older responses keep matching through their own text.
+// feudWordingTaken reports whether another group already answers to a
+// normalized wording: by its label, an alias from a merge or rename, or what
+// one of its responses typed.
+func feudWordingTaken(tx *sql.Tx, questionID int64, norm string, exceptID int64) (bool, error) {
+	var n int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM (
+		SELECT id AS aid FROM feud_answers WHERE question_id = ? AND norm = ?
+		UNION ALL SELECT answer_id FROM feud_answer_aliases WHERE question_id = ? AND norm = ?
+		UNION ALL SELECT answer_id FROM feud_responses WHERE question_id = ? AND norm = ? AND rejected = 0
+	) WHERE aid != ?`, questionID, norm, questionID, norm, questionID, norm, exceptID).Scan(&n)
+	return n > 0, err
+}
+
+// RenameFeudAnswer changes a group's label and the wording new answers are
+// matched against. The old wording keeps counting for the group.
 func (db *DB) RenameFeudAnswer(questionID, id int64, label, norm string) error {
-	var clash int
-	if err := db.conn.QueryRow(`SELECT COUNT(*) FROM feud_answers WHERE question_id = ? AND norm = ? AND id != ?`,
-		questionID, norm, id).Scan(&clash); err != nil {
-		return err
-	}
-	if clash > 0 {
-		return ErrFeudAnswerExists
-	}
-	res, err := db.conn.Exec(`UPDATE feud_answers SET label = ?, norm = ? WHERE id = ? AND question_id = ?`, label, norm, id, questionID)
+	tx, err := db.conn.Begin()
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	defer func() { _ = tx.Rollback() }()
+	var oldNorm string
+	if err := tx.QueryRow(`SELECT norm FROM feud_answers WHERE id = ? AND question_id = ?`, id, questionID).Scan(&oldNorm); errors.Is(err, sql.ErrNoRows) {
 		return ErrFeudAnswerNotFound
+	} else if err != nil {
+		return err
 	}
-	return nil
+	taken, err := feudWordingTaken(tx, questionID, norm, id)
+	if err != nil {
+		return err
+	}
+	if taken {
+		return ErrFeudAnswerExists
+	}
+	if _, err := tx.Exec(`UPDATE feud_answers SET label = ?, norm = ? WHERE id = ?`, label, norm, id); err != nil {
+		return err
+	}
+	if oldNorm != norm {
+		if _, err := tx.Exec(`INSERT OR REPLACE INTO feud_answer_aliases (question_id, norm, answer_id) VALUES (?, ?, ?)`,
+			questionID, oldNorm, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // SetFeudAnswerExtra sets the points a mod adds to (or, if negative, takes
@@ -213,11 +258,11 @@ func (db *DB) AddFeudAnswer(questionID int64, label, norm string, points int, no
 		return 0, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var clash int
-	if err := tx.QueryRow(`SELECT COUNT(*) FROM feud_answers WHERE question_id = ? AND norm = ?`, questionID, norm).Scan(&clash); err != nil {
+	taken, err := feudWordingTaken(tx, questionID, norm, 0)
+	if err != nil {
 		return 0, err
 	}
-	if clash > 0 {
+	if taken {
 		return 0, ErrFeudAnswerExists
 	}
 	res, err := tx.Exec(`INSERT INTO feud_answers (question_id, label, norm, extra, created_at) VALUES (?, ?, ?, ?, ?)`,
@@ -233,8 +278,8 @@ func (db *DB) AddFeudAnswer(questionID int64, label, norm string, points int, no
 }
 
 // MergeFeudAnswers folds one group into another: its responses and bonus
-// points move over and the empty group is removed. The responses keep their
-// own text, so what people typed still matches during play.
+// points move over and the empty group is removed. Its wording stays as an
+// alias, so what people typed still matches during play.
 func (db *DB) MergeFeudAnswers(questionID, from, into int64) error {
 	if from == into {
 		return ErrFeudAnswerNotFound
@@ -245,7 +290,8 @@ func (db *DB) MergeFeudAnswers(questionID, from, into int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 	var fromExtra, found int
-	if err := tx.QueryRow(`SELECT extra FROM feud_answers WHERE id = ? AND question_id = ?`, from, questionID).Scan(&fromExtra); errors.Is(err, sql.ErrNoRows) {
+	var fromNorm string
+	if err := tx.QueryRow(`SELECT extra, norm FROM feud_answers WHERE id = ? AND question_id = ?`, from, questionID).Scan(&fromExtra, &fromNorm); errors.Is(err, sql.ErrNoRows) {
 		return ErrFeudAnswerNotFound
 	} else if err != nil {
 		return err
@@ -257,6 +303,13 @@ func (db *DB) MergeFeudAnswers(questionID, from, into int64) error {
 		return ErrFeudAnswerNotFound
 	}
 	if _, err := tx.Exec(`UPDATE feud_responses SET answer_id = ? WHERE answer_id = ?`, into, from); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE feud_answer_aliases SET answer_id = ? WHERE answer_id = ?`, into, from); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO feud_answer_aliases (question_id, norm, answer_id) VALUES (?, ?, ?)`,
+		questionID, fromNorm, into); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`UPDATE feud_answers SET extra = extra + ? WHERE id = ?`, fromExtra, into); err != nil {

@@ -363,21 +363,33 @@ func (m *Module) nextRound(g *Game, now time.Time) error {
 		return nil
 	}
 	gc := m.config.ForGuild(g.GuildID)
-	q, ok, err := m.db.PickFeudQuestion(g.GuildID, gc.GetFeudMinRespondents(), int64(gc.GetFeudQuestionCooldown()), g.GameNo, g.Played, m.randN)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		if g.Round == 0 {
-			g.finish(now, "Game ended: no questions are ready.")
-		} else {
-			g.finish(now, "")
+	// A question with nothing to put on the board (say a mod hid every
+	// answer) is skipped for this game.
+	skip := append([]int64(nil), g.Played...)
+	var q database.FeudQuestion
+	var slots []Slot
+	for {
+		var ok bool
+		var err error
+		q, ok, err = m.db.PickFeudQuestion(g.GuildID, gc.GetFeudMinRespondents(), int64(gc.GetFeudQuestionCooldown()), g.GameNo, skip, m.randN)
+		if err != nil {
+			return err
 		}
-		return nil
-	}
-	slots, err := m.boardSlots(q.ID)
-	if err != nil {
-		return err
+		if !ok {
+			if g.Round == 0 {
+				g.finish(now, "Game ended: no questions are ready.")
+			} else {
+				g.finish(now, "")
+			}
+			return nil
+		}
+		if slots, err = m.boardSlots(q.ID); err != nil {
+			return err
+		}
+		if len(slots) > 0 {
+			break
+		}
+		skip = append(skip, q.ID)
 	}
 	if err := m.db.MarkFeudQuestionPlayed(q.ID, g.GameNo); err != nil {
 		return err

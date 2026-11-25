@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS feud_questions (
 	reviewed_at       INTEGER NOT NULL DEFAULT 0,
 	last_played_game  INTEGER NOT NULL DEFAULT 0,
 	times_played      INTEGER NOT NULL DEFAULT 0,
+	tidied_n          INTEGER NOT NULL DEFAULT 0,
 	UNIQUE (guild_id, norm)
 );
 CREATE INDEX IF NOT EXISTS idx_feud_questions_status ON feud_questions(guild_id, status);
@@ -62,6 +63,15 @@ CREATE TABLE IF NOT EXISTS feud_responses (
 	UNIQUE (question_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_feud_responses_answer ON feud_responses(answer_id);
+
+-- Wordings that count as a group after a merge or rename, beyond its label
+-- and its responses' own text.
+CREATE TABLE IF NOT EXISTS feud_answer_aliases (
+	question_id INTEGER NOT NULL,
+	norm        TEXT NOT NULL,
+	answer_id   INTEGER NOT NULL,
+	PRIMARY KEY (question_id, norm)
+);
 `
 
 // Question statuses.
@@ -123,6 +133,16 @@ type FeudAnswer struct {
 
 // Score is the answer's value on the board.
 func (a FeudAnswer) Score() int { return a.Count + a.Extra }
+
+// feudRespondents counts the people whose answer can count: not rejected, and
+// not in a group a mod hid.
+const feudRespondents = `(SELECT COUNT(*) FROM feud_responses r JOIN feud_answers ha ON ha.id = r.answer_id
+	WHERE r.question_id = q.id AND r.rejected = 0 AND ha.hidden = 0)`
+
+// feudHasBoard is true for a question with at least one answer that can be
+// on the board.
+const feudHasBoard = `EXISTS (SELECT 1 FROM feud_answers ba WHERE ba.question_id = q.id AND ba.hidden = 0
+	AND ba.extra + (SELECT COUNT(*) FROM feud_responses br WHERE br.answer_id = ba.id AND br.rejected = 0) > 0)`
 
 const feudQuestionCols = `id, guild_id, text, status, source, submitted_by, reviewed_by,
 	review_channel_id, review_message_id, created_at, reviewed_at, last_played_game, times_played`
@@ -262,7 +282,7 @@ func (db *DB) ReviewFeudQuestion(guildID string, id int64, approve bool, modID s
 // FeudQuestion loads one question with its respondent count.
 func (db *DB) FeudQuestion(guildID string, id int64) (FeudQuestion, bool, error) {
 	row := db.conn.QueryRow(`SELECT `+feudQuestionCols+`,
-		(SELECT COUNT(*) FROM feud_responses r WHERE r.question_id = q.id AND r.rejected = 0)
+		`+feudRespondents+`
 		FROM feud_questions q WHERE id = ? AND guild_id = ?`, id, guildID)
 	var n int
 	q, err := scanFeudQuestion(row, &n)
@@ -294,7 +314,7 @@ func (db *DB) OldestPendingFeudQuestion(guildID string) (FeudQuestion, bool, err
 // with their respondent counts.
 func (db *DB) FeudQuestionsToAnswer(guildID, userID string) ([]FeudQuestion, error) {
 	rows, err := db.conn.Query(`SELECT `+feudQuestionCols+`,
-		(SELECT COUNT(*) FROM feud_responses r WHERE r.question_id = q.id AND r.rejected = 0)
+		`+feudRespondents+`
 		FROM feud_questions q
 		WHERE guild_id = ? AND status = ?
 		AND NOT EXISTS (SELECT 1 FROM feud_responses r WHERE r.question_id = q.id AND r.user_id = ?)
@@ -327,11 +347,11 @@ func (db *DB) FeudPoolStats(guildID string, minRespondents int) (FeudPoolStats, 
 	var st FeudPoolStats
 	err := db.conn.QueryRow(`SELECT
 		COALESCE(SUM(status = ?), 0),
-		COALESCE(SUM(status = ? AND n < ?), 0),
-		COALESCE(SUM(status = ? AND n >= ?), 0)
-		FROM (SELECT status, (SELECT COUNT(*) FROM feud_responses r WHERE r.question_id = q.id AND r.rejected = 0) AS n
+		COALESCE(SUM(status = ? AND NOT ready), 0),
+		COALESCE(SUM(status = ? AND ready), 0)
+		FROM (SELECT status, (`+feudRespondents+` >= ? AND `+feudHasBoard+`) AS ready
 			FROM feud_questions q WHERE guild_id = ?)`,
-		FeudPending, FeudActive, minRespondents, FeudActive, minRespondents, guildID).
+		FeudPending, FeudActive, FeudActive, minRespondents, guildID).
 		Scan(&st.Pending, &st.Collecting, &st.Ready)
 	return st, err
 }
@@ -363,8 +383,9 @@ func (db *DB) AddFeudResponse(guildID string, questionID int64, userID, text, no
 	}
 	var answerID int64
 	err = tx.QueryRow(`SELECT id FROM feud_answers WHERE question_id = ? AND norm = ?
+		UNION ALL SELECT answer_id FROM feud_answer_aliases WHERE question_id = ? AND norm = ?
 		UNION ALL SELECT answer_id FROM feud_responses WHERE question_id = ? AND norm = ? AND rejected = 0
-		LIMIT 1`, questionID, norm, questionID, norm).Scan(&answerID)
+		LIMIT 1`, questionID, norm, questionID, norm, questionID, norm).Scan(&answerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		res, err := tx.Exec(`INSERT INTO feud_answers (question_id, label, norm, created_at) VALUES (?, ?, ?, ?)`,
 			questionID, text, norm, now.Unix())

@@ -20,7 +20,7 @@ const (
 )
 
 const dedupeSystem = `You tidy the answer groups of one GP Feud survey question, a Family Feud style game. Members answered the question freely, and similar answers were grouped by exact text. Fix the grouping with the tools:
-- merge_answers: fold one group into another when they mean the same thing: typos, plurals, abbreviations, nicknames, different spellings or wording of the same answer (e.g. "COD" and "Call of Duty"). Keep the group with the most responses as the target.
+- merge_answers: fold one group into another when they mean the same thing: typos, plurals, abbreviations, nicknames, different spellings or wording of the same answer (e.g. "COD" and "Call of Duty"). Keep the group with the most points as the target.
 - rename_answer: give a group the clearest, most common wording, so it reads well on the board.
 - hide_answer: take a group off the board when it is gibberish, trolling, off-topic or offensive.
 Only merge answers that really mean the same thing. Merely related answers stay separate (a game and its sequel, a genre and one of its games). When unsure, leave it alone. Never invent answers. Responses are never deleted, and a mod can undo any change. Group IDs come from the list you are given. Finish with one short sentence about what you changed, or that nothing needed changing.`
@@ -137,7 +137,7 @@ func (m *Module) dedupeQuestion(ctx context.Context, guildID string, qid int64) 
 	}
 	run := &dedupeRun{m: m, guildID: guildID, question: q, ids: map[int64]bool{}, labels: map[int64]string{}}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Question: %s\n\nAnswer groups (ID, label, responses, typed examples):\n", q.Text)
+	fmt.Fprintf(&b, "Question: %s\n\nAnswer groups (ID, label, points, typed examples):\n", q.Text)
 	for _, a := range all {
 		if a.Hidden {
 			continue
@@ -148,40 +148,46 @@ func (m *Module) dedupeQuestion(ctx context.Context, guildID string, qid int64) 
 		if len(ex) > dedupeSamples {
 			ex = ex[:dedupeSamples]
 		}
-		fmt.Fprintf(&b, "- %d: %q, %d responses, e.g. %q\n", a.ID, a.Label, a.Count, ex)
+		fmt.Fprintf(&b, "- %d: %q, %d points, e.g. %q\n", a.ID, a.Label, a.Score(), ex)
 	}
 	if len(run.ids) < 2 {
-		return nil, nil
+		return nil, m.db.MarkFeudQuestionTidied(qid)
 	}
 	ctx, cancel := context.WithTimeout(ctx, dedupeTimeout)
 	defer cancel()
 	if _, err := m.agent.Complete(ctx, dedupeSystem, b.String(), run.tools()); err != nil {
 		return run.actions, err
 	}
-	return run.actions, nil
+	return run.actions, m.db.MarkFeudQuestionTidied(qid)
 }
 
 var errNoAgent = errors.New("the agent isn't running")
 
 // dedupeGuild tidies the playable questions, oldest first, up to a cap.
 func (m *Module) dedupeGuild(ctx context.Context, guildID string) (string, error) {
-	ids, err := m.db.FeudActiveQuestionIDs(guildID, 2)
+	need := m.config.ForGuild(guildID).GetFeudMinRespondents()
+	ids, err := m.db.FeudQuestionsToTidy(guildID, need)
 	if err != nil {
 		return "", err
 	}
-	need := m.config.ForGuild(guildID).GetFeudMinRespondents()
 	var changed, done, failed int
 	var lines []string
 	for _, id := range ids {
-		if done >= dedupeMaxPerRun {
+		if done >= dedupeMaxPerRun || ctx.Err() != nil {
 			break
 		}
+		key := "q" + itoa(id)
+		if !m.startTidy(key) {
+			continue
+		}
 		q, ok, err := m.db.FeudQuestion(guildID, id)
-		if err != nil || !ok || q.Respondents < need {
+		if err != nil || !ok {
+			m.endTidy(key)
 			continue
 		}
 		done++
 		actions, err := m.dedupeQuestion(ctx, guildID, id)
+		m.endTidy(key)
 		if errors.Is(err, errNoAgent) {
 			return "", err
 		}
@@ -197,6 +203,9 @@ func (m *Module) dedupeGuild(ctx context.Context, guildID string) (string, error
 	out := fmt.Sprintf("✅ Checked %d ready questions, changed %d.", done, changed)
 	if failed > 0 {
 		out += fmt.Sprintf(" %d couldn't be checked.", failed)
+	}
+	if remaining := len(ids) - done; remaining > 0 {
+		out += fmt.Sprintf(" %d more to go: run it again.", remaining)
 	}
 	if len(lines) > 0 {
 		out += "\n" + truncate(strings.Join(lines, "\n"), 1500)

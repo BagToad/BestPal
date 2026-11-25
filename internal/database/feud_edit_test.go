@@ -112,9 +112,48 @@ func TestFeudAddAnswerAndQuestionEdits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, total)
 	require.Len(t, qs, 1)
-	ids, err := db.FeudActiveQuestionIDs("g", 2)
+}
+
+func TestFeudTidyTracking(t *testing.T) {
+	db, qid, _ := editFixture(t)
+	ids, err := db.FeudQuestionsToTidy("g", 2)
 	require.NoError(t, err)
-	assert.Equal(t, []int64{qid}, ids, "only the question with several groups")
+	assert.Equal(t, []int64{qid}, ids)
+	require.NoError(t, db.MarkFeudQuestionTidied(qid))
+	ids, err = db.FeudQuestionsToTidy("g", 2)
+	require.NoError(t, err)
+	assert.Empty(t, ids, "already tidied")
+	_, err = db.AddFeudResponse("g", qid, "u9", "Fish", "fish", time.Unix(1000, 0))
+	require.NoError(t, err)
+	ids, err = db.FeudQuestionsToTidy("g", 2)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{qid}, ids, "new answers make it due again")
+}
+
+func TestFeudAliasesBlockCollisions(t *testing.T) {
+	db, qid, ids := editFixture(t)
+	require.NoError(t, db.MergeFeudAnswers(qid, ids["Doggo"], ids["Dog"]))
+	assert.ErrorIs(t, db.RenameFeudAnswer(qid, ids["Cat"], "Doggo", "doggo"), ErrFeudAnswerExists)
+	_, err := db.AddFeudAnswer(qid, "Doggo", "doggo", 1, time.Unix(1000, 0))
+	assert.ErrorIs(t, err, ErrFeudAnswerExists)
+	require.NoError(t, db.RenameFeudAnswer(qid, ids["Cat"], "Kitty", "kitty"))
+	b, err := db.AddFeudResponse("g", qid, "u7", "cat", "cat", time.Unix(1000, 0))
+	require.NoError(t, err)
+	assert.Equal(t, ids["Cat"], b.ID, "old wording still joins the renamed group")
+}
+
+func TestFeudHiddenGroupsDontMakeQuestionsReady(t *testing.T) {
+	db, qid, ids := editFixture(t)
+	st, err := db.FeudPoolStats("g", 2)
+	require.NoError(t, err)
+	assert.Equal(t, 1, st.Ready)
+	for _, id := range ids {
+		require.NoError(t, db.SetFeudAnswerHidden(qid, id, true))
+	}
+	st, err = db.FeudPoolStats("g", 2)
+	require.NoError(t, err)
+	assert.Equal(t, 0, st.Ready)
+	assert.Equal(t, 1, st.Collecting)
 }
 
 func TestFeudAnswersMigration(t *testing.T) {

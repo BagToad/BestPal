@@ -98,7 +98,7 @@ func (db *DB) FeudQuestionsPage(guildID string, offset, limit int) ([]FeudQuesti
 func (db *DB) FeudQuestionsToTidy(guildID string, minRespondents int) ([]int64, error) {
 	rows, err := db.conn.Query(`SELECT id FROM (SELECT q.id, q.tidied_n, `+feudRespondents+` AS n
 		FROM feud_questions q WHERE guild_id = ? AND status = ?
-		AND (SELECT COUNT(*) FROM feud_answers a WHERE a.question_id = q.id AND a.hidden = 0) >= 2)
+		AND (SELECT COUNT(*) FROM feud_answers a WHERE a.question_id = q.id AND a.hidden = 0) >= 1)
 		WHERE n >= ? AND n > tidied_n ORDER BY id`, guildID, FeudActive, minRespondents)
 	if err != nil {
 		return nil, err

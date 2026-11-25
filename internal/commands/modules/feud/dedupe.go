@@ -150,7 +150,7 @@ func (m *Module) dedupeQuestion(ctx context.Context, guildID string, qid int64) 
 		}
 		fmt.Fprintf(&b, "- %d: %q, %d points, e.g. %q\n", a.ID, a.Label, a.Score(), ex)
 	}
-	if len(run.ids) < 2 {
+	if len(run.ids) < 1 {
 		return nil, m.db.MarkFeudQuestionTidied(qid)
 	}
 	ctx, cancel := context.WithTimeout(ctx, dedupeTimeout)

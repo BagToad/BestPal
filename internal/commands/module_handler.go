@@ -7,6 +7,7 @@ import (
 	"gamerpal/internal/commands/modules/config"
 	"gamerpal/internal/commands/modules/eventfeed"
 	"gamerpal/internal/commands/modules/fetchintros"
+	"gamerpal/internal/commands/modules/feud"
 	"gamerpal/internal/commands/modules/fun"
 	"gamerpal/internal/commands/modules/help"
 	"gamerpal/internal/commands/modules/intro"
@@ -116,6 +117,7 @@ func (h *ModuleHandler) registerModules() {
 		{"msgsearch", msgsearch.New(h.deps)},
 		{"eventfeed", eventfeed.New(h.deps)},
 		{"squads", squads.New(h.deps)},
+		{"feud", feud.New(h.deps)},
 	}
 
 	for _, m := range modules {
@@ -211,6 +213,12 @@ func (h *ModuleHandler) HandleComponentInteraction(s *discordgo.Session, i *disc
 		} else {
 			h.config.Logger.Warn("Squad interaction received but squads module not available")
 		}
+	case strings.HasPrefix(cid, "gf:"):
+		if feudMod, ok := h.GetModule("feud").(*feud.Module); ok {
+			feudMod.HandleComponent(s, i)
+		} else {
+			h.config.Logger.Warn("GP Feud interaction received but feud module not available")
+		}
 	case strings.HasPrefix(cid, "scamguard:"):
 		if scamMod, ok := h.GetModule("scamguard").(*scamguard.Module); ok {
 			scamMod.HandleComponent(s, i)
@@ -234,6 +242,14 @@ func (h *ModuleHandler) HandleModalSubmit(s *discordgo.Session, i *discordgo.Int
 			cfgMod.HandleModalSubmit(s, i)
 		} else {
 			h.config.Logger.Warn("Config modal submit received but config module not available")
+		}
+		return
+	}
+	if strings.HasPrefix(i.ModalSubmitData().CustomID, "gf:") {
+		if feudMod, ok := h.GetModule("feud").(*feud.Module); ok {
+			feudMod.HandleModalSubmit(s, i)
+		} else {
+			h.config.Logger.Warn("GP Feud modal submit received but feud module not available")
 		}
 		return
 	}

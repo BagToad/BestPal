@@ -649,3 +649,63 @@ func splitTrimCSV(s string) []string {
 	}
 	return out
 }
+
+// GP Feud
+// -----
+
+const (
+	FeudMinMinRespondents     = 1
+	FeudMaxMinRespondents     = 1000
+	feudDefaultMinRespondents = 10
+	FeudMinTurnTimer          = 15 * time.Second
+	FeudMaxTurnTimer          = 10 * time.Minute
+	feudDefaultTurnTimer      = 90 * time.Second
+	FeudMinRounds             = 1
+	FeudMaxRounds             = 10
+	feudDefaultRounds         = 3
+	FeudMaxQuestionCooldown   = 1000
+	feudDefaultCooldown       = 50
+)
+
+// GetFeudEnabled reports whether GP Feud is on.
+func (gc *GuildConfig) GetFeudEnabled() bool { return gc.resolveBool(KeyFeudEnabled) }
+
+// GetFeudChannelID returns the channel that holds the game board.
+func (gc *GuildConfig) GetFeudChannelID() string { return gc.resolveString(KeyFeudChannelID) }
+
+// GetFeudReviewChannelID returns where submitted questions are posted for mods
+// to approve.
+func (gc *GuildConfig) GetFeudReviewChannelID() string {
+	return gc.resolveString(KeyFeudReviewChannelID)
+}
+
+func (gc *GuildConfig) feudInt(key string, lo, hi, def int) int {
+	if n, ok := gc.resolveInt(key); ok && n >= lo && n <= hi {
+		return n
+	}
+	return def
+}
+
+// GetFeudMinRespondents returns how many people must answer a question before
+// it can be played.
+func (gc *GuildConfig) GetFeudMinRespondents() int {
+	return gc.feudInt(KeyFeudMinRespondents, FeudMinMinRespondents, FeudMaxMinRespondents, feudDefaultMinRespondents)
+}
+
+// GetFeudTurnTimer returns how long a team has to settle on a guess.
+func (gc *GuildConfig) GetFeudTurnTimer() time.Duration {
+	if d := gc.resolveDuration(KeyFeudTurnTimer); d >= FeudMinTurnTimer && d <= FeudMaxTurnTimer {
+		return d
+	}
+	return feudDefaultTurnTimer
+}
+
+// GetFeudRounds returns how many rounds (questions) make up a game.
+func (gc *GuildConfig) GetFeudRounds() int {
+	return gc.feudInt(KeyFeudRounds, FeudMinRounds, FeudMaxRounds, feudDefaultRounds)
+}
+
+// GetFeudQuestionCooldown returns how many games a played question sits out.
+func (gc *GuildConfig) GetFeudQuestionCooldown() int {
+	return gc.feudInt(KeyFeudQuestionCooldown, 0, FeudMaxQuestionCooldown, feudDefaultCooldown)
+}

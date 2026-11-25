@@ -784,6 +784,7 @@ func TestRunMatchRejectsLateJoinAvoidedByExistingMember(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.DeleteSquad(newer.ID, now.Add(-time.Hour)))
 	require.NoError(t, db.EnqueueSquadUser(guild, "late", "intro-late", now.Add(-49*time.Hour)))
+	require.NoError(t, db.SetSquadLateJoin(guild, "late", true))
 
 	require.NoError(t, m.tick())
 	members, err := db.SquadMemberIDs(current.ID)
@@ -1678,6 +1679,8 @@ func TestOpenSquadSkippedWhenAMemberCantBeLoaded(t *testing.T) {
 	sq := makeSquad(t, m, api, db, "a", "b", "c", "d", "e", "f", "g")
 	api.memberErr["a"] = errors.New("discord hiccup")
 	queue(t, m, api, db, now.Add(-49*time.Hour), []string{"x", "y"}, []int64{1}, "role-eu")
+	require.NoError(t, db.SetSquadLateJoin(guild, "x", true))
+	require.NoError(t, db.SetSquadLateJoin(guild, "y", true))
 	require.NoError(t, m.tick())
 	got, _, _ := db.GetSquad(sq.ID)
 	assert.Equal(t, 7, got.Members, "nobody joins a squad whose roster couldn't be checked")

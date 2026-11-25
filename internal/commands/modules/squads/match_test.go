@@ -235,7 +235,7 @@ func TestGenreLateJoinRejectsSquadWithNonOptedInMember(t *testing.T) {
 		willing(withTags(person("m2", "eu", 1, 0, 2), "RPG")),
 	}}}
 	queue := []*candidate{
-		willing(withTags(person("late", "eu", 1, 50*time.Hour, 1, 2), "RPG")),
+		lateJoiner(willing(withTags(person("late", "eu", 1, 50*time.Hour, 1, 2), "RPG"))),
 	}
 
 	p := buildPlan(queue, open, params, t0)
@@ -248,7 +248,7 @@ func TestSharedGenreCannotJoinOpenSquad(t *testing.T) {
 		withTags(person("m1", "eu", 2, 0, 1), "RPG"),
 		withTags(person("m2", "eu", 2, 0, 1), "RPG"),
 	}
-	queue := []*candidate{withTags(person("late", "eu", 2, 50*time.Hour, 2), "RPG")}
+	queue := []*candidate{lateJoiner(withTags(person("late", "eu", 2, 50*time.Hour, 2), "RPG"))}
 
 	p := buildPlan(queue, []openSquad{{ID: 1, Members: members}}, params, t0)
 	assert.Empty(t, p.Joins)
@@ -369,7 +369,7 @@ func TestFullOpenSquadTakesNobody(t *testing.T) {
 	for n := range 8 {
 		members = append(members, person(fmt.Sprintf("m%d", n), "eu", 1, 0, 5))
 	}
-	p := buildPlan([]*candidate{person("late", "eu", 1, 50*time.Hour, 5)}, []openSquad{{ID: 1, Members: members}}, params, t0)
+	p := buildPlan([]*candidate{lateJoiner(person("late", "eu", 1, 50*time.Hour, 5))}, []openSquad{{ID: 1, Members: members}}, params, t0)
 	assert.Empty(t, p.Joins)
 }
 

@@ -378,7 +378,7 @@ func welcomeText(guildID, name, roleID, ground string, group []*candidate, quiet
 	}
 	home := fmt.Sprintf("\n\nThis is your squad's channel. Ping everyone with <@&%s>.", roleID)
 	if roleID == "" {
-		home = "\n\nThis is your squad's private thread. Only your squad and the mods can see it."
+		home = "\n\nThis is your squad's private thread."
 	}
 	tail := "\n\n" + ground + home +
 		fmt.Sprintf("\n-# Squads that go %s without chatting are deleted.", humanDuration(quietLimit))

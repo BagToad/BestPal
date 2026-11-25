@@ -46,6 +46,7 @@ func TestThreadSquadIsAPrivateThread(t *testing.T) {
 	require.NotEmpty(t, msgs)
 	welcome := msgs[0]
 	assert.Contains(t, welcome.Content, "private thread")
+	assert.NotContains(t, welcome.Content, "Only your squad and the mods")
 	assert.NotContains(t, welcome.Content, "<@&")
 	assert.ElementsMatch(t, []string{"a", "b", "c"}, welcome.AllowedMentions.Users)
 	button := welcome.Components[0].(discordgo.ActionsRow).Components[0].(discordgo.Button)

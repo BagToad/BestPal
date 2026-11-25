@@ -277,8 +277,9 @@ func (m *Module) reconcileThreadLeaves(sq database.Squad, roster map[string]int6
 	api := m.dc(nil)
 	inThread, err := api.ThreadMemberIDs(sq.ChannelID)
 	if err != nil {
-		// A deleted thread is cleaned up by the quiet check.
+		// The thread was deleted while the bot was offline.
 		if discordCode(err) == discordgo.ErrCodeUnknownChannel {
+			m.channelDeleted(sq.GuildID, sq.ChannelID, "its thread was deleted")
 			return true
 		}
 		m.config.Logger.Warnf("squads: list thread members of %s: %v", sq.Name, err)
@@ -351,7 +352,8 @@ type threadLeave struct {
 // threadLeaveReason tells leaving a squad thread apart from leaving the
 // server, which also drops someone from their threads.
 func (m *Module) threadLeaveReason(guildID, uid string) threadLeave {
-	if _, err := m.dc(nil).Member(guildID, uid); discordCode(err) == discordgo.ErrCodeUnknownMember {
+	// The cache may still hold someone who just left the server.
+	if _, err := m.dc(nil).FetchMember(guildID, uid); discordCode(err) == discordgo.ErrCodeUnknownMember {
 		return threadLeave{database.SquadLeaveServer, "left the server and"}
 	}
 	return threadLeave{database.SquadLeaveVoluntary, "left"}

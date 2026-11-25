@@ -456,3 +456,16 @@ func TestThreadLeaveEventSparesMemberAddedBackMidCheck(t *testing.T) {
 	_, inSquad, _ := db.SquadForUser(guild, "a")
 	assert.True(t, inSquad, "the new membership is kept")
 }
+
+func TestNightlyThreadCheckClosesSquadWhoseThreadWasDeleted(t *testing.T) {
+	m, api, db, now := threadModule(t)
+	*now = time.Date(2026, 1, 2, 9, 0, 0, 0, time.UTC)
+	sq := makeSquad(t, m, api, db, "a", "b", "c")
+	delete(api.threads, sq.ChannelID)
+
+	m.reconcileThreadsNightly(guild)
+	_, ok, _ := db.GetSquad(sq.ID)
+	assert.False(t, ok)
+	_, inSquad, _ := db.SquadForUser(guild, "a")
+	assert.False(t, inSquad, "its members can join another squad")
+}

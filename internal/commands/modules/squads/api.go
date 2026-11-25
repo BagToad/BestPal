@@ -25,6 +25,9 @@ type discordAPI interface {
 	Send(channelID string, msg *discordgo.MessageSend) (*discordgo.Message, error)
 	Pin(channelID, messageID string) error
 	Member(guildID, userID string) (*discordgo.Member, error)
+	// FetchMember is Member without the cache, for checking someone is
+	// still in the server.
+	FetchMember(guildID, userID string) (*discordgo.Member, error)
 	CreateRole(guildID string, params *discordgo.RoleParams) (*discordgo.Role, error)
 	DeleteRole(guildID, roleID string) error
 	AddRole(guildID, userID, roleID string) error
@@ -83,6 +86,10 @@ func (a sessionAPI) Member(guildID, userID string) (*discordgo.Member, error) {
 			return m, nil
 		}
 	}
+	return a.s.GuildMember(guildID, userID)
+}
+
+func (a sessionAPI) FetchMember(guildID, userID string) (*discordgo.Member, error) {
 	return a.s.GuildMember(guildID, userID)
 }
 

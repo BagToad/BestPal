@@ -119,6 +119,9 @@ func (f *fakeAPI) Member(_, uid string) (*discordgo.Member, error) {
 	}
 	return nil, &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownMember}}
 }
+func (f *fakeAPI) FetchMember(guildID, uid string) (*discordgo.Member, error) {
+	return f.Member(guildID, uid)
+}
 func (f *fakeAPI) CreateRole(_ string, p *discordgo.RoleParams) (*discordgo.Role, error) {
 	id := f.id()
 	f.roles[id] = p.Name

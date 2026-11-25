@@ -230,10 +230,7 @@ func (db *DB) initTables() error {
 		return fmt.Errorf("failed to create event feed tables: %w", err)
 	}
 
-	if _, err := db.conn.Exec(slidePuzzleSchema); err != nil {
-		return fmt.Errorf("failed to create slide puzzle tables: %w", err)
-	}
-	if err := db.migrateSlidePuzzles(); err != nil {
+	if err := db.dropSlidePuzzleTables(); err != nil {
 		return err
 	}
 

@@ -10,7 +10,6 @@ import (
 	"gamerpal/internal/commands/modules/lfg"
 	nineteeneightyfour "gamerpal/internal/commands/modules/nineteeneightyfour"
 	"gamerpal/internal/commands/modules/scamguard"
-	"gamerpal/internal/commands/modules/slidepuzzle"
 	"gamerpal/internal/commands/modules/squads"
 	"gamerpal/internal/commands/modules/trickortreat"
 	"gamerpal/internal/commands/modules/welcome"
@@ -36,7 +35,6 @@ func realProviderHandler() *ModuleHandler {
 			"agentadapter": &agentadapter.Module{},
 			"trickortreat": &trickortreat.Module{},
 			"eventfeed":    &eventfeed.Module{},
-			"slidepuzzle":  &slidepuzzle.Module{},
 			"squads":       &squads.Module{},
 		},
 	}
@@ -87,8 +85,6 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		config.KeyEventFeedEnabled,
 		config.KeyEventFeedNotification1,
 		config.KeyEventFeedNotification2,
-		config.KeySlidePuzzleGridSize,
-		config.KeySlidePuzzleRoundDuration,
 		config.KeySquadsEnabled,
 		config.KeySquadsIntroButton,
 		config.KeySquadsCategoryID,
@@ -129,9 +125,6 @@ func TestCollectConfigSettingsCoversAllKeys(t *testing.T) {
 		_, ok := reg.Get(key)
 		require.Truef(t, ok, "expected key %q to be registered", key)
 	}
-
-	actions := reg.ActionsByCategory(config.CategorySlidePuzzle)
-	require.Len(t, actions, 2, "slide puzzle reset/upload actions should be collected")
 
 	// Every setting must have a category and a known Kind.
 	for _, s := range reg.All() {
